@@ -1,0 +1,18 @@
+[
+  {
+    "modid": "${modid}",
+    "name": "PureClient",
+    "description": "Client Minecraft 1.8.9 ultra-optimisé FPS & PvP (Moteur GPU Region MultiDraw + Blit FBO GL30 + Frustum P-Vertex + HUD 1-Draw).",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "",
+    "updateUrl": "",
+    "authorList": [
+      "PureClient"
+    ],
+    "credits": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  }
+]

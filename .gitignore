@@ -1,0 +1,51 @@
+# Gradle / Java / Architectury Loom
+.gradle/
+.loom/
+build/
+out/
+bin/
+classes/
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+hs_err_pid*.log
+replay_pid*.log
+
+# Minecraft / Forge Runtime
+run/
+logs/
+crash-reports/
+config/purefps.properties
+options.txt
+optionsof.txt
+usercache.json
+usernamecache.json
+
+# Rust Launcher (Cargo)
+launcher/target/
+target/
+**/*.rs.bk
+*.pdb
+*.exe
+
+# Auth / Local Secrets (Never Commit)
+account.json
+launcher_prefs.json
+*.env
+.env.*
+
+# IDEs & Editors
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# OS & Agent Scratch
+.DS_Store
+Thumbs.db
+Desktop.ini
+.agent-locks/
+work/
