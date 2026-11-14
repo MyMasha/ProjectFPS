@@ -158,6 +158,7 @@ public final class SmoothFontRenderer {
     public BufferedImage bakeAtlasImage() {
         int size = this.atlasSize;
         Font font = createBestFont(this.awtStyle, this.awtPixelSize);
+        Font fallbackFont = new Font(Font.DIALOG, this.awtStyle, this.awtPixelSize);
         BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -166,9 +167,10 @@ public final class SmoothFontRenderer {
         g.setFont(font);
         g.setColor(Color.WHITE);
 
-        FontMetrics fm = g.getFontMetrics();
-        int ascent = fm.getAscent();
-        int lineH = fm.getHeight();
+        FontMetrics primaryFm = g.getFontMetrics(font);
+        FontMetrics fallbackFm = g.getFontMetrics(fallbackFont);
+        int ascent = primaryFm.getAscent();
+        int lineH = primaryFm.getHeight();
         this.fontHeightGui = lineH / this.scaleDivisor;
 
         int pad = 4;
@@ -181,8 +183,11 @@ public final class SmoothFontRenderer {
                 continue;
             }
             char ch = slotToChar(slot);
+            boolean usePrimary = font.canDisplay(ch);
+            Font activeFont = usePrimary ? font : fallbackFont;
+            FontMetrics activeFm = usePrimary ? primaryFm : fallbackFm;
             String s = String.valueOf(ch);
-            int charAdvance = Math.max(1, fm.charWidth(ch));
+            int charAdvance = Math.max(1, activeFm.charWidth(ch));
             int cellW = charAdvance + pad * 2;
             int cellH = lineH + pad;
 
@@ -194,6 +199,7 @@ public final class SmoothFontRenderer {
                 break;
             }
 
+            g.setFont(activeFont);
             g.drawString(s, penX + (pad >> 1), penY + ascent);
 
             Glyph glyph = new Glyph();

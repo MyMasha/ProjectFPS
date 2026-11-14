@@ -38,7 +38,7 @@ use tao::dpi::{LogicalSize, Size};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::window::{Fullscreen, Icon, Window, WindowBuilder};
-use tray::SystemTray;
+use tray::{SingleInstanceGuard, SystemTray};
 use updater::{
     check_for_updates, cleanup_old_launcher_binary, download_and_install_update, format_semver,
     installed_mod_version, parse_semver, restart_launcher_process, sanitize_repo, InstallOutcome,
@@ -107,10 +107,10 @@ fn win32_hide_window_to_tray(window: &Window) {
     let hwnd = window.hwnd() as *mut c_void;
     if !hwnd.is_null() {
         unsafe {
-            ShowWindow(hwnd, SW_HIDE);
+            let _ = ShowWindow(hwnd, SW_HIDE);
             let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW);
-            ShowWindow(hwnd, SW_HIDE);
+            let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW);
+            let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
     window.set_skip_taskbar(true);
@@ -136,8 +136,11 @@ fn win32_restore_window_from_tray(window: &Window) {
     #[link(name = "user32")]
     extern "system" {
         fn ShowWindow(hWnd: *mut c_void, nCmdShow: i32) -> i32;
+        fn IsWindowVisible(hWnd: *mut c_void) -> i32;
+        fn IsIconic(hWnd: *mut c_void) -> i32;
         fn GetWindowLongPtrW(hWnd: *mut c_void, nIndex: i32) -> isize;
         fn SetWindowLongPtrW(hWnd: *mut c_void, nIndex: i32, dwNewLong: isize) -> isize;
+        fn BringWindowToTop(hWnd: *mut c_void) -> i32;
         fn SetForegroundWindow(hWnd: *mut c_void) -> i32;
     }
 
@@ -146,10 +149,14 @@ fn win32_restore_window_from_tray(window: &Window) {
     let hwnd = window.hwnd() as *mut c_void;
     if !hwnd.is_null() {
         unsafe {
+            let was_hidden = IsWindowVisible(hwnd) == 0;
             let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex & !WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW);
-            ShowWindow(hwnd, SW_RESTORE);
-            ShowWindow(hwnd, SW_SHOW);
+            let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex & !WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW);
+            if was_hidden || IsIconic(hwnd) != 0 {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+            }
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = BringWindowToTop(hwnd);
             let _ = SetForegroundWindow(hwnd);
         }
     }
@@ -635,6 +642,7 @@ fn handle_ipc(
     window: &Window,
     webview: &wry::WebView,
     tray: &SystemTray,
+    single_instance: &mut SingleInstanceGuard,
     proxy: &EventLoopProxy<AppEvent>,
 ) -> bool {
     match cmd {
@@ -829,15 +837,21 @@ fn handle_ipc(
                 let _ = p.send_event(AppEvent::UpdateInstalled(res));
             });
         }
-        IpcCommand::RestartLauncher => match restart_launcher_process() {
-            Ok(()) => {
-                ctrl.auth_cancel.store(true, Ordering::Relaxed);
-                return true;
+        IpcCommand::RestartLauncher => {
+            single_instance.release();
+            match restart_launcher_process() {
+                Ok(()) => {
+                    ctrl.auth_cancel.store(true, Ordering::Relaxed);
+                    return true;
+                }
+                Err(e) => {
+                    if let Some(reacquired) = SingleInstanceGuard::acquire(false) {
+                        *single_instance = reacquired;
+                    }
+                    Controller::push_toast(webview, &e, true);
+                }
             }
-            Err(e) => {
-                Controller::push_toast(webview, &e, true);
-            }
-        },
+        }
         IpcCommand::SetAutoUpdate { enabled } => {
             ctrl.prefs.auto_update_check = enabled;
             let _ = save_launcher_prefs(&ctrl.prefs);
@@ -888,7 +902,7 @@ fn handle_ipc(
         }
         IpcCommand::LaunchGame => {
             if ctrl.game_running || ctrl.curtain_active || ctrl.prelaunch_syncing {
-                Controller::push_toast(webview, "Séquence de lancement déjà active.", false);
+                Controller::push_toast(webview, "Lancement déjà en cours.", false);
                 return false;
             }
 
@@ -921,7 +935,7 @@ fn handle_ipc(
                 return false;
             }
 
-            let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 1, 0));
+            let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 2, 0));
             let mod_up_to_date = installed_mod_version(&ctrl.prefs.game_dir)
                 .is_some_and(|cur| cur >= launcher_ver);
 
@@ -929,7 +943,7 @@ fn handle_ipc(
                 ctrl.prelaunch_syncing = true;
                 Controller::push_toast(
                     webview,
-                    "Synchronisation automatique du mod MashClient 4.1...",
+                    "Mise à jour du mod MashClient...",
                     false,
                 );
                 let prefs_clone = ctrl.prefs.clone();
@@ -947,7 +961,20 @@ fn handle_ipc(
 }
 
 fn main() -> wry::Result<()> {
+    let after_update = std::env::args().any(|arg| arg == "--after-update");
+    let Some(mut single_instance) = SingleInstanceGuard::acquire(after_update) else {
+        // Une instance de MashClient est déjà ouverte en arrière-plan : elle a été réveillée et ramenée au premier plan.
+        return Ok(());
+    };
+
     cleanup_old_launcher_binary();
+
+    if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none() {
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "--autoplay-policy=no-user-gesture-required",
+        );
+    }
 
     let event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
@@ -956,7 +983,7 @@ fn main() -> wry::Result<()> {
     let win_icon = Icon::from_rgba(WINDOW_ICON_64_RGBA.to_vec(), 64, 64).ok();
 
     let window = WindowBuilder::new()
-        .with_title("MashClient 4.1 — Singularity")
+        .with_title("MashClient")
         .with_window_icon(win_icon)
         .with_decorations(false)
         .with_inner_size(Size::Logical(LogicalSize::new(1240.0, 780.0)))
@@ -980,8 +1007,9 @@ fn main() -> wry::Result<()> {
     let mut ctrl = Controller::new();
 
     event_loop.run(move |event, _, control_flow| {
-        // Maintient `tray` en vie pendant toute l'exécution de l'application (son Drop retire l'icône en bas à droite)
+        // Maintient `tray` et `single_instance` en vie pendant toute l'exécution de l'application
         let _keep_tray_alive = &tray;
+        let _keep_single_instance = &single_instance;
         *control_flow = ControlFlow::Wait;
 
         match event {
@@ -1006,7 +1034,15 @@ fn main() -> wry::Result<()> {
             Event::UserEvent(app_evt) => match app_evt {
                 AppEvent::IpcRaw(raw) => {
                     if let Ok(cmd) = serde_json::from_str::<IpcCommand>(&raw) {
-                        if handle_ipc(cmd, &mut ctrl, &window, &webview, &tray, &proxy) {
+                        if handle_ipc(
+                            cmd,
+                            &mut ctrl,
+                            &window,
+                            &webview,
+                            &tray,
+                            &mut single_instance,
+                            &proxy,
+                        ) {
                             *control_flow = ControlFlow::Exit;
                         }
                     }

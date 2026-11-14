@@ -102,6 +102,7 @@ public final class ClientEventBridge {
             return;
         }
         if (key == Keyboard.KEY_RSHIFT && mc.currentScreen == null) {
+            dev.purefps.client.audio.MashAudioEngine.playMenuOpen();
             mc.displayGuiScreen(new GuiMashClientMenu(null));
             return;
         }

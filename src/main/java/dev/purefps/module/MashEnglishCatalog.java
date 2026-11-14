@@ -214,7 +214,7 @@ public final class MashEnglishCatalog {
         put("wld_disconnect_confirm", "Disconnect Confirm", "prevent accidental quit");
         put("wld_server_reconnect", "Auto Reconnect", "fast rejoin server");
         put("wld_memory_cleaner", "Memory Cleaner", "world switch cache purge");
-        put("wld_custom_main_menu", "Singularity Main Menu", "black hole title screen");
+        put("wld_custom_main_menu", "MashClient Main Menu", "black hole title screen custom menu");
         put("wld_discord_status_fmt", "Server Privacy", "hide numeric server ip");
         put("wld_auto_sprint_resume", "Inventory Move Sync", "resume keys after gui");
 

@@ -1,4 +1,5 @@
-//! Icône native de la zone de notification Windows (System Tray, en bas à droite) pour MashClient 4.1.
+//! Icône native de la zone de notification Windows (System Tray) et garde d'instance unique pour MashClient.
+//! - Empêche l'ouverture de plusieurs instances `MashClient.exe` : réveille et remet au premier plan l'instance existante
 //! - Réduit proprement le Launcher en bas à droite dès que Minecraft démarre (zéro encombrement dans la barre des tâches)
 //! - Clic gauche / double-clic : restaure instantanément MashClient
 //! - Clic droit : menu contextuel natif ("Ouvrir MashClient" / "Quitter MashClient")
@@ -11,14 +12,18 @@ mod imp {
     use std::ptr::{null, null_mut};
     use std::sync::mpsc;
     use std::thread::JoinHandle;
+    use std::time::Duration;
     use tao::event_loop::EventLoopProxy;
 
     type HWND = *mut c_void;
+    type HANDLE = *mut c_void;
     type HINSTANCE = *mut c_void;
     type HICON = *mut c_void;
     type HCURSOR = *mut c_void;
     type HBRUSH = *mut c_void;
     type HMENU = *mut c_void;
+
+    const ERROR_ALREADY_EXISTS: u32 = 183;
 
     const WM_DESTROY: u32 = 0x0002;
     const WM_NULL: u32 = 0x0000;
@@ -32,6 +37,7 @@ mod imp {
     const WM_TRAY_CALLBACK: u32 = WM_USER + 42;
     const WM_TRAY_SET_GAME_RUNNING: u32 = WM_APP + 1;
     const WM_TRAY_SET_IDLE: u32 = WM_APP + 2;
+    const WM_TRAY_WAKE_EXISTING: u32 = WM_APP + 3;
     const WM_TRAY_SHUTDOWN: u32 = WM_APP + 9;
     const NIN_BALLOONUSERCLICK: u32 = WM_USER + 5;
 
@@ -56,6 +62,10 @@ mod imp {
     const CMD_RESTORE: usize = 1001;
     const CMD_QUIT: usize = 1002;
     const TRAY_ICON_ID: u32 = 1;
+
+    const TRAY_HOST_CLASS: &str = "MashClientTrayHiddenClass";
+    const TRAY_HOST_TITLE: &str = "MashClientTrayHost";
+    const SINGLE_INSTANCE_MUTEX: &str = "Local\\MashClient_SingleInstance_Mutex";
 
     static EMBEDDED_ICO: &[u8] = include_bytes!("../assets/mashclient.ico");
 
@@ -123,6 +133,13 @@ mod imp {
     #[link(name = "kernel32")]
     extern "system" {
         fn GetModuleHandleW(lpModuleName: *const u16) -> HINSTANCE;
+        fn CreateMutexW(
+            lpMutexAttributes: *mut c_void,
+            bInitialOwner: i32,
+            lpName: *const u16,
+        ) -> HANDLE;
+        fn GetLastError() -> u32;
+        fn CloseHandle(hObject: HANDLE) -> i32;
     }
 
     #[link(name = "user32")]
@@ -142,6 +159,9 @@ mod imp {
             hInstance: HINSTANCE,
             lpParam: *mut c_void,
         ) -> HWND;
+        fn FindWindowW(lpClassName: *const u16, lpWindowName: *const u16) -> HWND;
+        fn GetWindowThreadProcessId(hWnd: HWND, lpdwProcessId: *mut u32) -> u32;
+        fn AllowSetForegroundWindow(dwProcessId: u32) -> i32;
         fn DefWindowProcW(hWnd: HWND, Msg: u32, wParam: usize, lParam: isize) -> isize;
         fn GetMessageW(lpMsg: *mut MSG, hWnd: HWND, wMsgFilterMin: u32, wMsgFilterMax: u32) -> i32;
         fn TranslateMessage(lpMsg: *const MSG) -> i32;
@@ -213,8 +233,89 @@ mod imp {
         }
     }
 
+    /// Réveille l'instance MashClient déjà ouverte (même masquée dans le System Tray en bas à droite),
+    /// lui transfère le droit de premier plan Windows (`AllowSetForegroundWindow`) et lui demande de s'afficher.
+    unsafe fn wake_existing_instance() {
+        let class_name = encode_wide_null(TRAY_HOST_CLASS);
+        let win_title = encode_wide_null(TRAY_HOST_TITLE);
+
+        for _ in 0..16 {
+            let hwnd = FindWindowW(class_name.as_ptr(), win_title.as_ptr());
+            if !hwnd.is_null() {
+                let mut pid: u32 = 0;
+                let _ = GetWindowThreadProcessId(hwnd, &mut pid);
+                if pid != 0 {
+                    let _ = AllowSetForegroundWindow(pid);
+                }
+                let _ = PostMessageW(hwnd, WM_TRAY_WAKE_EXISTING, 0, 0);
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// Garde d'instance unique basée sur un Mutex nommé Windows (`Local\MashClient_SingleInstance_Mutex`).
+    pub struct SingleInstanceGuard {
+        handle_bits: usize,
+    }
+
+    impl SingleInstanceGuard {
+        /// Tente d'acquérir le verrou d'instance unique.
+        /// Retourne `None` si une instance de `MashClient.exe` tourne déjà (après l'avoir réveillée).
+        pub fn acquire(wait_for_restart: bool) -> Option<Self> {
+            let mutex_name = encode_wide_null(SINGLE_INSTANCE_MUTEX);
+            let attempts = if wait_for_restart { 80 } else { 1 };
+
+            for attempt in 0..attempts {
+                let handle = unsafe { CreateMutexW(null_mut(), 0, mutex_name.as_ptr()) };
+                let last_err = unsafe { GetLastError() };
+
+                if handle.is_null() {
+                    return Some(Self { handle_bits: 0 });
+                }
+
+                if last_err != ERROR_ALREADY_EXISTS {
+                    return Some(Self {
+                        handle_bits: handle as usize,
+                    });
+                }
+
+                unsafe {
+                    let _ = CloseHandle(handle);
+                }
+
+                if wait_for_restart && attempt + 1 < attempts {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
+
+                unsafe {
+                    wake_existing_instance();
+                }
+                return None;
+            }
+
+            None
+        }
+
+        /// Libère explicitement le mutex juste avant un auto-redémarrage suite à une mise à jour.
+        pub fn release(&mut self) {
+            if self.handle_bits != 0 {
+                unsafe {
+                    let _ = CloseHandle(self.handle_bits as HANDLE);
+                }
+                self.handle_bits = 0;
+            }
+        }
+    }
+
+    impl Drop for SingleInstanceGuard {
+        fn drop(&mut self) {
+            self.release();
+        }
+    }
+
     unsafe fn load_mash_tray_icon(h_instance: HINSTANCE) -> (HICON, bool) {
-        // 1. Charge l'icône intégrée #1 du binaire MashClient.exe (résolution DPI native Windows)
         let embedded_res = LoadImageW(
             h_instance,
             1usize as *const u16,
@@ -227,7 +328,6 @@ mod imp {
             return (embedded_res, true);
         }
 
-        // 2. Repli autonome depuis mashclient.ico embarqué en mémoire (entrée 32x32)
         if EMBEDDED_ICO.len() >= 22 {
             let count = u16::from_le_bytes([EMBEDDED_ICO[4], EMBEDDED_ICO[5]]) as usize;
             let mut chosen_offset = 0usize;
@@ -274,7 +374,6 @@ mod imp {
             }
         }
 
-        // 3. Repli système IDI_APPLICATION (32512)
         (LoadIconW(null_mut(), 32512usize as *const u16), false)
     }
 
@@ -348,13 +447,16 @@ mod imp {
                     _ => {}
                 }
                 return 0;
+            } else if msg == WM_TRAY_WAKE_EXISTING {
+                let _ = st.proxy.send_event(AppEvent::TrayRestore);
+                return 0;
             } else if msg == WM_TRAY_SET_GAME_RUNNING {
-                st.current_tip = "MashClient 4.1 — Minecraft en cours (clic pour ouvrir)".to_owned();
+                st.current_tip = "MashClient — En jeu (clic pour ouvrir)".to_owned();
                 let mut nid = make_nid(hwnd, st.h_icon, &st.current_tip);
                 let _ = Shell_NotifyIconW(NIM_MODIFY, &mut nid);
                 return 0;
             } else if msg == WM_TRAY_SET_IDLE {
-                st.current_tip = "MashClient 4.1 — Singularity".to_owned();
+                st.current_tip = "MashClient".to_owned();
                 let mut nid = make_nid(hwnd, st.h_icon, &st.current_tip);
                 let _ = Shell_NotifyIconW(NIM_MODIFY, &mut nid);
                 return 0;
@@ -364,7 +466,6 @@ mod imp {
                 let _ = DestroyWindow(hwnd);
                 return 0;
             } else if st.taskbar_created_msg != 0 && msg == st.taskbar_created_msg {
-                // Ré-ajoute automatiquement l'icône en bas à droite si explorer.exe redémarre !
                 let mut nid = make_nid(hwnd, st.h_icon, &st.current_tip);
                 let _ = Shell_NotifyIconW(NIM_ADD, &mut nid);
                 return 0;
@@ -386,8 +487,8 @@ mod imp {
             let (tx, rx) = mpsc::channel::<usize>();
             let worker = std::thread::spawn(move || unsafe {
                 let h_instance = GetModuleHandleW(null());
-                let class_name = encode_wide_null("MashClientTrayHiddenClass");
-                let win_title = encode_wide_null("MashClientTrayHost");
+                let class_name = encode_wide_null(TRAY_HOST_CLASS);
+                let win_title = encode_wide_null(TRAY_HOST_TITLE);
                 let taskbar_msg_name = encode_wide_null("TaskbarCreated");
                 let taskbar_created_msg = RegisterWindowMessageW(taskbar_msg_name.as_ptr());
 
@@ -418,7 +519,7 @@ mod imp {
                 }
 
                 let (h_icon, owns_icon) = load_mash_tray_icon(h_instance);
-                let initial_tip = "MashClient 4.1 — Singularity".to_owned();
+                let initial_tip = "MashClient".to_owned();
                 let state = Box::new(TrayWndState {
                     proxy,
                     h_icon,
@@ -488,6 +589,16 @@ mod imp {
     use crate::AppEvent;
     use tao::event_loop::EventLoopProxy;
 
+    pub struct SingleInstanceGuard;
+
+    impl SingleInstanceGuard {
+        pub fn acquire(_wait_for_restart: bool) -> Option<Self> {
+            Some(Self)
+        }
+
+        pub fn release(&mut self) {}
+    }
+
     pub struct SystemTray;
 
     impl SystemTray {
@@ -499,4 +610,4 @@ mod imp {
     }
 }
 
-pub use imp::SystemTray;
+pub use imp::{SingleInstanceGuard, SystemTray};

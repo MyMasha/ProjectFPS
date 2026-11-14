@@ -3,35 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MashClient 4.1 — Singularity</title>
-<meta name="description" content="MashClient 4.1 Singularity Edition — Client compétitif Minecraft 1.8.9 (200 modules FR/EN, HUD magnétique, Borderless, Trou Noir 3D de Schwarzschild ultra-fluide).">
+<title>MashClient</title>
 <style>
   :root {
     --void-0: #000000;
-    --void-1: #040508;
-    --void-2: #090b11;
-    --glass-panel: rgba(9, 11, 16, 0.72);
-    --glass-elevated: rgba(15, 18, 26, 0.78);
-    --glass-subtle: rgba(255, 255, 255, 0.035);
+    --void-1: #05060a;
+    --glass-panel: rgba(10, 12, 18, 0.76);
     --glass-hover: rgba(255, 255, 255, 0.065);
 
-    --border-hairline: rgba(255, 255, 255, 0.085);
+    --border-hairline: rgba(255, 255, 255, 0.08);
     --border-strong: rgba(255, 255, 255, 0.16);
-    --border-warm: rgba(245, 184, 92, 0.38);
+    --border-warm: rgba(240, 178, 84, 0.38);
 
     --text-primary: #f5f3ee;
-    --text-secondary: rgba(226, 224, 218, 0.68);
+    --text-secondary: rgba(226, 224, 218, 0.66);
     --text-muted: rgba(180, 182, 192, 0.44);
 
     --gold-bright: #ffdf9e;
     --gold-core: #f0b254;
-    --gold-deep: #c97d22;
-    --gold-glow: rgba(240, 178, 84, 0.24);
 
     --status-ok: #34d399;
     --status-danger: #f87171;
 
-    --radius-sm: 6px;
+    --radius-sm: 7px;
     --radius-md: 10px;
     --radius-lg: 14px;
     --radius-xl: 18px;
@@ -61,7 +55,6 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  /* Toile WebGL2 Trou Noir Relativiste plein écran */
   #singularity-canvas {
     position: fixed;
     inset: 0;
@@ -72,20 +65,18 @@
     background: #000000;
   }
 
-  /* Vignettage cinématique calibré : préserve 100 % de l'éclat du Trou Noir tout en ancrant la typographie à gauche */
   .cinema-vignette {
     position: fixed;
     inset: 0;
     z-index: 1;
     pointer-events: none;
     background:
-      radial-gradient(circle at 58% 47%, rgba(0, 0, 0, 0) 38%, rgba(0, 0, 0, 0.28) 78%, rgba(0, 0, 0, 0.68) 100%),
-      linear-gradient(90deg, rgba(2, 3, 6, 0.72) 0%, rgba(2, 3, 6, 0.22) 34%, rgba(2, 3, 6, 0.0) 55%),
-      linear-gradient(180deg, rgba(2, 3, 6, 0.52) 0%, rgba(2, 3, 6, 0.0) 14%, rgba(2, 3, 6, 0.0) 80%, rgba(2, 3, 6, 0.76) 100%);
+      radial-gradient(circle at 58% 47%, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.26) 78%, rgba(0, 0, 0, 0.64) 100%),
+      linear-gradient(90deg, rgba(2, 3, 6, 0.62) 0%, rgba(2, 3, 6, 0.16) 30%, rgba(2, 3, 6, 0.0) 50%),
+      linear-gradient(180deg, rgba(2, 3, 6, 0.48) 0%, rgba(2, 3, 6, 0.0) 14%, rgba(2, 3, 6, 0.0) 82%, rgba(2, 3, 6, 0.72) 100%);
     transition: opacity 0.55s var(--ease-cinema);
   }
 
-  /* Conteneur d'interface globale — s'efface et s'écarte pendant l'aspiration dans le trou noir */
   #launcher-shell {
     position: relative;
     z-index: 2;
@@ -100,7 +91,7 @@
 
   body.plunging #launcher-shell {
     opacity: 0;
-    transform: scale(1.06);
+    transform: scale(1.05);
     filter: blur(8px);
     pointer-events: none;
   }
@@ -109,7 +100,6 @@
     opacity: 0;
   }
 
-  /* Rideau Noir Absolu post-Horizon des Événements (#000000) */
   #horizon-blackout {
     position: fixed;
     inset: 0;
@@ -117,10 +107,6 @@
     background: #000000;
     opacity: 0;
     pointer-events: none;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    padding-bottom: 36px;
     transition: opacity 0.28s linear;
   }
 
@@ -129,81 +115,60 @@
     pointer-events: auto;
   }
 
-  .horizon-telemetry {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: rgba(245, 243, 238, 0.22);
-    transition: opacity 0.4s ease;
-  }
-
-  /* Barre supérieure architecturale sans bordure */
   .topbar {
     height: 54px;
-    padding: 0 22px 0 26px;
+    padding: 0 20px 0 26px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    background: linear-gradient(180deg, rgba(5, 6, 10, 0.72) 0%, rgba(5, 6, 10, 0.18) 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+    background: linear-gradient(180deg, rgba(5, 6, 10, 0.68) 0%, rgba(5, 6, 10, 0.14) 100%);
     backdrop-filter: blur(14px);
   }
 
   .brand-cluster {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 11px;
   }
 
   .singularity-mark {
-    width: 24px;
-    height: 24px;
-    position: relative;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
   }
 
-  .singularity-mark svg {
-    width: 24px;
-    height: 24px;
-    overflow: visible;
+  .singularity-mark img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
   }
 
   .brand-wordmark {
     font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.20em;
     color: var(--text-primary);
   }
 
-  .brand-edition {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.08em;
-    color: var(--gold-bright);
-    padding: 2px 7px;
-    border-radius: 4px;
-    background: rgba(240, 178, 84, 0.10);
-    border: 1px solid rgba(240, 178, 84, 0.24);
-  }
-
-  /* Navigation centrale épurée */
   .top-nav {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
     padding: 3px;
     border-radius: 999px;
-    background: rgba(10, 12, 18, 0.56);
+    background: rgba(10, 12, 18, 0.54);
     border: 1px solid var(--border-hairline);
   }
 
   .nav-tab {
-    position: relative;
     height: 30px;
-    padding: 0 15px;
+    padding: 0 16px;
     border: none;
     border-radius: 999px;
     background: transparent;
@@ -211,12 +176,10 @@
     font-family: inherit;
     font-size: 12px;
     font-weight: 500;
-    letter-spacing: 0.03em;
     cursor: pointer;
-    transition: color 0.2s ease, background 0.2s ease;
+    transition: color 0.18s ease, background 0.18s ease;
     display: inline-flex;
     align-items: center;
-    gap: 7px;
   }
 
   .nav-tab:hover {
@@ -227,28 +190,19 @@
     background: rgba(245, 243, 238, 0.10);
     color: #ffffff;
     font-weight: 600;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 
-  .nav-count {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--gold-bright);
-    opacity: 0.85;
-  }
-
-  /* Zone droite Topbar : Compte Microsoft + Contrôles fenêtre */
   .topbar-right {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
   }
 
   .account-pill {
     height: 32px;
-    padding: 0 11px 0 7px;
+    padding: 0 12px 0 7px;
     border-radius: 999px;
-    background: rgba(12, 15, 22, 0.68);
+    background: rgba(12, 15, 22, 0.66);
     border: 1px solid var(--border-hairline);
     display: inline-flex;
     align-items: center;
@@ -258,7 +212,7 @@
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    transition: border-color 0.2s ease, background 0.2s ease;
+    transition: border-color 0.18s ease, background 0.18s ease;
   }
 
   .account-pill:hover {
@@ -289,7 +243,6 @@
     height: 6px;
     border-radius: 50%;
     background: var(--status-ok);
-    box-shadow: 0 0 8px rgba(52, 211, 153, 0.65);
   }
 
   .win-controls {
@@ -317,12 +270,15 @@
     color: #ffffff;
   }
 
+  .win-btn.muted {
+    color: rgba(248, 113, 113, 0.82);
+  }
+
   .win-btn.close:hover {
     background: rgba(239, 68, 68, 0.85);
     color: #ffffff;
   }
 
-  /* Corps central : laisse respirer le Trou Noir sur l'onglet JOUER, affiche un tiroir verre fumé sur les autres */
   .stage {
     position: relative;
     flex: 1;
@@ -336,7 +292,7 @@
     display: none;
     width: 100%;
     height: 100%;
-    animation: stageFade 0.28s var(--ease-cinema);
+    animation: stageFade 0.24s var(--ease-cinema);
   }
 
   .stage-view.active {
@@ -344,67 +300,44 @@
   }
 
   @keyframes stageFade {
-    from { opacity: 0; transform: translateY(6px); }
+    from { opacity: 0; transform: translateY(5px); }
     to { opacity: 1; transform: translateY(0); }
   }
 
-  /* Vue JOUER : mise en scène cinématique dégagée autour du Trou Noir */
   #view-play {
     flex-direction: column;
-    justify-content: space-between;
+    justify-content: flex-end;
     pointer-events: none;
   }
 
-  .hero-editorial {
-    max-width: 430px;
-    margin-top: auto;
-    margin-bottom: 12px;
+  .hero-minimal {
+    margin-bottom: 6px;
     pointer-events: auto;
   }
 
-  .hero-kicker {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--gold-bright);
-    opacity: 0.88;
-    margin-bottom: 10px;
-  }
-
   .hero-title {
-    font-size: 46px;
+    font-size: 40px;
     font-weight: 700;
-    letter-spacing: -0.03em;
-    line-height: 1.02;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
     color: #ffffff;
-    text-shadow: 0 12px 38px rgba(0, 0, 0, 0.75);
+    text-shadow: 0 10px 32px rgba(0, 0, 0, 0.72);
   }
 
-  .hero-subtitle {
-    margin-top: 12px;
-    font-size: 13.5px;
-    line-height: 1.55;
-    color: var(--text-secondary);
-    max-width: 390px;
-    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.9);
-  }
-
-  /* Sélecteur de profils minimaliste en verre fumé */
   .profile-strip {
-    margin-top: 22px;
+    margin-top: 16px;
     display: inline-flex;
     align-items: center;
     padding: 4px;
     gap: 4px;
     border-radius: var(--radius-md);
-    background: rgba(9, 11, 16, 0.68);
+    background: rgba(9, 11, 16, 0.66);
     border: 1px solid var(--border-hairline);
     backdrop-filter: blur(18px);
   }
 
   .prof-pill {
-    height: 32px;
+    height: 30px;
     padding: 0 14px;
     border: 1px solid transparent;
     border-radius: 7px;
@@ -414,10 +347,10 @@
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s var(--ease-cinema);
+    transition: all 0.18s var(--ease-cinema);
     display: inline-flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
   }
 
   .prof-pill:hover {
@@ -427,59 +360,50 @@
 
   .prof-pill.active {
     background: rgba(240, 178, 84, 0.13);
-    border-color: rgba(240, 178, 84, 0.36);
+    border-color: rgba(240, 178, 84, 0.34);
     color: var(--gold-bright);
     font-weight: 600;
   }
 
-  .prof-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: currentColor;
-    opacity: 0.75;
-  }
-
-  /* Panneaux de réglages flottants (Optimisations / Modules HUD / Système) */
   .glass-sheet {
     width: 100%;
-    max-width: 1040px;
+    max-width: 980px;
     margin: 0 auto;
     height: 100%;
     background: var(--glass-panel);
     border: 1px solid var(--border-hairline);
     border-radius: var(--radius-xl);
-    backdrop-filter: blur(28px) saturate(135%);
-    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(26px) saturate(130%);
+    box-shadow: 0 26px 74px rgba(0, 0, 0, 0.70);
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
 
   .sheet-header {
-    padding: 20px 26px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.065);
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 16px;
   }
 
   .sheet-title {
-    font-size: 19px;
+    font-size: 17px;
     font-weight: 600;
-    letter-spacing: -0.015em;
+    letter-spacing: -0.01em;
     color: var(--text-primary);
   }
 
   .sheet-desc {
-    margin-top: 3px;
-    font-size: 12.5px;
+    margin-top: 2px;
+    font-size: 12px;
     color: var(--text-secondary);
   }
 
   .search-field {
-    width: 240px;
+    width: 220px;
     height: 34px;
     padding: 0 12px;
     border-radius: var(--radius-sm);
@@ -499,7 +423,7 @@
   .sheet-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 18px 26px 24px;
+    padding: 16px 24px 22px;
   }
 
   .sheet-scroll::-webkit-scrollbar {
@@ -511,24 +435,23 @@
     border-radius: 999px;
   }
 
-  /* Lignes d'interrupteurs minimalistes (zéro boîte d'icônes gadget) */
   .settings-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px 14px;
+    gap: 8px 12px;
   }
 
   .setting-row {
-    padding: 12px 15px;
+    padding: 11px 14px;
     border-radius: var(--radius-md);
-    background: rgba(255, 255, 255, 0.025);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.024);
+    border: 1px solid rgba(255, 255, 255, 0.055);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 14px;
     cursor: pointer;
-    transition: background 0.18s ease, border-color 0.18s ease;
+    transition: background 0.16s ease, border-color 0.16s ease;
   }
 
   .setting-row:hover {
@@ -538,7 +461,7 @@
 
   .setting-row.is-on {
     border-color: rgba(240, 178, 84, 0.22);
-    background: linear-gradient(90deg, rgba(240, 178, 84, 0.065) 0%, rgba(255, 255, 255, 0.02) 100%);
+    background: linear-gradient(90deg, rgba(240, 178, 84, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
   }
 
   .setting-meta {
@@ -546,31 +469,30 @@
   }
 
   .setting-name {
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 600;
     color: var(--text-primary);
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
   }
 
   .setting-sub {
     margin-top: 2px;
     font-size: 11.5px;
     color: var(--text-secondary);
-    line-height: 1.38;
+    line-height: 1.35;
   }
 
-  /* Interrupteur pilule de précision */
   .toggle-pill {
-    width: 36px;
-    height: 20px;
+    width: 34px;
+    height: 19px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.12);
     border: 1px solid rgba(255, 255, 255, 0.14);
     position: relative;
     flex-shrink: 0;
-    transition: background 0.2s var(--ease-cinema), border-color 0.2s var(--ease-cinema);
+    transition: background 0.18s var(--ease-cinema), border-color 0.18s var(--ease-cinema);
   }
 
   .toggle-pill::after {
@@ -578,11 +500,11 @@
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 14px;
-    height: 14px;
+    width: 13px;
+    height: 13px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.72);
-    transition: transform 0.22s var(--ease-cinema), background 0.2s ease;
+    background: rgba(255, 255, 255, 0.75);
+    transition: transform 0.2s var(--ease-cinema), background 0.18s ease;
   }
 
   .setting-row.is-on .toggle-pill {
@@ -591,25 +513,24 @@
   }
 
   .setting-row.is-on .toggle-pill::after {
-    transform: translateX(16px);
+    transform: translateX(15px);
     background: #090b10;
   }
 
-  /* Sliders de télémétrie & distances */
   .sliders-band {
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.065);
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px 18px;
+    gap: 10px 14px;
   }
 
   .slider-box {
-    padding: 12px 15px;
+    padding: 11px 14px;
     border-radius: var(--radius-md);
     background: rgba(0, 0, 0, 0.28);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.055);
   }
 
   .slider-top {
@@ -647,17 +568,15 @@
     background: var(--gold-bright);
     border: 2px solid #090b10;
     cursor: pointer;
-    box-shadow: 0 0 10px rgba(240, 178, 84, 0.55);
   }
 
-  /* Vue Système, Auto-Updater GitHub Releases & Console */
   .update-pill {
     position: relative;
     height: 32px;
     padding: 0 13px;
     border-radius: 999px;
-    background: linear-gradient(180deg, rgba(240, 178, 84, 0.18) 0%, rgba(212, 139, 43, 0.10) 100%);
-    border: 1px solid rgba(240, 178, 84, 0.48);
+    background: rgba(240, 178, 84, 0.16);
+    border: 1px solid rgba(240, 178, 84, 0.45);
     color: var(--gold-bright);
     font-family: inherit;
     font-size: 11.5px;
@@ -667,8 +586,7 @@
     gap: 7px;
     cursor: pointer;
     overflow: hidden;
-    box-shadow: 0 0 20px rgba(240, 178, 84, 0.16);
-    transition: all 0.2s var(--ease-cinema);
+    transition: all 0.18s var(--ease-cinema);
   }
 
   .update-pill.visible {
@@ -676,8 +594,8 @@
   }
 
   .update-pill:hover {
-    background: linear-gradient(180deg, rgba(240, 178, 84, 0.28) 0%, rgba(212, 139, 43, 0.18) 100%);
-    border-color: rgba(255, 223, 158, 0.72);
+    background: rgba(240, 178, 84, 0.24);
+    border-color: rgba(255, 223, 158, 0.70);
   }
 
   .update-pill.ready {
@@ -698,14 +616,14 @@
   }
 
   .updater-card {
-    padding: 16px 18px;
-    margin-bottom: 14px;
+    padding: 15px 17px;
+    margin-bottom: 12px;
     border-radius: var(--radius-md);
-    background: linear-gradient(180deg, rgba(18, 21, 30, 0.74) 0%, rgba(9, 11, 16, 0.78) 100%);
-    border: 1px solid rgba(240, 178, 84, 0.22);
+    background: rgba(14, 17, 25, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 11px;
   }
 
   .updater-top {
@@ -718,36 +636,36 @@
   .updater-title-group {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
   .updater-title {
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
   }
 
   .updater-badge {
-    padding: 3px 9px;
+    padding: 2px 8px;
     border-radius: 999px;
     font-family: var(--font-mono);
     font-size: 10.5px;
     font-weight: 600;
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-secondary);
   }
 
   .updater-badge.ok {
-    border-color: rgba(52, 211, 153, 0.38);
+    border-color: rgba(52, 211, 153, 0.36);
     background: rgba(52, 211, 153, 0.10);
     color: #6ee7b7;
   }
 
   .updater-badge.gold {
-    border-color: rgba(240, 178, 84, 0.48);
-    background: rgba(240, 178, 84, 0.13);
+    border-color: rgba(240, 178, 84, 0.45);
+    background: rgba(240, 178, 84, 0.12);
     color: var(--gold-bright);
   }
 
@@ -759,7 +677,7 @@
 
   .updater-progress-track {
     width: 100%;
-    height: 5px;
+    height: 4px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.09);
     overflow: hidden;
@@ -788,18 +706,18 @@
   .sys-columns {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 14px;
-    margin-bottom: 14px;
+    gap: 12px;
+    margin-bottom: 12px;
   }
 
   .sys-card {
-    padding: 14px 16px;
+    padding: 13px 15px;
     border-radius: var(--radius-md);
     background: rgba(0, 0, 0, 0.28);
-    border: 1px solid rgba(255, 255, 255, 0.065);
+    border: 1px solid rgba(255, 255, 255, 0.06);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 9px;
   }
 
   .sys-label {
@@ -809,14 +727,14 @@
 
   .sys-input {
     width: 100%;
-    height: 34px;
-    padding: 0 11px;
+    height: 33px;
+    padding: 0 10px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-hairline);
     background: rgba(0, 0, 0, 0.42);
     color: var(--text-primary);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 11.5px;
     outline: none;
     user-select: text;
     -webkit-user-select: text;
@@ -827,8 +745,8 @@
   }
 
   .btn-outline {
-    height: 32px;
-    padding: 0 13px;
+    height: 31px;
+    padding: 0 12px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-strong);
     background: rgba(255, 255, 255, 0.04);
@@ -837,50 +755,49 @@
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.18s ease, border-color 0.18s ease;
+    transition: background 0.16s ease, border-color 0.16s ease;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
+    gap: 6px;
   }
 
   .btn-outline:hover {
     background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(255, 255, 255, 0.26);
+    border-color: rgba(255, 255, 255, 0.25);
   }
 
   .log-terminal {
-    height: 136px;
-    padding: 11px 14px;
+    height: 128px;
+    padding: 10px 13px;
     border-radius: var(--radius-md);
-    background: rgba(0, 0, 0, 0.58);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(0, 0, 0, 0.56);
+    border: 1px solid rgba(255, 255, 255, 0.065);
     font-family: var(--font-mono);
     font-size: 11px;
-    line-height: 1.5;
-    color: rgba(226, 228, 236, 0.78);
+    line-height: 1.48;
+    color: rgba(226, 228, 236, 0.76);
     overflow-y: auto;
     white-space: pre-wrap;
     user-select: text;
     -webkit-user-select: text;
   }
 
-  /* Dock inférieur de lancement */
   .bottom-dock {
-    height: 78px;
+    height: 74px;
     padding: 0 34px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-top: 1px solid rgba(255, 255, 255, 0.065);
-    background: linear-gradient(0deg, rgba(4, 5, 9, 0.86) 0%, rgba(4, 5, 9, 0.36) 100%);
+    border-top: 1px solid rgba(255, 255, 255, 0.055);
+    background: linear-gradient(0deg, rgba(4, 5, 9, 0.82) 0%, rgba(4, 5, 9, 0.28) 100%);
     backdrop-filter: blur(16px);
   }
 
   .dock-meta {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 10px;
   }
 
   .mode-selector {
@@ -902,7 +819,7 @@
     font-size: 11.5px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.18s ease;
+    transition: all 0.16s ease;
   }
 
   .mode-btn.active {
@@ -923,9 +840,9 @@
     font-weight: 500;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     cursor: pointer;
-    transition: all 0.18s ease;
+    transition: all 0.16s ease;
   }
 
   .quick-chip:hover {
@@ -946,37 +863,36 @@
     letter-spacing: 0.04em;
   }
 
-  /* Bouton Signature JOUER — Or Doppler & Obsidienne */
   .play-cta {
     position: relative;
-    height: 50px;
-    min-width: 248px;
-    padding: 0 28px;
+    height: 46px;
+    min-width: 196px;
+    padding: 0 26px;
     border-radius: var(--radius-md);
     border: 1px solid rgba(255, 232, 186, 0.55);
     background: linear-gradient(180deg, #f7cb79 0%, #e5a240 52%, #c97f21 100%);
     color: #08090c;
     font-family: inherit;
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 11px;
+    gap: 10px;
     box-shadow:
-      0 10px 32px rgba(235, 162, 62, 0.30),
+      0 10px 28px rgba(235, 162, 62, 0.28),
       inset 0 1px 0 rgba(255, 250, 235, 0.65);
-    transition: transform 0.22s var(--ease-cinema), box-shadow 0.22s var(--ease-cinema), filter 0.2s ease;
+    transition: transform 0.2s var(--ease-cinema), box-shadow 0.2s var(--ease-cinema), filter 0.18s ease;
   }
 
   .play-cta:hover {
     transform: translateY(-1px);
-    filter: brightness(1.05);
+    filter: brightness(1.04);
     box-shadow:
-      0 14px 42px rgba(240, 178, 84, 0.44),
+      0 14px 36px rgba(240, 178, 84, 0.40),
       inset 0 1px 0 rgba(255, 252, 242, 0.8);
   }
 
@@ -991,7 +907,6 @@
     box-shadow: none;
   }
 
-  /* Modale Compte Microsoft / OAuth2 Device Code */
   .modal-backdrop {
     position: fixed;
     inset: 0;
@@ -1008,15 +923,15 @@
   }
 
   .modal-card {
-    width: 440px;
-    padding: 24px;
+    width: 420px;
+    padding: 22px;
     border-radius: var(--radius-xl);
-    background: rgba(11, 13, 19, 0.94);
+    background: rgba(11, 13, 19, 0.95);
     border: 1px solid var(--border-strong);
     box-shadow: 0 32px 90px rgba(0, 0, 0, 0.85);
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 15px;
   }
 
   .modal-head {
@@ -1026,15 +941,12 @@
   }
 
   .modal-title {
-    font-size: 16px;
+    font-size: 15.5px;
     font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 9px;
   }
 
   .device-code-box {
-    padding: 18px;
+    padding: 16px;
     border-radius: var(--radius-md);
     background: rgba(0, 0, 0, 0.55);
     border: 1px solid rgba(240, 178, 84, 0.30);
@@ -1043,9 +955,9 @@
 
   .device-code-digits {
     font-family: var(--font-mono);
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 700;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.16em;
     color: var(--gold-bright);
   }
 
@@ -1062,7 +974,7 @@
 
   .btn-gold {
     flex: 1;
-    height: 36px;
+    height: 35px;
     border-radius: var(--radius-sm);
     border: 1px solid rgba(255, 226, 170, 0.45);
     background: linear-gradient(180deg, #f3c16c 0%, #d48b2b 100%);
@@ -1073,7 +985,6 @@
     cursor: pointer;
   }
 
-  /* Aperçu du Menu Minecraft Singularity (utilisé en mode démo navigateur hors-JVM) */
   #mc-menu-preview {
     position: fixed;
     inset: 0;
@@ -1093,10 +1004,10 @@
   }
 
   .mc-topbar {
-    height: 34px;
-    padding: 0 14px;
-    background: rgba(6, 8, 13, 0.86);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    height: 36px;
+    padding: 0 16px;
+    background: rgba(6, 8, 13, 0.82);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1110,34 +1021,23 @@
     justify-content: center;
   }
 
-  .mc-halo {
-    position: absolute;
-    width: 340px;
-    height: 340px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(245, 184, 92, 0.16) 0%, rgba(217, 107, 39, 0.08) 42%, transparent 70%);
-    filter: blur(18px);
-    pointer-events: none;
-  }
-
   .mc-card {
-    position: relative;
-    width: 320px;
-    padding: 22px 24px;
+    width: 280px;
+    padding: 20px 22px;
     border-radius: 14px;
-    background: linear-gradient(180deg, rgba(12, 15, 22, 0.94) 0%, rgba(7, 9, 14, 0.96) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.13);
+    background: rgba(11, 14, 21, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.85);
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 8px;
     text-align: center;
   }
 
   .mc-btn {
     height: 34px;
     border-radius: 7px;
-    border: 1px solid rgba(255, 255, 255, 0.11);
+    border: 1px solid rgba(255, 255, 255, 0.10);
     background: rgba(20, 24, 34, 0.9);
     color: var(--text-primary);
     font-family: inherit;
@@ -1154,18 +1054,12 @@
     font-weight: 700;
   }
 
-  .mc-btn.accent {
-    border-color: rgba(245, 184, 92, 0.35);
-    color: #f5c878;
-  }
-
-  /* Toast */
   .toast {
     position: fixed;
-    bottom: 92px;
+    bottom: 88px;
     right: 34px;
     z-index: 30;
-    padding: 10px 16px;
+    padding: 10px 15px;
     border-radius: var(--radius-md);
     background: rgba(12, 15, 22, 0.94);
     border: 1px solid var(--border-strong);
@@ -1175,7 +1069,7 @@
     opacity: 0;
     transform: translateY(8px);
     pointer-events: none;
-    transition: all 0.22s var(--ease-cinema);
+    transition: all 0.2s var(--ease-cinema);
   }
 
   .toast.show {
@@ -1191,36 +1085,23 @@
 </head>
 <body>
 
-  <!-- Trou Noir Relativiste Temps-Réel (Raymarching Géodésique de Schwarzschild WebGL2) -->
   <canvas id="singularity-canvas"></canvas>
   <div class="cinema-vignette"></div>
 
-  <!-- Interface Principale MashClient 4.1 Singularity -->
   <div id="launcher-shell">
     <header class="topbar" id="titlebar">
       <div class="brand-cluster">
         <div class="singularity-mark" aria-hidden="true">
-          <svg viewBox="0 0 28 28" fill="none">
-            <ellipse cx="14" cy="14" rx="12.6" ry="4.6" transform="rotate(-16 14 14)" stroke="#f0b254" stroke-width="1.45" stroke-opacity="0.9"/>
-            <circle cx="14" cy="14" r="6.2" fill="#050609" stroke="#ffdf9e" stroke-width="1.2"/>
-            <path d="M10.8 16.9V11.1L14 14.4L17.2 11.1V16.9" stroke="#ffdf9e" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
+          <img id="brand-logo-img" alt="MashClient" src="data:image/png;base64,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">
         </div>
         <span class="brand-wordmark">MASHCLIENT</span>
-        <span class="brand-edition">SINGULARITY 4.1</span>
       </div>
 
       <nav class="top-nav" aria-label="Navigation principale">
         <button class="nav-tab active" id="tab-btn-play" data-tab="play" onclick="switchTab('play')">Jouer</button>
-        <button class="nav-tab" id="tab-btn-engine" data-tab="engine" onclick="switchTab('engine')">
-          <span>Optimisations</span>
-          <span class="nav-count" id="nav-engine-count">18/18</span>
-        </button>
-        <button class="nav-tab" id="tab-btn-modules" data-tab="modules" onclick="switchTab('modules')">
-          <span>Modules &amp; HUD</span>
-          <span class="nav-count" id="nav-mod-count">11/14</span>
-        </button>
-        <button class="nav-tab" id="tab-btn-system" data-tab="system" onclick="switchTab('system')">Système</button>
+        <button class="nav-tab" id="tab-btn-engine" data-tab="engine" onclick="switchTab('engine')">Performance</button>
+        <button class="nav-tab" id="tab-btn-modules" data-tab="modules" onclick="switchTab('modules')">Modules</button>
+        <button class="nav-tab" id="tab-btn-system" data-tab="system" onclick="switchTab('system')">Paramètres</button>
       </nav>
 
       <div class="topbar-right">
@@ -1233,17 +1114,18 @@
           <span class="avatar-box" id="top-avatar-box">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M5 20c1.5-3.5 12.5-3.5 14 0"/></svg>
           </span>
-          <span id="top-account-label">Connexion Microsoft</span>
+          <span id="top-account-label">Connexion</span>
         </button>
 
         <div class="win-controls">
-          <button class="win-btn" id="btn-win-tray" title="Réduire en bas à droite (Zone de notification)" onclick="sendIpc({cmd:'minimize_to_tray'})">
+          <button class="win-btn" id="btn-sfx-toggle" title="Effets sonores" onclick="toggleSfxMute()"></button>
+          <button class="win-btn" id="btn-win-tray" title="Réduire dans la zone de notification" onclick="MashSfx.click();sendIpc({cmd:'minimize_to_tray'})">
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 3.5L6 7L9.5 3.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/><rect x="2" y="9" width="8" height="1.2" rx="0.6" fill="currentColor"/></svg>
           </button>
-          <button class="win-btn" id="btn-win-min" title="Réduire" onclick="sendIpc({cmd:'minimize'})">
+          <button class="win-btn" id="btn-win-min" title="Réduire" onclick="MashSfx.click();sendIpc({cmd:'minimize'})">
             <svg width="11" height="11" viewBox="0 0 12 12"><rect x="1" y="5.5" width="10" height="1" fill="currentColor"/></svg>
           </button>
-          <button class="win-btn" id="btn-win-max" title="Agrandir" onclick="sendIpc({cmd:'toggle_maximize'})">
+          <button class="win-btn" id="btn-win-max" title="Agrandir" onclick="MashSfx.click();sendIpc({cmd:'toggle_maximize'})">
             <svg width="10" height="10" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
           </button>
           <button class="win-btn close" id="btn-win-close" title="Fermer" onclick="sendIpc({cmd:'close'})">
@@ -1254,42 +1136,27 @@
     </header>
 
     <main class="stage">
-      <!-- VUE 1 : JOUER (Mise en valeur du Trou Noir 3D de Schwarzschild rapproché) -->
+      <!-- VUE 1 : JOUER -->
       <section class="stage-view active" id="view-play">
-        <div></div>
-        <div class="hero-editorial">
-          <div class="hero-kicker">FORGE 1.8.9  &bull;  200 MODULES  &bull;  BORDERLESS</div>
+        <div class="hero-minimal">
           <h1 class="hero-title">MASHCLIENT</h1>
-          <p class="hero-subtitle">
-            200 modules compétitifs FR/EN avec sous-paramètres complets (clic droit dans <strong>RSHIFT</strong>), HUD magnétique transparent, Plein Écran Borderless et Trou Noir 3D de Schwarzschild ultra-fluide.
-          </p>
-
-          <div class="profile-strip" role="radiogroup" aria-label="Profil de performance">
-            <button class="prof-pill" id="prof-fps" onclick="selectProfile('fps')">
-              <span class="prof-dot"></span>
-              <span>Turbo FPS</span>
-            </button>
-            <button class="prof-pill active" id="prof-balanced" onclick="selectProfile('balanced')">
-              <span class="prof-dot"></span>
-              <span>Équilibré</span>
-            </button>
-            <button class="prof-pill" id="prof-quality" onclick="selectProfile('quality')">
-              <span class="prof-dot"></span>
-              <span>Qualité</span>
-            </button>
+          <div class="profile-strip" role="radiogroup" aria-label="Profil">
+            <button class="prof-pill" id="prof-fps" onclick="selectProfile('fps')">FPS</button>
+            <button class="prof-pill active" id="prof-balanced" onclick="selectProfile('balanced')">Équilibré</button>
+            <button class="prof-pill" id="prof-quality" onclick="selectProfile('quality')">Qualité</button>
           </div>
         </div>
       </section>
 
-      <!-- VUE 2 : OPTIMISATIONS MOTEUR -->
+      <!-- VUE 2 : PERFORMANCE -->
       <section class="stage-view" id="view-engine">
         <div class="glass-sheet">
           <div class="sheet-header">
             <div>
-              <h2 class="sheet-title">Moteur Graphique Haute-Fréquence</h2>
-              <p class="sheet-desc">Zéro <code style="font-family:var(--font-mono);color:var(--gold-bright)">glGetError</code>, cache O(1) polices &amp; crânes, VAO OpenGL 3.0 et débridage automatique VBO / VSync.</p>
+              <h2 class="sheet-title">Performance</h2>
+              <p class="sheet-desc">Réglages de fluidité et distances d'affichage.</p>
             </div>
-            <div class="telemetry-readout" id="engine-profile-badge">PROFIL ÉQUILIBRÉ</div>
+            <div class="telemetry-readout" id="engine-profile-badge">ÉQUILIBRÉ</div>
           </div>
           <div class="sheet-scroll">
             <div class="settings-grid" id="engine-grid"></div>
@@ -1297,7 +1164,7 @@
             <div class="sliders-band">
               <div class="slider-box">
                 <div class="slider-top">
-                  <span>Portée maximale des Entités</span>
+                  <span>Distance des entités</span>
                   <span class="slider-val" id="lbl-ent-dist">64 blocs</span>
                 </div>
                 <input type="range" id="rng-ent-dist" min="24" max="160" step="8" value="64" oninput="onEngineSlider('max_entity_render_distance', this.value, 'lbl-ent-dist', ' blocs')">
@@ -1305,7 +1172,7 @@
 
               <div class="slider-box">
                 <div class="slider-top">
-                  <span>Portée des Item Frames</span>
+                  <span>Distance des cadres</span>
                   <span class="slider-val" id="lbl-if-dist">48 blocs</span>
                 </div>
                 <input type="range" id="rng-if-dist" min="24" max="128" step="8" value="48" oninput="onEngineSlider('max_item_frame_distance', this.value, 'lbl-if-dist', ' blocs')">
@@ -1313,7 +1180,7 @@
 
               <div class="slider-box">
                 <div class="slider-top">
-                  <span>Portée des Coffres &amp; TileEntities</span>
+                  <span>Distance des coffres</span>
                   <span class="slider-val" id="lbl-te-dist">48 blocs</span>
                 </div>
                 <input type="range" id="rng-te-dist" min="24" max="128" step="8" value="48" oninput="onEngineSlider('max_tile_entity_render_distance', this.value, 'lbl-te-dist', ' blocs')">
@@ -1321,25 +1188,25 @@
 
               <div class="slider-box">
                 <div class="slider-top">
-                  <span>Plafond de Particules par couche</span>
-                  <span class="slider-val" id="lbl-part-cap">1000 / couche</span>
+                  <span>Limite de particules</span>
+                  <span class="slider-val" id="lbl-part-cap">1000</span>
                 </div>
-                <input type="range" id="rng-part-cap" min="150" max="4000" step="50" value="1000" oninput="onEngineSlider('max_particles_per_layer', this.value, 'lbl-part-cap', ' / couche')">
+                <input type="range" id="rng-part-cap" min="150" max="4000" step="50" value="1000" oninput="onEngineSlider('max_particles_per_layer', this.value, 'lbl-part-cap', '')">
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- VUE 3 : MODULES HUD & PVP -->
+      <!-- VUE 3 : MODULES -->
       <section class="stage-view" id="view-modules">
         <div class="glass-sheet">
           <div class="sheet-header">
             <div>
-              <h2 class="sheet-title">Modules Principaux (200 Modules FR/EN + Sous-Paramètres via RSHIFT en jeu)</h2>
-              <p class="sheet-desc">Ouvrez <strong>RSHIFT</strong> en jeu pour rechercher en français ou en anglais les 200 modules (clic droit = sous-paramètres, glisser = lignes magnétiques).</p>
+              <h2 class="sheet-title">Modules</h2>
+              <p class="sheet-desc">Appuyez sur RSHIFT en jeu pour configurer tous les modules et déplacer le HUD.</p>
             </div>
-            <input type="search" class="search-field" id="mod-search" placeholder="Rechercher (FR / English : Armor, Zoom, FPS...)" oninput="renderModules()">
+            <input type="search" class="search-field" id="mod-search" placeholder="Rechercher..." oninput="renderModules()">
           </div>
           <div class="sheet-scroll">
             <div class="settings-grid" id="modules-grid"></div>
@@ -1347,35 +1214,35 @@
         </div>
       </section>
 
-      <!-- VUE 4 : SYSTÈME, AUTO-UPDATER, MÉMOIRE & JOURNAUX -->
+      <!-- VUE 4 : PARAMÈTRES -->
       <section class="stage-view" id="view-system">
         <div class="glass-sheet">
           <div class="sheet-header">
             <div>
-              <h2 class="sheet-title">Auto-Updater, JVM &amp; Environnement</h2>
-              <p class="sheet-desc">Mises à jour automatiques GitHub Releases (<code style="font-family:var(--font-mono);color:var(--gold-bright)">MashClient.exe</code> + <code style="font-family:var(--font-mono);color:var(--gold-bright)">purefps-4.1.0.jar</code>) et fermeture vers la zone de notification.</p>
+              <h2 class="sheet-title">Paramètres</h2>
+              <p class="sheet-desc">Mises à jour, mémoire allouée et chemins d'installation.</p>
             </div>
             <div style="display:flex;gap:8px;">
-              <button class="btn-outline" onclick="sendIpc({cmd:'open_mods_folder'})">Dossier Mods</button>
-              <button class="btn-outline" onclick="clearLogs()">Vider le journal</button>
+              <button class="btn-outline" onclick="MashSfx.click();sendIpc({cmd:'open_mods_folder'})">Dossier mods</button>
+              <button class="btn-outline" onclick="MashSfx.click();clearLogs()">Effacer les logs</button>
             </div>
           </div>
           <div class="sheet-scroll">
             <div class="updater-card">
               <div class="updater-top">
                 <div class="updater-title-group">
-                  <span class="updater-title">Auto-Updater GitHub Releases</span>
-                  <span class="updater-badge ok" id="upd-token-badge">Jeton Read-Only actif</span>
-                  <span class="updater-badge" id="upd-status-badge">MashClient v4.1.0</span>
+                  <span class="updater-title">Mises à jour</span>
+                  <span class="updater-badge ok" id="upd-token-badge">Connecté</span>
+                  <span class="updater-badge" id="upd-status-badge">v4.2.0</span>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;">
-                  <button class="btn-outline" id="btn-upd-check" onclick="triggerManualUpdateCheck()">Vérifier maintenant</button>
-                  <button class="btn-gold" id="btn-upd-action" style="display:none;height:32px;padding:0 14px;flex:none;" onclick="triggerInstallOrRestart()">Installer</button>
+                  <button class="btn-outline" id="btn-upd-check" onclick="MashSfx.click();triggerManualUpdateCheck()">Vérifier</button>
+                  <button class="btn-gold" id="btn-upd-action" style="display:none;height:31px;padding:0 14px;flex:none;" onclick="MashSfx.click();triggerInstallOrRestart()">Installer</button>
                 </div>
               </div>
 
               <div style="font-size:12px;color:var(--text-secondary);" id="upd-message">
-                Prêt à vérifier les mises à jour sur MyMasha/ProjectFPS.
+                Prêt à vérifier les mises à jour.
               </div>
 
               <div class="updater-progress-track" id="upd-progress-wrap">
@@ -1383,24 +1250,22 @@
               </div>
 
               <div class="updater-grid">
-                <div style="display:flex;flex-direction:column;gap:8px;">
-                  <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;">
-                    <div>
-                      <div class="sys-label" style="margin-bottom:4px;">Dépôt GitHub cible</div>
-                      <input type="text" class="sys-input" id="inp-gh-repo" value="MyMasha/ProjectFPS" onchange="onRepoChange(this.value)">
-                    </div>
-                    <div class="setting-row is-on" id="row-auto-upd" style="height:34px;margin-top:19px;padding:0 12px;" onclick="toggleAutoUpdateCheck()">
-                      <span style="font-size:11.5px;font-weight:500;color:var(--text-primary);white-space:nowrap;">Vérif. au lancement</span>
-                      <div class="toggle-pill"></div>
-                    </div>
+                <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;">
+                  <div>
+                    <div class="sys-label" style="margin-bottom:4px;">Dépôt GitHub</div>
+                    <input type="text" class="sys-input" id="inp-gh-repo" value="MyMasha/ProjectFPS" onchange="onRepoChange(this.value)">
+                  </div>
+                  <div class="setting-row is-on" id="row-auto-upd" style="height:33px;margin-top:18px;padding:0 11px;" onclick="toggleAutoUpdateCheck()">
+                    <span style="font-size:11.5px;font-weight:500;color:var(--text-primary);white-space:nowrap;">Au démarrage</span>
+                    <div class="toggle-pill"></div>
                   </div>
                 </div>
 
                 <div style="display:flex;flex-direction:column;gap:4px;">
-                  <div class="sys-label">Rotation du jeton Fine-Grained Read-Only (optionnel — jeton déjà intégré)</div>
+                  <div class="sys-label">Jeton d'accès (optionnel)</div>
                   <div style="display:flex;gap:8px;">
-                    <input type="password" class="sys-input" id="inp-gh-token" placeholder="github_pat_•••• (laisser vide pour garder le jeton intégré)" autocomplete="off">
-                    <button class="btn-outline" style="height:34px;flex-shrink:0;" onclick="saveCustomToken()">Appliquer</button>
+                    <input type="password" class="sys-input" id="inp-gh-token" placeholder="Laisser vide par défaut" autocomplete="off">
+                    <button class="btn-outline" style="height:33px;flex-shrink:0;" onclick="MashSfx.click();saveCustomToken()">Enregistrer</button>
                   </div>
                 </div>
               </div>
@@ -1409,140 +1274,406 @@
             <div class="sys-columns">
               <div class="sys-card">
                 <div class="slider-top" style="margin-bottom:2px;">
-                  <span>Mémoire vive dédiée (JVM G1GC)</span>
-                  <span class="slider-val" id="lbl-ram">3 072 MiB</span>
+                  <span>Mémoire allouée</span>
+                  <span class="slider-val" id="lbl-ram">3 072 Mo</span>
                 </div>
                 <input type="range" id="rng-ram" min="2048" max="12288" step="512" value="3072" oninput="onRamInput(this.value)">
-                <div class="sys-label">Pseudo local (utilisé uniquement en mode Hors-Ligne)</div>
+                <div class="sys-label">Pseudo hors-ligne</div>
                 <input type="text" class="sys-input" id="inp-offline-name" maxlength="16" value="MashPlayer" onchange="sendIpc({cmd:'set_offline_name', name:this.value})">
               </div>
 
               <div class="sys-card">
-                <div class="sys-label">Exécutable Java 8 (auto-détecté ou modifiable)</div>
+                <div class="sys-label">Chemin Java 8</div>
                 <input type="text" class="sys-input" id="inp-java-path" onchange="sendIpc({cmd:'set_java_path', path:this.value})">
-                <div class="sys-label">Instance Minecraft 1.8.9 cible (PrismLauncher / .minecraft)</div>
+                <div class="sys-label">Dossier Minecraft 1.8.9</div>
                 <input type="text" class="sys-input" id="inp-game-dir" onchange="sendIpc({cmd:'set_game_dir', path:this.value})">
               </div>
             </div>
 
-            <div class="sys-label" style="margin-bottom:7px;">Journal d'exécution temps-réel</div>
-            <pre class="log-terminal" id="log-console">[MashClient 4.1] Prêt. L'écran noir reste actif jusqu'à l'ouverture de Minecraft, puis MashClient se referme dans la zone de notification en bas à droite.</pre>
+            <div class="sys-label" style="margin-bottom:6px;">Journal</div>
+            <pre class="log-terminal" id="log-console">[MashClient] Prêt.</pre>
           </div>
         </div>
       </section>
     </main>
 
-    <!-- Dock inférieur de commande -->
     <footer class="bottom-dock">
       <div class="dock-meta">
         <div class="mode-selector" id="launch-mode-seg">
-          <button class="mode-btn" data-mode="DirectMicrosoft" onclick="sendIpc({cmd:'set_launch_mode', mode:'DirectMicrosoft'})">Microsoft</button>
-          <button class="mode-btn active" data-mode="PrismBridge" onclick="sendIpc({cmd:'set_launch_mode', mode:'PrismBridge'})">Pont Prism</button>
-          <button class="mode-btn" data-mode="DirectOffline" onclick="sendIpc({cmd:'set_launch_mode', mode:'DirectOffline'})">Hors-Ligne</button>
+          <button class="mode-btn" data-mode="DirectMicrosoft" onclick="MashSfx.click();sendIpc({cmd:'set_launch_mode', mode:'DirectMicrosoft'})">Microsoft</button>
+          <button class="mode-btn active" data-mode="PrismBridge" onclick="MashSfx.click();sendIpc({cmd:'set_launch_mode', mode:'PrismBridge'})">Prism</button>
+          <button class="mode-btn" data-mode="DirectOffline" onclick="MashSfx.click();sendIpc({cmd:'set_launch_mode', mode:'DirectOffline'})">Hors-ligne</button>
         </div>
 
         <button class="quick-chip" id="btn-quick-hypixel" onclick="toggleHypixelChip()">
-          <span>Connexion directe Hypixel</span>
+          <span>Hypixel</span>
         </button>
-
-        <span class="telemetry-readout" id="dock-summary">3 072 MiB G1GC  &bull;  Borderless + Réduction Tray</span>
       </div>
 
       <button class="play-cta" id="btn-launch" onclick="triggerPlaySequence()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 20 12 5 21 5 3"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 20 12 5 21 5 3"/></svg>
         <span id="launch-btn-text">JOUER</span>
       </button>
     </footer>
   </div>
 
-  <!-- Modale Compte Microsoft / OAuth2 Device Code -->
   <div class="modal-backdrop" id="account-modal">
     <div class="modal-card" id="account-modal-body"></div>
   </div>
 
-  <!-- Rideau Noir Absolu (#000000) une fois la caméra aspirée dans le Trou Noir (Échap pour annuler) -->
-  <div id="horizon-blackout">
-    <div class="horizon-telemetry" id="horizon-status">ENTRÉE DANS MASHCLIENT 4.1  &bull;  OUVERTURE DE MINECRAFT...</div>
-  </div>
+  <!-- Rideau noir pur #000000 pendant l'ouverture de Minecraft -->
+  <div id="horizon-blackout"></div>
 
-  <!-- Aperçu interactif du menu Minecraft Singularity (uniquement hors-JVM pour démonstration fluide) -->
+  <!-- Aperçu hors-JVM -->
   <div id="mc-menu-preview">
     <div class="mc-topbar">
       <div style="display:flex;align-items:center;gap:8px;">
         <span class="online-dot"></span>
-        <span id="mc-prev-user" style="color:#eaecef;">MashPlayer  &bull;  Profil Équilibré</span>
+        <span id="mc-prev-user" style="color:#eaecef;">MashPlayer</span>
       </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn-outline" style="height:24px;font-size:11px;" onclick="exitBrowserDemo()">Retour à MashClient</button>
-      </div>
+      <button class="btn-outline" style="height:24px;font-size:11px;" onclick="MashSfx.click();exitBrowserDemo()">Retour</button>
     </div>
 
     <div class="mc-center-wrap">
-      <div class="mc-halo"></div>
       <div class="mc-card">
-        <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
-          <span style="font-size:19px;font-weight:700;letter-spacing:0.14em;color:#f7f4ec;">MASHCLIENT</span>
-          <span class="brand-edition">v4.1</span>
+        <div style="display:flex;align-items:center;justify-content:center;gap:9px;padding-bottom:6px;">
+          <img id="mc-preview-logo" width="24" height="24" style="object-fit:contain;" alt="">
+          <span style="font-size:16px;font-weight:700;letter-spacing:0.14em;color:#f7f4ec;">MASHCLIENT</span>
         </div>
-        <div style="font-size:11px;color:#8a91a2;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.09);">
-          200 Modules FR/EN  &bull;  HUD Magnétique  &bull;  RSHIFT en jeu
-        </div>
-        <button class="mc-btn primary">Rejoindre Hypixel</button>
-        <button class="mc-btn">Multijoueur</button>
-        <button class="mc-btn">Mode Solo</button>
-        <button class="mc-btn accent">Studio MashClient (200 Modules)</button>
+        <button class="mc-btn primary">Multijoueur</button>
+        <button class="mc-btn">Solo</button>
+        <button class="mc-btn">Modules</button>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <button class="mc-btn" style="height:30px;font-size:11.5px;color:#949cb0;">Options MC</button>
-          <button class="mc-btn" style="height:30px;font-size:11.5px;color:#949cb0;">Mods Forge</button>
+          <button class="mc-btn" style="height:30px;font-size:11.5px;color:#949cb0;">Options</button>
+          <button class="mc-btn" style="height:30px;font-size:11.5px;color:#949cb0;">Mods</button>
         </div>
       </div>
     </div>
 
     <div style="padding:10px 16px;display:flex;justify-content:space-between;font-size:11px;color:#697082;">
-      <span>Borderless Windowed  &bull;  200 Modules</span>
-      <span>MashClient 4.1.0  &bull;  Forge 1.8.9</span>
+      <span>MashClient</span>
+      <span>1.8.9</span>
     </div>
   </div>
 
   <div class="toast" id="toast"></div>
 
 <script>
+  /* ============================================================================
+   * MOTEUR AUDIO PROCÉDURAL (WEB AUDIO API) — UI & ANIMATION TROU NOIR
+   * ============================================================================ */
+  const MashSfx = (function() {
+    let ctx = null;
+    let noiseBuffer = null;
+    let activePlungeStop = null;
+    let lastHoverMs = 0;
+    let muted = false;
+
+    try {
+      muted = localStorage.getItem("mash_sfx_muted") === "1";
+    } catch (_) {}
+
+    function ensureCtx() {
+      if (muted) return null;
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        try {
+          ctx = new AC();
+        } catch (_) {
+          return null;
+        }
+      }
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
+      return ctx;
+    }
+
+    function ensureNoise(ac) {
+      if (noiseBuffer) return noiseBuffer;
+      const len = Math.floor(ac.sampleRate * 2.5);
+      const buf = ac.createBuffer(2, len, ac.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const data = buf.getChannelData(ch);
+        let smooth = 0;
+        for (let i = 0; i < len; i++) {
+          const white = Math.random() * 2 - 1;
+          smooth = smooth * 0.78 + white * 0.22;
+          data[i] = smooth;
+        }
+      }
+      noiseBuffer = buf;
+      return buf;
+    }
+
+    function hover() {
+      if (muted) return;
+      const nowMs = performance.now();
+      if (nowMs - lastHoverMs < 52) return;
+      lastHoverMs = nowMs;
+
+      const ac = ensureCtx();
+      if (!ac) return;
+      const t = ac.currentTime;
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(680, t);
+      osc.frequency.exponentialRampToValueAtTime(920, t + 0.022);
+
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(0.015, t + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.024);
+
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      osc.start(t);
+      osc.stop(t + 0.026);
+    }
+
+    function click() {
+      if (muted) return;
+      const ac = ensureCtx();
+      if (!ac) return;
+      const t = ac.currentTime;
+
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(540, t);
+      osc.frequency.exponentialRampToValueAtTime(240, t + 0.036);
+
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(0.042, t + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.040);
+
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      osc.start(t);
+      osc.stop(t + 0.044);
+    }
+
+    function toggle(isOn) {
+      if (muted) return;
+      const ac = ensureCtx();
+      if (!ac) return;
+      const t = ac.currentTime;
+
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = "sine";
+      if (isOn) {
+        osc.frequency.setValueAtTime(460, t);
+        osc.frequency.exponentialRampToValueAtTime(720, t + 0.055);
+      } else {
+        osc.frequency.setValueAtTime(640, t);
+        osc.frequency.exponentialRampToValueAtTime(410, t + 0.055);
+      }
+
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(0.044, t + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.062);
+
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      osc.start(t);
+      osc.stop(t + 0.066);
+    }
+
+    // Son cinématique d'aspiration dans le Trou Noir (synchronisé sur 2.05s jusqu'à l'Horizon #000000)
+    function playPlunge() {
+      stopPlunge();
+      if (muted) return;
+      const ac = ensureCtx();
+      if (!ac) return;
+      const t = ac.currentTime;
+      const dur = 2.06;
+
+      const master = ac.createGain();
+      master.gain.setValueAtTime(0.0001, t);
+      master.gain.linearRampToValueAtTime(0.24, t + 0.22);
+      master.gain.linearRampToValueAtTime(0.32, t + 1.48);
+      master.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      master.connect(ac.destination);
+
+      // 1. Onde gravitationnelle sub-bass (38 Hz -> 68 Hz -> 22 Hz)
+      const sub = ac.createOscillator();
+      const subGain = ac.createGain();
+      sub.type = "sine";
+      sub.frequency.setValueAtTime(38, t);
+      sub.frequency.exponentialRampToValueAtTime(68, t + 1.42);
+      sub.frequency.exponentialRampToValueAtTime(22, t + dur);
+      subGain.gain.setValueAtTime(0.62, t);
+      sub.connect(subGain);
+      subGain.connect(master);
+
+      // 2. Harmonique chaude du disque d'accrétion (quinte 110 Hz / 165 Hz courbée vers l'horizon)
+      const padA = ac.createOscillator();
+      const padB = ac.createOscillator();
+      const padGain = ac.createGain();
+      padA.type = "sine";
+      padB.type = "triangle";
+      padA.frequency.setValueAtTime(110, t);
+      padA.frequency.exponentialRampToValueAtTime(196, t + 1.38);
+      padA.frequency.exponentialRampToValueAtTime(55, t + dur);
+      padB.frequency.setValueAtTime(165, t);
+      padB.frequency.exponentialRampToValueAtTime(293.66, t + 1.38);
+      padB.frequency.exponentialRampToValueAtTime(82.5, t + dur);
+      padGain.gain.setValueAtTime(0.06, t);
+      padGain.gain.linearRampToValueAtTime(0.18, t + 1.30);
+      padGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      padA.connect(padGain);
+      padB.connect(padGain);
+      padGain.connect(master);
+
+      // 3. Souffle relativiste filtré lors de la traversée du disque équatorial
+      const noiseSrc = ac.createBufferSource();
+      noiseSrc.buffer = ensureNoise(ac);
+      const filter = ac.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.Q.setValueAtTime(1.35, t);
+      filter.frequency.setValueAtTime(150, t);
+      filter.frequency.exponentialRampToValueAtTime(2200, t + 1.44);
+      filter.frequency.exponentialRampToValueAtTime(42, t + dur);
+
+      const noiseGain = ac.createGain();
+      noiseGain.gain.setValueAtTime(0.05, t);
+      noiseGain.gain.linearRampToValueAtTime(0.45, t + 1.40);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+      noiseSrc.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(master);
+
+      sub.start(t);
+      padA.start(t);
+      padB.start(t);
+      noiseSrc.start(t);
+
+      sub.stop(t + dur + 0.05);
+      padA.stop(t + dur + 0.05);
+      padB.stop(t + dur + 0.05);
+      noiseSrc.stop(t + dur + 0.05);
+
+      let stopped = false;
+      activePlungeStop = function() {
+        if (stopped) return;
+        stopped = true;
+        try {
+          const now = ac.currentTime;
+          master.gain.cancelScheduledValues(now);
+          master.gain.setValueAtTime(Math.max(0.0001, master.gain.value), now);
+          master.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+          setTimeout(() => {
+            try { sub.stop(); padA.stop(); padB.stop(); noiseSrc.stop(); master.disconnect(); } catch (_) {}
+          }, 70);
+        } catch (_) {}
+      };
+    }
+
+    function stopPlunge() {
+      if (activePlungeStop) {
+        const fn = activePlungeStop;
+        activePlungeStop = null;
+        fn();
+      }
+    }
+
+    function suspendEngine(susp) {
+      if (susp) {
+        stopPlunge();
+        if (ctx && ctx.state === "running") {
+          ctx.suspend().catch(() => {});
+        }
+      }
+    }
+
+    function isMuted() {
+      return muted;
+    }
+
+    function setMuted(m) {
+      muted = !!m;
+      try {
+        localStorage.setItem("mash_sfx_muted", muted ? "1" : "0");
+      } catch (_) {}
+      if (muted) {
+        stopPlunge();
+      } else {
+        toggle(true);
+      }
+    }
+
+    window.addEventListener("pointerdown", () => { if (!muted) ensureCtx(); }, { passive: true });
+    window.addEventListener("keydown", () => { if (!muted) ensureCtx(); }, { passive: true });
+
+    return { hover, click, toggle, playPlunge, stopPlunge, suspendEngine, isMuted, setMuted };
+  })();
+
+  function renderSfxButton() {
+    const btn = document.getElementById("btn-sfx-toggle");
+    if (!btn) return;
+    const muted = MashSfx.isMuted();
+    btn.classList.toggle("muted", muted);
+    btn.title = muted ? "Activer les effets sonores" : "Couper les effets sonores";
+    btn.innerHTML = muted
+      ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`
+      : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>`;
+  }
+
+  function toggleSfxMute() {
+    MashSfx.setMuted(!MashSfx.isMuted());
+    renderSfxButton();
+  }
+
+  let lastHoveredElem = null;
+  document.addEventListener("mouseover", (e) => {
+    const el = e.target.closest("button, .setting-row");
+    if (el && el !== lastHoveredElem) {
+      lastHoveredElem = el;
+      MashSfx.hover();
+    } else if (!el) {
+      lastHoveredElem = null;
+    }
+  });
+
   const ENGINE_DEFS = [
-    { key: "disable_gl_error_checks", title: "Zéro glGetError JNI", desc: "Supprime les attentes bloquantes CPU/GPU par frame dans la boucle de rendu" },
-    { key: "hardware_region_vao", title: "VAO Matériel OpenGL 3.0", desc: "Pré-enregistre les pointeurs 28 octets par section de chunk en 1 appel GL" },
-    { key: "region_multi_draw", title: "Pipeline GL_TRIANGLES + EBO", desc: "Convertit les GL_QUADS en triangles matériels 16-bit sans stall glGetFloat" },
-    { key: "fast_baked_item_models", title: "Modèles d'Items Compilés GPU", desc: "Compile les épées 32x/64x et passes d'enchantement en Display Lists" },
-    { key: "fast_item_frames", title: "Item Frames Turbo", desc: "Cadres compilés en 1 glCallList, zéro allocation EntityItem ni glPushAttrib" },
-    { key: "fast_player_rendering", title: "Joueurs & Crânes O(1)", desc: "Cache O(1) des armures et têtes 3D, LOD sur-couches >20m et capes >32m" },
-    { key: "fast_sign_text", title: "Panneaux & Polices O(1)", desc: "Cache O(1) des largeurs de texte et coupe les panneaux illisibles au loin" },
-    { key: "lazy_terrain_setup", title: "Lazy Terrain BFS Précis", desc: "Coordonnées interpolées partialTicks sans disparition des chunks latéraux" },
-    { key: "fast_fbo_blit", title: "Blit FBO DMA Matériel", desc: "Masque RGBA complet activant la copie matérielle directe glBlitFramebuffer" },
-    { key: "fast_frustum_pvertex", title: "Frustum P-Vertex 8x", desc: "Test de visibilité AABB en 1 sommet positif au lieu de 8 par plan" },
-    { key: "multi_threaded_chunk_build", title: "Compilation Chunks Parallèle", desc: "Workers géométriques multi-cœurs avec budget d'upload lissé sans saccade" },
-    { key: "entity_occlusion_culling", title: "Occlusion Entités 3D", desc: "Écarte les entités masquées derrière les parois opaques" },
-    { key: "limit_distant_glint", title: "LOD Reflet Enchanté", desc: "Coupe la double passe matricielle d'armure enchantée éloignée" },
-    { key: "fast_item_render", title: "Items Zéro-Clonage", desc: "Élimine le clonage EnumFacing.values() sur chaque rendu d'item" },
-    { key: "skip_void_fog_loop", title: "Suppression Boucle VoidFog", desc: "Coupe les 1 000 recherches aléatoires de particules Barrière par tick" },
-    { key: "async_skin_upload_pacing", title: "Lissage Upload Skins", desc: "Étale le téléversement des textures de skins dans les lobbies denses" },
-    { key: "smart_animations", title: "Animations Intelligentes", desc: "Anime uniquement les textures de blocs réellement visibles à l'écran" },
-    { key: "fast_scoreboard", title: "Scoreboard Unifié", desc: "Fusionne l'arrière-plan du tableau de score en 1 seul appel GPU" }
+    { key: "disable_gl_error_checks", title: "Appels OpenGL directs", desc: "Désactive les vérifications d'erreurs OpenGL à chaque image." },
+    { key: "hardware_region_vao", title: "Rendu terrain VAO", desc: "Utilise les tampons matériels OpenGL 3.0 pour les chunks." },
+    { key: "region_multi_draw", title: "Terrain indexé", desc: "Regroupe les géométries de blocs pour soulager le processeur." },
+    { key: "fast_baked_item_models", title: "Cache des objets en main", desc: "Met en cache le rendu des épées et objets tenus." },
+    { key: "fast_item_frames", title: "Cadres allégés", desc: "Simplifie l'affichage des cadres d'objets." },
+    { key: "fast_player_rendering", title: "Rendu rapide des joueurs", desc: "Allège le calcul des armures, capes et têtes à distance." },
+    { key: "fast_sign_text", title: "Pancartes optimisées", desc: "Masque le texte des panneaux trop éloignés pour être lus." },
+    { key: "lazy_terrain_setup", title: "Calcul terrain stabilisé", desc: "Évite de recalculer les chunks visibles sans mouvement." },
+    { key: "fast_fbo_blit", title: "Copie d'écran directe", desc: "Accélère l'envoi de l'image finale vers l'écran." },
+    { key: "fast_frustum_pvertex", title: "Tri rapide hors-champ", desc: "Ignore plus vite les éléments hors de la caméra." },
+    { key: "multi_threaded_chunk_build", title: "Chargement multi-cœur", desc: "Répartit la construction des chunks sur plusieurs threads." },
+    { key: "entity_occlusion_culling", title: "Masquage derrière les murs", desc: "Ne dessine pas les entités cachées par le décor." },
+    { key: "limit_distant_glint", title: "Reflets d'enchantement réduits", desc: "Coupe l'effet brillant sur les armures éloignées." },
+    { key: "fast_item_render", title: "Objets au sol allégés", desc: "Réduit le coût d'affichage des items jetés." },
+    { key: "skip_void_fog_loop", title: "Sans brouillard du vide", desc: "Supprime les particules inutiles près de la bedrock." },
+    { key: "async_skin_upload_pacing", title: "Chargement progressif des skins", desc: "Évite les saccades dans les lobbies très remplis." },
+    { key: "smart_animations", title: "Textures animées visibles", desc: "Met en pause les animations d'eau et de lave hors écran." },
+    { key: "fast_scoreboard", title: "Scoreboard allégé", desc: "Simplifie le dessin du tableau latéral." }
   ];
 
   const MODULE_DEFS = [
-    { key: "borderless_fullscreen", title: "Plein Écran Borderless (F11)", en: "Borderless Fullscreen", kw: "borderless fullscreen windowed f11 alt tab screen", desc: "Fenêtre sans bordure instantanée à (0, 0) sans écran noir lors d'Alt-Tab" },
-    { key: "hud_enabled", title: "HUD MashClient (65 Widgets)", en: "HUD Editor & Mods", kw: "hud editor magnetic snap lines widgets overlay lunar", desc: "Rendu unifié en 1 seul appel SDF GPU + lignes magnétiques via RSHIFT" },
-    { key: "hud_fps_cps", title: "Compteur FPS & CPS", en: "FPS & CPS Counter", kw: "fps counter cps clicks per second framerate display", desc: "Cadence d'images et clics par seconde avec sous-options clic droit" },
-    { key: "hud_keystrokes", title: "Keystrokes Compétitif", en: "Keystrokes", kw: "keystrokes wasd zqsd keys mouse buttons spacebar", desc: "Visualisation ZQSD/WASD, souris et barre d'espace personnalisable" },
-    { key: "hud_ping", title: "Latence Serveur", en: "Ping Display", kw: "ping latency ms connection server delay", desc: "Mesure du ping réseau échantillonnée sans surcharge CPU" },
-    { key: "hud_armor", title: "État d'Équipement", en: "Armor Status", kw: "armor status armour durability helmet chestplate leggings boots equipment", desc: "Affiche l'armure portée et sa durabilité en temps réel" },
-    { key: "toggle_sprint", title: "ToggleSprint & Sneak", en: "ToggleSprint / ToggleSneak", kw: "togglesprint toggle sprint togglesneak toggle sneak run crouch", desc: "Maintien fluide du Sprint avec textes d'état personnalisables" },
-    { key: "zoom_enabled", title: "Zoom Optique (Molette configurable)", en: "Zoom", kw: "zoom optifine scroll wheel smooth camera", desc: "Zoom C avec choix clic droit : zoomer à la molette ou garder la hotbar" },
-    { key: "fullbright", title: "Fullbright Réglable", en: "Fullbright", kw: "fullbright gamma brightness night vision cave light", desc: "Luminosité maximale sans modifier options.txt" },
-    { key: "low_fire", title: "Feu Abaissé Réglable", en: "Low Fire", kw: "low fire lowfire flame height burning overlay", desc: "Hauteur des flammes ajustable dans les sous-paramètres RSHIFT" },
-    { key: "no_hurt_cam", title: "HurtCam Réglable (0-100%)", en: "No HurtCam / HurtCam", kw: "hurtcam nohurtcam no hurt cam damage shake tilt", desc: "Intensité d'inclinaison aux dégâts ajustable au pourcentage près" },
-    { key: "static_fov", title: "PvP FOV Changer", en: "FOV Changer", kw: "fov changer field of view dynamic fov speed bow sprint", desc: "FOV de base personnalisé (30-150°) et multiplicateurs Speed/Sprint/Arc" },
-    { key: "smooth_client_font", title: "Typographie Lissée HD", en: "Smooth Font", kw: "smooth font custom font hd text typography", desc: "Atlas anti-aliasé O(1) fusionné ombre + texte en 1 passe" },
-    { key: "custom_main_menu", title: "Menu Singularity 4.1", en: "Custom Main Menu", kw: "custom main menu black hole singularity title screen", desc: "Émergence Trou Noir 3D de Schwarzschild à la place de Mojang" }
+    { key: "borderless_fullscreen", title: "Plein écran sans bordure", en: "Borderless Fullscreen", kw: "borderless fullscreen windowed f11 alt tab screen", desc: "Retour bureau instantané avec Alt+Tab (F11)." },
+    { key: "hud_enabled", title: "Affichage HUD", en: "HUD Mods", kw: "hud editor magnetic snap lines widgets overlay", desc: "Active les compteurs à l'écran et le placement via RSHIFT." },
+    { key: "hud_fps_cps", title: "FPS & CPS", en: "FPS & CPS Counter", kw: "fps counter cps clicks per second framerate", desc: "Affiche les images et clics par seconde." },
+    { key: "hud_keystrokes", title: "Keystrokes", en: "Keystrokes", kw: "keystrokes wasd zqsd keys mouse buttons spacebar", desc: "Affiche les touches ZQSD et les clics souris." },
+    { key: "hud_ping", title: "Ping", en: "Ping Display", kw: "ping latency ms connection server", desc: "Affiche la latence réseau en millisecondes." },
+    { key: "hud_armor", title: "Armure", en: "Armor Status", kw: "armor status armour durability helmet chestplate leggings boots", desc: "Affiche l'équipement porté et sa durabilité." },
+    { key: "toggle_sprint", title: "ToggleSprint", en: "ToggleSprint", kw: "togglesprint toggle sprint togglesneak run crouch", desc: "Maintient automatiquement la course." },
+    { key: "zoom_enabled", title: "Zoom", en: "Zoom", kw: "zoom optifine scroll wheel smooth camera", desc: "Zoom sur la touche C (molette réglable via clic droit en jeu)." },
+    { key: "fullbright", title: "Fullbright", en: "Fullbright", kw: "fullbright gamma brightness night vision", desc: "Éclairage maximal dans les grottes et la nuit." },
+    { key: "low_fire", title: "Feu bas", en: "Low Fire", kw: "low fire lowfire flame height burning", desc: "Abaisse la hauteur des flammes sur l'écran." },
+    { key: "no_hurt_cam", title: "HurtCam réduite", en: "No HurtCam", kw: "hurtcam nohurtcam no hurt cam damage shake", desc: "Réduit l'inclinaison de la caméra lors des dégâts." },
+    { key: "static_fov", title: "FOV personnalisé", en: "FOV Changer", kw: "fov changer field of view dynamic fov speed bow sprint", desc: "Ajuste le champ de vision en sprint et au tir à l'arc." },
+    { key: "smooth_client_font", title: "Police lissée", en: "Smooth Font", kw: "smooth font custom font hd text", desc: "Texte haute définition dans les menus et le HUD." },
+    { key: "custom_main_menu", title: "Menu MashClient", en: "Custom Main Menu", kw: "custom main menu black hole title screen", desc: "Active l'écran d'accueil MashClient au lancement." }
   ];
 
   let state = {
@@ -1610,12 +1741,12 @@
     has_github_token: true,
     update: {
       status: "idle",
-      current_version: "4.1.0",
-      installed_jar_version: "4.1.0",
+      current_version: "4.2.0",
+      installed_jar_version: "4.2.0",
       latest_version: null,
       release_notes: null,
       download_percent: 0,
-      message: "Connecté à MyMasha/ProjectFPS (Fine-Grained Read-Only).",
+      message: "Prêt à vérifier les mises à jour.",
       has_exe_update: false,
       has_jar_update: false
     }
@@ -1625,10 +1756,9 @@
   let toastTimer = null;
   let accountModalManualOpen = false;
 
-  // État cinématique du Trou Noir et de l'aspiration caméra
   let plungeActive = false;
   let plungeStartMs = 0;
-  let plungeProgress = 0.0; // 0.0 = orbite rapprochée, 1.0 = franchissement de l'Horizon des Événements (#000000)
+  let plungeProgress = 0.0;
   let darknessSignaled = false;
   const PLUNGE_DURATION_MS = 2050.0;
 
@@ -1649,7 +1779,6 @@
     }
   }
 
-  // Déplacement fenêtre sans bordure + touche Échap de sécurité pendant le rideau noir
   document.getElementById("titlebar").addEventListener("mousedown", (e) => {
     if (e.button === 0 && !e.target.closest("button") && !e.target.closest("nav")) {
       sendIpc({ cmd: "drag_window" });
@@ -1677,7 +1806,10 @@
     }
   });
 
-  function switchTab(tab) {
+  function switchTab(tab, silent) {
+    if (activeTab !== tab && !silent) {
+      MashSfx.click();
+    }
     activeTab = tab;
     document.querySelectorAll(".nav-tab").forEach((b) => {
       b.classList.toggle("active", b.dataset.tab === tab);
@@ -1688,6 +1820,7 @@
   }
 
   function selectProfile(prof) {
+    MashSfx.click();
     state.settings.active_profile = prof;
     if (prof === "fps") {
       state.settings.max_entity_render_distance = 48;
@@ -1711,17 +1844,17 @@
 
   function toggleHypixelChip() {
     state.prefs.quick_join_hypixel = !state.prefs.quick_join_hypixel;
+    MashSfx.toggle(state.prefs.quick_join_hypixel);
     renderDockAndHeader();
     sendIpc({ cmd: "toggle_quick_hypixel" });
   }
 
   function triggerPlaySequence() {
     if (state.game_running || plungeActive) return;
+    MashSfx.click();
     if (hasNativeIpc()) {
-      // Le moteur Rust valide les chemins/identifiants, passe en plein écran sans bordure et déclenche startPlungeAnimation()
       sendIpc({ cmd: "launch_game" });
     } else {
-      // Mode démonstration autonome dans le navigateur : joue l'aspiration complète puis dévoile le menu Minecraft
       startPlungeAnimation(true);
     }
   }
@@ -1734,6 +1867,7 @@
     accountModalManualOpen = false;
     document.getElementById("account-modal").classList.remove("open");
     document.body.classList.add("plunging");
+    MashSfx.playPlunge();
 
     if (browserDemoHandoff && document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => {});
@@ -1741,6 +1875,7 @@
   }
 
   function resetPlungeSequence() {
+    MashSfx.stopPlunge();
     plungeActive = false;
     plungeProgress = 0.0;
     darknessSignaled = false;
@@ -1757,12 +1892,14 @@
   }
 
   function openAccountModal() {
+    MashSfx.click();
     accountModalManualOpen = true;
     renderAccountModal();
     document.getElementById("account-modal").classList.add("open");
   }
 
   function closeAccountModal() {
+    MashSfx.click();
     accountModalManualOpen = false;
     if (state.device_code) {
       state.device_code = null;
@@ -1772,6 +1909,7 @@
   }
 
   function startMicrosoftDeviceFlow() {
+    MashSfx.click();
     if (!hasNativeIpc()) {
       state.device_code = { user_code: "8K9P-M4TX", verification_uri: "https://www.microsoft.com/link" };
       renderAccountModal();
@@ -1788,19 +1926,19 @@
       modal.classList.add("open");
       box.innerHTML = `
         <div class="modal-head">
-          <div class="modal-title">Authentification Microsoft</div>
+          <div class="modal-title">Connexion Microsoft</div>
           <button class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Annuler</button>
         </div>
         <p style="font-size:12.5px;color:var(--text-secondary);">
-          Saisissez ce code unique sur la page officielle Microsoft ouverte dans votre navigateur. La liaison Xbox Live / Minecraft s'effectue automatiquement.
+          Entrez ce code sur la page Microsoft ouverte dans votre navigateur.
         </p>
         <div class="device-code-box">
           <div class="device-code-digits">${escapeHtml(state.device_code.user_code)}</div>
-          <div class="device-code-hint">Copié dans le presse-papiers &bull; En attente de validation...</div>
+          <div class="device-code-hint">Code copié &bull; En attente...</div>
         </div>
         <div class="modal-actions">
-          <button class="btn-gold" onclick="sendIpc({cmd:'open_ms_link'})">Ouvrir microsoft.com/link</button>
-          <button class="btn-outline" style="height:36px;" onclick="copyCurrentDeviceCode()">Copier</button>
+          <button class="btn-gold" onclick="MashSfx.click();sendIpc({cmd:'open_ms_link'})">Ouvrir microsoft.com/link</button>
+          <button class="btn-outline" style="height:35px;" onclick="MashSfx.click();copyCurrentDeviceCode()">Copier</button>
         </div>
       `;
       return;
@@ -1815,32 +1953,32 @@
       const cleanUuid = state.account.uuid.replace(/-/g, "");
       box.innerHTML = `
         <div class="modal-head">
-          <div class="modal-title">Session Microsoft Active</div>
+          <div class="modal-title">Compte Microsoft</div>
           <button class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Fermer</button>
         </div>
         <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border-hairline);">
-          <img src="https://mc-heads.net/avatar/${encodeURIComponent(cleanUuid)}/48" width="40" height="40" style="border-radius:8px;image-rendering:pixelated;" alt="">
+          <img src="https://mc-heads.net/avatar/${encodeURIComponent(cleanUuid)}/48" width="38" height="38" style="border-radius:8px;image-rendering:pixelated;" alt="">
           <div>
             <div style="font-weight:600;font-size:14px;">${escapeHtml(state.account.username)}</div>
-            <div style="font-size:11.5px;color:var(--status-ok);">Jeton OAuth2 Minecraft vérifié</div>
+            <div style="font-size:11.5px;color:var(--status-ok);">Session active</div>
           </div>
         </div>
         <div class="modal-actions">
-          <button class="btn-outline" style="flex:1;height:34px;" onclick="sendIpc({cmd:'refresh_ms'})">Rafraîchir</button>
-          <button class="btn-outline" style="flex:1;height:34px;color:#fca5a5;" onclick="sendIpc({cmd:'logout_ms'});closeAccountModal();">Déconnecter</button>
+          <button class="btn-outline" style="flex:1;height:34px;" onclick="MashSfx.click();sendIpc({cmd:'refresh_ms'})">Actualiser</button>
+          <button class="btn-outline" style="flex:1;height:34px;color:#fca5a5;" onclick="MashSfx.click();sendIpc({cmd:'logout_ms'});closeAccountModal();">Déconnecter</button>
         </div>
       `;
     } else {
       box.innerHTML = `
         <div class="modal-head">
-          <div class="modal-title">Compte Microsoft Officiel</div>
+          <div class="modal-title">Compte Microsoft</div>
           <button class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Fermer</button>
         </div>
         <p style="font-size:12.5px;color:var(--text-secondary);">
-          Connectez votre compte Microsoft en 1 clic via le protocole officiel OAuth2 Device Code pour rejoindre Hypixel et les serveurs Premium directement.
+          Connectez votre compte Microsoft pour rejoindre les serveurs officiels.
         </p>
         <div class="modal-actions">
-          <button class="btn-gold" onclick="startMicrosoftDeviceFlow()">Générer un code de connexion</button>
+          <button class="btn-gold" onclick="startMicrosoftDeviceFlow()">Se connecter</button>
         </div>
       `;
     }
@@ -1852,10 +1990,9 @@
     document.getElementById("prof-balanced").classList.toggle("active", p === "balanced");
     document.getElementById("prof-quality").classList.toggle("active", p === "quality");
 
-    const profNames = { fps: "PROFIL TURBO FPS", balanced: "PROFIL ÉQUILIBRÉ", quality: "PROFIL QUALITÉ", custom: "PROFIL PERSONNALISÉ" };
-    document.getElementById("engine-profile-badge").textContent = profNames[p] || "PROFIL PERSONNALISÉ";
+    const profNames = { fps: "FPS", balanced: "ÉQUILIBRÉ", quality: "QUALITÉ", custom: "PERSONNALISÉ" };
+    document.getElementById("engine-profile-badge").textContent = profNames[p] || "PERSONNALISÉ";
 
-    // Pilule de mise à jour dorée en haut à droite (affichée uniquement lorsqu'une action ou téléchargement est actif)
     const upd = state.update || {};
     const updPill = document.getElementById("btn-update-pill");
     const updLbl = document.getElementById("top-update-label");
@@ -1863,7 +2000,7 @@
     if (upd.status === "available") {
       updPill.className = "update-pill visible";
       updFill.style.width = "0%";
-      updLbl.textContent = `↻ Mise à jour v${upd.latest_version || ""}`;
+      updLbl.textContent = `Mise à jour v${upd.latest_version || ""}`;
     } else if (upd.status === "downloading") {
       updPill.className = "update-pill visible";
       updFill.style.width = `${upd.download_percent || 0}%`;
@@ -1871,7 +2008,7 @@
     } else if (upd.status === "ready_restart") {
       updPill.className = "update-pill visible ready";
       updFill.style.width = "0%";
-      updLbl.textContent = `Relancer MashClient v${upd.latest_version || ""}`;
+      updLbl.textContent = `Relancer v${upd.latest_version || ""}`;
     } else {
       updPill.className = "update-pill";
       updFill.style.width = "0%";
@@ -1884,7 +2021,7 @@
       topLabel.textContent = state.account.username;
       topAvatar.innerHTML = `<img src="https://mc-heads.net/avatar/${encodeURIComponent(cleanUuid)}/32" alt="">`;
     } else {
-      topLabel.textContent = "Connexion Microsoft";
+      topLabel.textContent = "Connexion";
       topAvatar.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M5 20c1.5-3.5 12.5-3.5 14 0"/></svg>`;
     }
 
@@ -1893,26 +2030,21 @@
     });
 
     document.getElementById("btn-quick-hypixel").classList.toggle("active", !!state.prefs.quick_join_hypixel);
-    document.getElementById("dock-summary").innerHTML =
-      `${state.prefs.ram_mb.toLocaleString("fr-FR")} MiB G1GC  &bull;  Borderless + Réduction Tray`;
 
     const launchBtn = document.getElementById("btn-launch");
     const launchTxt = document.getElementById("launch-btn-text");
     launchBtn.classList.toggle("running", !!state.game_running);
-    launchTxt.textContent = state.game_running ? "EN COURS" : "JOUER";
+    launchTxt.textContent = state.game_running ? "EN JEU" : "JOUER";
 
     const uname = state.account ? state.account.username : (state.prefs.offline_username || "MashPlayer");
-    const pDisp = p === "fps" ? "Turbo FPS" : (p === "quality" ? "Qualité" : "Équilibré");
-    document.getElementById("mc-prev-user").textContent = `${uname}  •  Profil ${pDisp}`;
+    document.getElementById("mc-prev-user").textContent = uname;
   }
 
   function renderEngine() {
     const grid = document.getElementById("engine-grid");
-    let activeCount = 0;
     let html = "";
     for (const item of ENGINE_DEFS) {
       const on = !!state.settings[item.key];
-      if (on) activeCount++;
       html += `
         <div class="setting-row ${on ? "is-on" : ""}" onclick="toggleSetting('${item.key}')">
           <div class="setting-meta">
@@ -1924,12 +2056,11 @@
       `;
     }
     grid.innerHTML = html;
-    document.getElementById("nav-engine-count").textContent = `${activeCount}/${ENGINE_DEFS.length}`;
 
     setSlider("rng-ent-dist", "lbl-ent-dist", state.settings.max_entity_render_distance, " blocs");
     setSlider("rng-if-dist", "lbl-if-dist", state.settings.max_item_frame_distance || 48, " blocs");
     setSlider("rng-te-dist", "lbl-te-dist", state.settings.max_tile_entity_render_distance, " blocs");
-    setSlider("rng-part-cap", "lbl-part-cap", state.settings.max_particles_per_layer, " / couche");
+    setSlider("rng-part-cap", "lbl-part-cap", state.settings.max_particles_per_layer, "");
   }
 
   function normalizeSearchText(str) {
@@ -1957,15 +2088,15 @@
   function renderModules() {
     const rawQ = document.getElementById("mod-search").value || "";
     const grid = document.getElementById("modules-grid");
-    let activeCount = 0;
     let html = "";
     for (const m of MODULE_DEFS) {
       const on = !!state.settings[m.key];
-      if (on) activeCount++;
       if (!matchesSmartSearch(m, rawQ)) {
         continue;
       }
-      const enTag = m.en ? ` <span style="color:var(--text-muted);font-weight:400;font-size:11px;">&middot; ${escapeHtml(m.en)}</span>` : "";
+      const enTag = m.en && m.en.toLowerCase() !== m.title.toLowerCase()
+        ? ` <span style="color:var(--text-muted);font-weight:400;font-size:11px;">&middot; ${escapeHtml(m.en)}</span>`
+        : "";
       html += `
         <div class="setting-row ${on ? "is-on" : ""}" onclick="toggleSetting('${m.key}')">
           <div class="setting-meta">
@@ -1977,11 +2108,10 @@
       `;
     }
     grid.innerHTML = html;
-    document.getElementById("nav-mod-count").textContent = `${activeCount}/${MODULE_DEFS.length}`;
   }
 
   function renderSystem() {
-    setSlider("rng-ram", "lbl-ram", state.prefs.ram_mb.toLocaleString("fr-FR"), " MiB", state.prefs.ram_mb);
+    setSlider("rng-ram", "lbl-ram", state.prefs.ram_mb.toLocaleString("fr-FR"), " Mo", state.prefs.ram_mb);
     const offInput = document.getElementById("inp-offline-name");
     if (offInput && document.activeElement !== offInput) {
       offInput.value = state.prefs.offline_username || "MashPlayer";
@@ -2008,10 +2138,10 @@
     if (tokBadge) {
       if (state.has_github_token !== false) {
         tokBadge.className = "updater-badge ok";
-        tokBadge.textContent = "Jeton Read-Only actif";
+        tokBadge.textContent = "Connecté";
       } else {
         tokBadge.className = "updater-badge";
-        tokBadge.textContent = "Sans jeton (Public)";
+        tokBadge.textContent = "Public";
       }
     }
 
@@ -2023,7 +2153,7 @@
     const checkBtn = document.getElementById("btn-upd-check");
     const actBtn = document.getElementById("btn-upd-action");
 
-    const curVer = upd.current_version || "4.1.0";
+    const curVer = upd.current_version || "4.2.0";
     const modVer = upd.installed_jar_version ? ` • Mod v${upd.installed_jar_version}` : "";
     if (msgEl) msgEl.textContent = upd.message || `MashClient v${curVer}${modVer}`;
 
@@ -2033,25 +2163,22 @@
         stBadge.textContent = `v${upd.latest_version} disponible`;
       } else if (upd.status === "downloading") {
         stBadge.className = "updater-badge gold";
-        stBadge.textContent = `Téléchargement ${upd.download_percent || 0}%`;
+        stBadge.textContent = `${upd.download_percent || 0}%`;
       } else if (upd.status === "ready_restart") {
         stBadge.className = "updater-badge ok";
         stBadge.textContent = `v${upd.latest_version || curVer} prête`;
       } else if (upd.status === "up_to_date") {
         stBadge.className = "updater-badge ok";
-        stBadge.textContent = `À jour • v${curVer}`;
-      } else if (upd.status === "no_release") {
-        stBadge.className = "updater-badge ok";
-        stBadge.textContent = `v${curVer} • Dépôt lié`;
+        stBadge.textContent = `À jour (v${curVer})`;
       } else if (upd.status === "checking") {
         stBadge.className = "updater-badge";
         stBadge.textContent = "Vérification...";
       } else if (upd.status === "error") {
         stBadge.className = "updater-badge err";
-        stBadge.textContent = "Erreur API";
+        stBadge.textContent = "Erreur";
       } else {
         stBadge.className = "updater-badge";
-        stBadge.textContent = `MashClient v${curVer}${modVer}`;
+        stBadge.textContent = `v${curVer}${modVer}`;
       }
     }
 
@@ -2074,7 +2201,7 @@
       } else if (upd.status === "ready_restart") {
         actBtn.style.display = "inline-flex";
         actBtn.style.alignItems = "center";
-        actBtn.textContent = "Relancer MashClient";
+        actBtn.textContent = "Relancer";
       } else {
         actBtn.style.display = "none";
       }
@@ -2084,12 +2211,12 @@
   function triggerManualUpdateCheck() {
     if (!hasNativeIpc()) {
       state.update.status = "available";
-      state.update.latest_version = "4.1.0";
+      state.update.latest_version = "4.2.0";
       state.update.has_jar_update = true;
       state.update.has_exe_update = true;
-      state.update.message = "Nouvelle version v4.1.0 détectée sur MyMasha/ProjectFPS (purefps-4.1.0.jar + MashClient.exe).";
+      state.update.message = "Version v4.2.0 disponible.";
       renderAll();
-      showToast("Mise à jour MashClient v4.1.0 disponible !", false);
+      showToast("Mise à jour v4.2.0 disponible.", false);
       return;
     }
     sendIpc({ cmd: "check_updates", manual: true });
@@ -2099,17 +2226,17 @@
     const upd = state.update || {};
     if (!hasNativeIpc()) {
       if (upd.status === "ready_restart") {
-        showToast("Relance du nouvel exécutable MashClient.exe...", false);
+        showToast("Relance de MashClient...", false);
         return;
       }
       state.update.status = "downloading";
       state.update.download_percent = 68;
-      state.update.message = "Téléchargement de purefps-4.1.0.jar (68%)...";
+      state.update.message = "Téléchargement en cours (68%)...";
       renderAll();
       setTimeout(() => {
         state.update.status = "ready_restart";
         state.update.download_percent = 100;
-        state.update.message = "Mise à jour v4.1.0 installée — cliquez sur Relancer MashClient.";
+        state.update.message = "Mise à jour prête. Cliquez sur Relancer.";
         renderAll();
       }, 900);
       return;
@@ -2122,17 +2249,19 @@
   }
 
   function triggerUpdatePillAction() {
+    MashSfx.click();
     const upd = state.update || {};
     if (upd.status === "available" || upd.status === "ready_restart") {
       triggerInstallOrRestart();
     } else {
-      switchTab("system");
+      switchTab("system", true);
     }
   }
 
   function toggleAutoUpdateCheck() {
     const next = state.prefs.auto_update_check === false;
     state.prefs.auto_update_check = next;
+    MashSfx.toggle(next);
     renderSystem();
     sendIpc({ cmd: "set_auto_update", enabled: next });
   }
@@ -2150,7 +2279,7 @@
     if (inp) inp.value = "";
     sendIpc({ cmd: "save_github_token", token: raw });
     if (!hasNativeIpc()) {
-      showToast(raw ? "Jeton GitHub Read-Only enregistré." : "Utilisation du jeton Read-Only embarqué.", false);
+      showToast(raw ? "Jeton enregistré." : "Jeton par défaut restauré.", false);
     }
   }
 
@@ -2164,6 +2293,7 @@
   function toggleSetting(key) {
     const next = !state.settings[key];
     state.settings[key] = next;
+    MashSfx.toggle(next);
     renderEngine();
     renderModules();
     sendIpc({ cmd: "set_setting", key, value: next });
@@ -2179,8 +2309,7 @@
   function onRamInput(rawVal) {
     const v = parseInt(rawVal, 10);
     state.prefs.ram_mb = v;
-    document.getElementById("lbl-ram").textContent = v.toLocaleString("fr-FR") + " MiB";
-    renderDockAndHeader();
+    document.getElementById("lbl-ram").textContent = v.toLocaleString("fr-FR") + " Mo";
     sendIpc({ cmd: "set_ram", ram_mb: v });
   }
 
@@ -2192,7 +2321,7 @@
   }
 
   function clearLogs() {
-    document.getElementById("log-console").textContent = "[MashClient 4.1] Journal effacé.\n";
+    document.getElementById("log-console").textContent = "[MashClient] Journal effacé.\n";
   }
 
   function appendLog(line) {
@@ -2221,6 +2350,7 @@
   }
 
   function renderAll() {
+    renderSfxButton();
     renderDockAndHeader();
     renderEngine();
     renderModules();
@@ -2228,19 +2358,18 @@
     renderAccountModal();
   }
 
-  // Suspension WebGL 0% GPU lorsque MashClient est refermé dans la zone de notification (en bas à droite)
   let mashSuspended = false;
   let mashResumeRenderFn = null;
   window.__mashSetSuspended = function(susp) {
     const next = !!susp;
     if (mashSuspended === next) return;
     mashSuspended = next;
+    MashSfx.suspendEngine(mashSuspended);
     if (!mashSuspended && typeof mashResumeRenderFn === "function") {
       mashResumeRenderFn();
     }
   };
 
-  // Réception des messages Rust -> WebView
   window.__purePush = function(msg) {
     if (!msg || !msg.kind) return;
     if (msg.kind === "state") {
@@ -2260,14 +2389,7 @@
   };
 
   /* ============================================================================
-   * MOTEUR WEBGL 3D GÉODÉSIQUE DE SCHWARZSCHILD (GARGANTUA RAPPROCHÉ — 120+ FPS)
-   * - Cadrage rapproché d'origine (`camDist = mix(15.6, 0.82, pDive)`) :
-   *   UN SEUL disque d'accrétion équatorial 3D (`y = 0`) naturellement courbé
-   *   par la gravité (zéro fausse double aura plaquée au-dessus !).
-   * - Espace profond #000000 pur + étoiles 3D analytiques nettes (zéro texture
-   *   dans l'espace = zéro point blanc/noir parasite).
-   * - Plasma du disque accéléré 15× par une texture périodique 512×512 FBM
-   *   pré-calculée au démarrage (2 lectures bilinéaires GPU au lieu de 15 fbm()).
+   * RENDU WEBGL2 TROU NOIR 3D DE SCHWARZSCHILD
    * ============================================================================ */
   function buildTileableNoiseRGBA(size) {
     const data = new Uint8Array(size * size * 4);
@@ -2362,7 +2484,6 @@
         return fract((p.xxy + p.yxx) * p.zyx);
       }
 
-      // Étoiles analytiques 3D circulaires sur espace profond #000000 pur (zéro texture = zéro point parasite)
       vec3 renderStarfield(vec3 dir, float plunge) {
         vec3 d = normalize(dir);
         vec3 col = vec3(0.0);
@@ -2392,14 +2513,12 @@
         return col;
       }
 
-      // Accélération géodésique nulle de Schwarzschild : d²x/dλ² = -1.5 * h² * x / r⁵ (Rs = 1.0)
       vec3 geodesicAccel(vec3 p, float h2) {
         float r2 = max(dot(p, p), 0.04);
         float r = sqrt(r2);
         return (-1.5 * h2 / (r2 * r2 * r)) * p;
       }
 
-      // Émission relativiste de l'unique disque d'accrétion équatorial (y = 0)
       vec4 evaluateAccretionDisk(vec3 hit, vec3 rayDir, float spinPhase) {
         float r = length(hit.xz);
         const float rIn = 1.82;
@@ -2411,7 +2530,6 @@
         float omega = 2.70 / pow(max(r, 1.5), 1.35);
         float theta = angle + spinPhase * omega;
 
-        // Multiples entiers exacts de 1/(2π) sur l'axe azimutal -> raccord 360° garanti sans couture
         vec2 uv1 = vec2(normR * 2.35 - spinPhase * 0.032, theta * 0.318309886);
         vec2 uv2 = vec2(normR * 5.20 + spinPhase * 0.021, theta * 0.795774715);
         vec3 tex1 = texture2D(u_noise, uv1).rgb;
@@ -2423,7 +2541,6 @@
         float iscoRing = exp(-pow((r - 2.26) / 0.42, 2.0)) * 0.86;
         float density = (innerFade * outerFade * (0.38 + 0.86 * filaments) + iscoRing) * 0.94;
 
-        // Facteur Doppler relativiste authentique (côté approchant blanc-doré, côté fuyant cuivré)
         vec3 tangent = normalize(vec3(-hit.z, 0.0, hit.x));
         float beta = clamp(0.66 / sqrt(max(r - 0.85, 0.40)), 0.0, 0.78);
         float cosTheta = dot(tangent, -normalize(rayDir));
@@ -2455,10 +2572,8 @@
         float pSmooth = p * p * (3.0 - 2.0 * p);
         float pDive = pow(p, 1.85);
 
-        // Cadrage rapproché d'origine sur l'accueil -> centrage pur lors du plongeon vers l'Horizon
         uv.x -= u_offsetX * (1.0 - pSmooth);
 
-        // Trajectoire caméra rapprochée : r = 15.6 -> r = 0.82 (franchissement de l'Horizon Rs = 1.0)
         float camDist = mix(15.6, 0.82, pDive);
         float elev = mix(0.176 + u_mouse.y * 0.04, 0.052, pSmooth);
         float azim = u_time * 0.032 + u_mouse.x * 0.07 * (1.0 - pSmooth) + pDive * 0.65;
@@ -2491,7 +2606,6 @@
         float closestR = 100.0;
         float spinPhase = u_time * 0.56 + pDive * 2.2;
 
-        // Intégration RK2 adaptative 48 pas (fluide à 120+ FPS tout en résolvant la courbure 3D exacte)
         for (int i = 0; i < 48; i++) {
           float r = length(pos);
           closestR = min(closestR, r);
@@ -2514,7 +2628,6 @@
           pos += midVel * dt;
           vel = normalize(vel + a2 * dt);
 
-          // Traversée du plan équatorial (y = 0) : produit naturellement le disque avant ET l'arche courbée !
           if (prevPos.y * pos.y <= 0.0) {
             float frac = abs(prevPos.y) / (abs(prevPos.y) + abs(pos.y) + 1e-6);
             vec3 hit = mix(prevPos, pos, frac);
@@ -2527,7 +2640,6 @@
           }
         }
 
-        // Anneau photonique d'Einstein ultra-fin (r = 1.5 Rs)
         float photonGlow = exp(-max(closestR - 1.50, 0.0) * 8.4) * (1.0 - captured);
         accumColor += vec3(1.18, 0.88, 0.52) * photonGlow * 0.42 * transmittance;
 
@@ -2535,12 +2647,10 @@
           accumColor += renderStarfield(vel, pSmooth) * transmittance;
         }
 
-        // Mappage tonal ACES Filmic
         vec3 x = max(vec3(0.0), accumColor);
         vec3 mapped = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
         mapped = pow(clamp(mapped, 0.0, 1.0), vec3(0.92));
 
-        // Franchissement final de l'Horizon des Événements -> noir absolu #000000 garanti
         float horizonBlackout = 1.0 - smoothstep(0.82, 0.975, p);
         mapped *= horizonBlackout;
 
@@ -2576,7 +2686,6 @@
       return;
     }
 
-    // Texture procédurale 512×512 sans couture générée une seule fois en mémoire GPU
     const NOISE_DIM = 512;
     const noiseTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, noiseTex);
@@ -2611,7 +2720,6 @@
     function resize() {
       const iw = Math.max(1, window.innerWidth);
       const ih = Math.max(1, window.innerHeight);
-      // Plafond interne 1600×900 (filtrage bilinéaire plein écran sans explosion du nombre de fragments)
       const dpr = Math.min(window.devicePixelRatio || 1, 1.0, 1600 / iw, 900 / ih);
       const w = Math.max(1, Math.floor(iw * dpr));
       const h = Math.max(1, Math.floor(ih * dpr));
@@ -2667,7 +2775,6 @@
             sendIpc({ cmd: "plunge_darkness_reached" });
           } else {
             setTimeout(() => {
-              document.getElementById("horizon-status").style.opacity = "0";
               document.getElementById("mc-menu-preview").classList.add("visible");
             }, 420);
           }
@@ -2749,8 +2856,13 @@
     scheduleFb();
   }
 
-  // Initialisation & modes de capture d'aperçus automatisés (?demo=home|plunge|engine|modules|system|update|msmodal|mcmenu)
   (function boot() {
+    const brandImg = document.getElementById("brand-logo-img");
+    const prevImg = document.getElementById("mc-preview-logo");
+    if (brandImg && prevImg) {
+      prevImg.src = brandImg.src;
+    }
+
     renderAll();
     const params = new URLSearchParams(window.location.search);
     const demo = params.get("demo") || params.get("tab");
@@ -2758,26 +2870,24 @@
     if (demo === "engine" || demo === "modules" || demo === "system") {
       fixedDemoTimeSec = 14.2;
       lensOffsetCurrentX = 0.0;
-      switchTab(demo);
+      switchTab(demo, true);
     } else if (demo === "update") {
       fixedDemoTimeSec = 14.2;
       lensOffsetCurrentX = 0.0;
       state.has_github_token = true;
       state.update = {
         status: "available",
-        current_version: "4.0.0",
-        installed_jar_version: "4.0.0",
-        latest_version: "4.1.0",
-        release_notes: "MashClient 4.1 : Recherche FR/EN intelligente, Trou Noir 3D rapproché sans double aura, UIs refondues & System Tray",
+        current_version: "4.1.0",
+        installed_jar_version: "4.1.0",
+        latest_version: "4.2.0",
+        release_notes: "MashClient 4.2.0",
         download_percent: 0,
-        message: "Nouvelle Release détectée sur MyMasha/ProjectFPS : purefps-4.1.0.jar + MashClient.exe prêts à installer.",
+        message: "Mise à jour v4.2.0 disponible.",
         has_exe_update: true,
         has_jar_update: true
       };
-      appendLog("[Auto-Updater] Authentifié via Fine-Grained PAT Read-Only sur MyMasha/ProjectFPS.");
-      appendLog("[Auto-Updater] Nouvelle Release détectée : v4.1.0 (purefps-4.1.0.jar + MashClient.exe).");
       renderAll();
-      switchTab("system");
+      switchTab("system", true);
     } else if (demo === "plunge") {
       fixedDemoTimeSec = 18.6;
       lensOffsetCurrentX = 0.0;
@@ -2785,7 +2895,7 @@
       const shell = document.getElementById("launcher-shell");
       shell.style.transition = "none";
       shell.style.opacity = "0.14";
-      shell.style.transform = "scale(1.06)";
+      shell.style.transform = "scale(1.05)";
       shell.style.filter = "blur(5px)";
       document.querySelector(".cinema-vignette").style.opacity = "0";
     } else if (demo === "horizon") {

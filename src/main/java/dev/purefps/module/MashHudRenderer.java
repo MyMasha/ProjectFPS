@@ -592,7 +592,7 @@ public final class MashHudRenderer {
             case "hud_watermark": {
                 int style = mode(mod, "style", 0);
                 boolean inlineFps = bool(mod, "show_fps_inline", false);
-                String base = style == 1 ? "MASH \u2022 FPS" : (style == 2 ? "M  \u2022  4.1" : "MashClient 4.1");
+                String base = style == 1 ? "MASH \u2022 FPS" : (style == 2 ? "MASH" : "MashClient");
                 if (inlineFps) {
                     base = base + "  \u2022  " + fps + " FPS";
                 }
@@ -856,7 +856,7 @@ public final class MashHudRenderer {
                 return;
             }
             case "hud_vbo_stats": {
-                String val = PureFPSConfig.chunksBatchedLastFrame + "c \u2192 " + PureFPSConfig.multiDrawsLastFrame + " lots";
+                String val = PureFPSConfig.chunksBatchedLastFrame + "c -> " + PureFPSConfig.multiDrawsLastFrame + " lots";
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "GPU", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
@@ -1021,7 +1021,7 @@ public final class MashHudRenderer {
             case "hud_custom_label":
             default: {
                 int idx = mode(mod, "preset_label", 0);
-                String[] opts = {"MashClient 4.1", "Singularity FPS", "GG \u2022 FairPlay", "Mode Compétitif"};
+                String[] opts = {"MashClient", "MASH \u2022 FPS", "GG \u2022 FairPlay", "PvP"};
                 String val = opts[Math.max(0, Math.min(opts.length - 1, idx))];
                 drawStandardBadge(mod, x, y, s, val, accentCol, textCol, shadow, true, alphaMul);
             }
@@ -1424,7 +1424,7 @@ public final class MashHudRenderer {
         drawHudCard(mod, x, y, bw, bh, s, alphaMul);
 
         queueText(name, x + 8.0F * s, y + 5.0F * s, s, textCol, shadow, false);
-        String sub = String.format(Locale.US, "%.1f \u2665", hp * 0.5F)
+        String sub = String.format(Locale.US, "%.1f PV", hp)
                 + (bool(mod, "show_dist", true) ? String.format(Locale.US, "  \u2022  %.1fm", dist) : "");
         queueText(sub, x + 8.0F * s, y + 15.0F * s, s, mulAlpha(0xFF949CB0, alphaMul), shadow, false);
 

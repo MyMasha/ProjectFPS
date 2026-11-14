@@ -285,7 +285,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.1.0");
+        root.addProperty("version", "4.2.0");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
@@ -571,7 +571,7 @@ public final class MashModules {
 
         MashFlags.nickHiderEnabled = isOn("hyp_nick_hider");
         int nickIdx = modeIdx("hyp_nick_hider", "alias", 0);
-        String[] aliases = {"MashPlayer", "Vous", "Singularity", "Joueur"};
+        String[] aliases = {"MashPlayer", "Vous", "Mash", "Joueur"};
         MashFlags.nickReplacement = aliases[Math.max(0, Math.min(aliases.length - 1, nickIdx))];
 
         MashFlags.uhcGoldScale = isOn("hyp_uhc_overlay");
@@ -667,8 +667,8 @@ public final class MashModules {
         MashModule m;
 
         // 1..10
-        m = regHud("hud_watermark", "Signature MashClient", "Badge Singularity MashClient 4.1 minimaliste", "watermark logo brand mash", true, 8, 8, 108, 19);
-        m.addSetting(new MashSetting.ModeSetting("style", "Style du badge", "Format de la signature", 0, "MashClient 4.1", "MASH • FPS", "Minimal M"));
+        m = regHud("hud_watermark", "Signature MashClient", "Badge MashClient discret", "watermark logo brand mash", true, 8, 8, 108, 19);
+        m.addSetting(new MashSetting.ModeSetting("style", "Style du badge", "Format de la signature", 0, "MashClient", "MASH • FPS", "MASH"));
         m.addSetting(new MashSetting.BooleanSetting("show_fps_inline", "Inclure FPS en direct", "Ajoute les FPS dans la signature", false));
 
         m = regHud("hud_fps", "Compteur FPS", "Fréquence d'images instantanée sans allocation", "fps framerate images", true, 8, 30, 78, 19);
@@ -884,8 +884,8 @@ public final class MashModules {
         m = regHud("hud_gapple_cooldown", "Minuteur Régénération", "Décompte de la Régénération II après une Pomme d'Or", "gapple regen timer pomme", false, 608, 162, 98, 19);
         m.addSetting(new MashSetting.NumberSetting("duration", "Durée Régénération", "Secondes d'effet après consommation", 5.0F, 3.0F, 30.0F, 1.0F, "s"));
 
-        m = regHud("hud_custom_label", "Badge Personnalisé", "Étiquette élégante personnalisable sur votre HUD", "custom text label badge", false, 608, 184, 108, 19);
-        m.addSetting(new MashSetting.ModeSetting("preset_label", "Texte affiché", "Devise affichée dans le badge", 0, "MashClient 4.1", "Singularity FPS", "GG • FairPlay", "Mode Compétitif"));
+        m = regHud("hud_custom_label", "Badge Personnalisé", "Étiquette simple sur votre HUD", "custom text label badge", false, 608, 184, 108, 19);
+        m.addSetting(new MashSetting.ModeSetting("preset_label", "Texte affiché", "Texte affiché dans le badge", 0, "MashClient", "MASH • FPS", "GG • FairPlay", "PvP"));
     }
 
     // =========================================================================
@@ -980,7 +980,7 @@ public final class MashModules {
         m.addSetting(new MashSetting.NumberSetting("lower", "Abaissement parade", "Dégage le centre de l'écran en parant", 0.10F, 0.00F, 0.35F, 0.05F, ""));
 
         MOD_DAMAGE_TINT = regMod("pvp_damage_tint", "Alerte Vie Critique", "Halo rouge subtil sur les bords de l'écran lorsque vos PV sont bas", "damage tint low health vie critique", MashCategory.PVP, false);
-        MOD_DAMAGE_TINT.addSetting(new MashSetting.NumberSetting("hearts_thresh", "Seuil d'alerte (cœurs)", "Active l'alerte sous ce nombre de cœurs", 3.5F, 1.0F, 8.0F, 0.5F, " ♥"));
+        MOD_DAMAGE_TINT.addSetting(new MashSetting.NumberSetting("hearts_thresh", "Seuil d'alerte (cœurs)", "Active l'alerte sous ce nombre de cœurs", 3.5F, 1.0F, 8.0F, 0.5F, " cœurs"));
 
         m = regMod("pvp_rod_tracer_vis", "Hameçon Haute Visibilité", "Rend le flotteur de la canne à pêche plus net sur fond sombre", "fishing rod canne flotteur", MashCategory.PVP, false);
         m.addSetting(new MashSetting.NumberSetting("scale", "Échelle flotteur", "Taille visuelle du bouchon", 1.15F, 0.8F, 1.6F, 0.05F, "x"));
@@ -1168,7 +1168,7 @@ public final class MashModules {
         m.addSetting(new MashSetting.NumberSetting("interval_min", "Intervalle rappel", "Minutes entre deux rappels", 15.0F, 5.0F, 60.0F, 5.0F, "m"));
 
         MOD_NICK_HIDER = regMod("hyp_nick_hider", "Nick Hider (Mode Streamer)", "Remplace votre pseudo à l'écran pour protéger vos sessions ou streams", "nick hider streamer pseudo cache", MashCategory.HYPIXEL, false);
-        MOD_NICK_HIDER.addSetting(new MashSetting.ModeSetting("alias", "Pseudo affiché", "Alias visuel local", 0, "MashPlayer", "Vous", "Singularity", "Joueur"));
+        MOD_NICK_HIDER.addSetting(new MashSetting.ModeSetting("alias", "Pseudo affiché", "Alias visuel local", 0, "MashPlayer", "Vous", "Mash", "Joueur"));
 
         m = regMod("hyp_levelhead_tab", "Mise en Valeur Ping Tab", "Code couleur instantané de la qualité de connexion des adversaires", "ping color tablist latence", MashCategory.HYPIXEL, true);
         m.addSetting(new MashSetting.NumberSetting("good_ms", "Seuil Ping Excellent", "Affiché en vert émeraude", 55.0F, 20.0F, 100.0F, 5.0F, "ms"));
@@ -1291,7 +1291,7 @@ public final class MashModules {
         m = regMod("wld_memory_cleaner", "Purge Douce Changement Monde", "Libère les tampons régions et têtes obsolètes sans jamais appeler System.gc()", "memory cleaner cache purge", MashCategory.WORLD, true);
         m.addSetting(new MashSetting.BooleanSetting("clear_skulls", "Vider cache crânes", "Purge les skins expirés entre deux lobbys", true));
 
-        m = regMod("wld_custom_main_menu", "Menu Principal Singularity", "Active le menu principal MashClient 4.1 avec le Trou Noir Gargantua 3D", "main menu trou noir singularity", MashCategory.WORLD, true);
+        m = regMod("wld_custom_main_menu", "Menu Principal MashClient", "Active le menu d'accueil épuré avec le Trou Noir 3D", "main menu trou noir mashclient", MashCategory.WORLD, true);
         m.addSetting(new MashSetting.BooleanSetting("mouse_parallax", "Parallaxe souris douce", "Légère inclinaison orbitale avec le curseur", true));
 
         m = regMod("wld_discord_status_fmt", "Confidentialité Serveur", "Masque l'adresse IP privée dans les affichages si souhaité", "privacy server ip", MashCategory.WORLD, false);

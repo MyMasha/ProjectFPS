@@ -252,6 +252,7 @@ public final class BlackHoleEmergenceRenderer {
         latestEmergence = 0.0F;
         menuAttachMs = -1L;
         menuStartEmergence = 0.0F;
+        dev.purefps.client.audio.MashAudioEngine.resetBootState();
     }
 
     public static float computeEmergenceProgress(float startupProgress, long menuElapsedMs) {
@@ -280,8 +281,12 @@ public final class BlackHoleEmergenceRenderer {
     public static void renderSplashThreadFrame(float forgeBarRatio) {
         if (bootOriginNs == 0L) {
             bootOriginNs = System.nanoTime();
+            dev.purefps.client.audio.MashAudioEngine.ensurePrewarmed();
         }
         float timeSec = (float) ((System.nanoTime() - bootOriginNs) * 1.0E-9D);
+        if (timeSec >= 0.04F) {
+            dev.purefps.client.audio.MashAudioEngine.playBlackHoleEmergenceOnce();
+        }
 
         float timeCurve = 1.0F - (float) Math.exp(-timeSec * 0.42D);
         float target = Math.min(MAX_SPLASH_EMERGENCE, Math.max(timeCurve * 0.56F, forgeBarRatio * MAX_SPLASH_EMERGENCE));
@@ -401,6 +406,7 @@ public final class BlackHoleEmergenceRenderer {
         if (menuAttachMs < 0L) {
             menuAttachMs = nowMs;
             menuStartEmergence = latestEmergence > 0.02F ? latestEmergence : 0.65F;
+            dev.purefps.client.audio.MashAudioEngine.playBlackHoleEmergenceOnce();
         }
 
         long elapsedMenuMs = Math.max(0L, nowMs - menuAttachMs);

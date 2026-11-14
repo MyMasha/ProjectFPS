@@ -5,7 +5,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.OpenGlHelper;
+import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.WorldRenderer;
+import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
+import net.minecraft.util.ResourceLocation;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.ContextCapabilities;
@@ -593,19 +596,175 @@ public final class NanoUiRenderer {
         drawCircle(knobX, knobY, hovered ? 3.2F : 2.6F, accentArgb);
     }
 
+    private static final ResourceLocation MASH_MARK_TEX =
+            new ResourceLocation("purefps", "textures/gui/mash_mark.png");
+
     /**
-     * Dessine l'emblème anneau d'accrétion Singularity (style icône haut-gauche du Launcher).
+     * Dessine le logo haute définition MashClient (128x128 4x SSAA RGBA filtré GL_LINEAR).
+     * Peut être appelé à l'intérieur ou en dehors d'un bloc beginBatch()/endBatch().
      */
+    public static void drawBrandLogo(Minecraft mc, float cx, float cy, float size, float alphaFactor) {
+        if (size <= 0.0F || alphaFactor <= 0.004F) {
+            return;
+        }
+        if (batchActive) {
+            flushCurrentBatch();
+        }
+        Minecraft client = mc != null ? mc : Minecraft.getMinecraft();
+        if (client == null || client.getTextureManager() == null) {
+            return;
+        }
+        float a = Math.max(0.0F, Math.min(1.0F, alphaFactor));
+        float half = size * 0.5F;
+        double x0 = cx - half;
+        double y0 = cy - half;
+        double x1 = cx + half;
+        double y1 = cy + half;
+
+        GlStateManager.enableTexture2D();
+        GlStateManager.enableBlend();
+        GlStateManager.disableAlpha();
+        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, a);
+
+        client.getTextureManager().bindTexture(MASH_MARK_TEX);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+
+        Tessellator tess = Tessellator.getInstance();
+        WorldRenderer wr = tess.getWorldRenderer();
+        wr.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX);
+        wr.pos(x0, y1, 0.0D).tex(0.0D, 1.0D).endVertex();
+        wr.pos(x1, y1, 0.0D).tex(1.0D, 1.0D).endVertex();
+        wr.pos(x1, y0, 0.0D).tex(1.0D, 0.0D).endVertex();
+        wr.pos(x0, y0, 0.0D).tex(0.0D, 0.0D).endVertex();
+        tess.draw();
+
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.enableAlpha();
+    }
+
     public static void drawSingularityEmblem(float cx, float cy, float size, float alphaFactor) {
-        float rx = size * 0.52F;
-        float ry = size * 0.25F;
-        // Disque orbital doré incliné stylisé
-        drawRoundedRect(
-                cx - rx, cy - ry, rx * 2.0F, ry * 2.0F, ry,
-                0x00000000, scaleAlpha(0xFFF3BA60, alphaFactor), 1.6F
-        );
-        drawCircle(cx, cy, size * 0.26F, scaleAlpha(0xFF050609, alphaFactor));
-        drawRing(cx, cy, size * 0.28F, 1.5F, scaleAlpha(0xFFFFDEA0, alphaFactor));
+        drawBrandLogo(Minecraft.getMinecraft(), cx, cy, size, alphaFactor);
+    }
+
+    /**
+     * Icône vectorielle Play (triangle orienté à droite, anti-aliasé SDF, zéro police Unicode).
+     */
+    public static void drawPlayIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float x0 = cx - size * 0.34F;
+        float x1 = cx + size * 0.44F;
+        float maxHalfH = size * 0.45F;
+        int slices = 10;
+        float bw = ((x1 - x0) / slices) * 1.68F;
+        for (int i = 0; i < slices; i++) {
+            float t = i / (float) (slices - 1);
+            float sx = x0 + (x1 - x0) * t;
+            float halfH = Math.max(0.70F, maxHalfH * (1.0F - t * 0.88F));
+            float r = Math.min(bw * 0.5F, halfH);
+            drawRoundedRect(sx - bw * 0.5F, cy - halfH, bw, halfH * 2.0F, r, argb, 0, 0.0F);
+        }
+    }
+
+    /**
+     * Icône vectorielle Réglages / Sous-paramètres (2 rails horizontaux + curseurs opposés).
+     */
+    public static void drawSlidersIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float w = size * 0.86F;
+        float trackH = Math.max(1.3F, size * 0.115F);
+        float yTop = cy - size * 0.22F;
+        float yBot = cy + size * 0.22F;
+        float knobR = Math.max(1.9F, size * 0.175F);
+
+        drawRoundedRect(cx - w * 0.5F, yTop - trackH * 0.5F, w, trackH, trackH * 0.5F, argb, 0, 0.0F);
+        drawCircle(cx + size * 0.16F, yTop, knobR, argb);
+
+        drawRoundedRect(cx - w * 0.5F, yBot - trackH * 0.5F, w, trackH, trackH * 0.5F, argb, 0, 0.0F);
+        drawCircle(cx - size * 0.16F, yBot, knobR, argb);
+    }
+
+    /**
+     * Icône vectorielle Étoile 5 branches (pleine ou contour, anti-aliasée SDF).
+     */
+    public static void drawStarIcon(float cx, float cy, float size, boolean filled, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float rOut = size * 0.48F;
+        float rIn = size * 0.21F;
+        float prevX = 0.0F;
+        float prevY = 0.0F;
+        float firstX = 0.0F;
+        float firstY = 0.0F;
+        float stroke = filled ? 1.25F : 1.15F;
+
+        for (int i = 0; i < 10; i++) {
+            double ang = -Math.PI * 0.5 + i * (Math.PI / 5.0);
+            float rad = (i % 2 == 0) ? rOut : rIn;
+            float px = cx + (float) Math.cos(ang) * rad;
+            float py = cy + (float) Math.sin(ang) * rad;
+            if (i == 0) {
+                firstX = px;
+                firstY = py;
+            } else {
+                drawLine(prevX, prevY, px, py, stroke, argb);
+            }
+            if (filled && (i % 2 == 0)) {
+                drawLine(cx, cy, px, py, Math.max(1.4F, size * 0.145F), argb);
+            }
+            prevX = px;
+            prevY = py;
+        }
+        drawLine(prevX, prevY, firstX, firstY, stroke, argb);
+        if (filled) {
+            drawCircle(cx, cy, rIn * 1.05F, argb);
+        }
+    }
+
+    /**
+     * Icône vectorielle Haut-parleur (Son activé / coupé).
+     */
+    public static void drawSoundIcon(float cx, float cy, float size, boolean enabled, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        // Corps du haut-parleur
+        drawRoundedRect(cx - size * 0.42F, cy - size * 0.17F, size * 0.20F, size * 0.34F, 1.0F, argb, 0, 0.0F);
+        for (int i = 0; i < 5; i++) {
+            float t = i / 4.0F;
+            float sx = (cx - size * 0.24F) + (size * 0.26F) * t;
+            float hh = size * (0.17F + 0.22F * t);
+            drawRoundedRect(sx - 0.9F, cy - hh, 1.8F, hh * 2.0F, 0.9F, argb, 0, 0.0F);
+        }
+        if (enabled) {
+            drawRoundedRect(cx + size * 0.15F, cy - size * 0.18F, 1.4F, size * 0.36F, 0.7F, argb, 0, 0.0F);
+            drawRoundedRect(cx + size * 0.30F, cy - size * 0.31F, 1.4F, size * 0.62F, 0.7F, argb, 0, 0.0F);
+        } else {
+            float xA = cx + size * 0.14F;
+            float xB = cx + size * 0.39F;
+            float yA = cy - size * 0.18F;
+            float yB = cy + size * 0.18F;
+            drawLine(xA, yA, xB, yB, 1.35F, argb);
+            drawLine(xA, yB, xB, yA, 1.35F, argb);
+        }
+    }
+
+    /**
+     * Icône vectorielle Fermer / Quitter (croix géométrique nette).
+     */
+    public static void drawCloseIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float r = size * 0.27F;
+        drawLine(cx - r, cy - r, cx + r, cy + r, 1.45F, argb);
+        drawLine(cx - r, cy + r, cx + r, cy - r, 1.45F, argb);
     }
 
     private static int scaleAlpha(int argb, float factor) {

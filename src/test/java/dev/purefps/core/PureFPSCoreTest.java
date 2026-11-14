@@ -877,4 +877,52 @@ public class PureFPSCoreTest {
         assertTrue(dev.purefps.client.ui.SmoothFontRenderer.uiCardTitle().getStringWidth("\u25B6 REJOINDRE HYPIXEL") > 40.0F);
         assertTrue(dev.purefps.client.ui.SmoothFontRenderer.uiBody().getStringWidth("10.0 \u2665") > 15.0F);
     }
+
+    @Test
+    public void testMashAudioAndLogoAssets42() throws Exception {
+        byte[] emergencePcm = dev.purefps.client.audio.MashAudioEngine.synthBlackHoleEmergence();
+        assertNotNull(emergencePcm);
+        assertTrue("PCM émergence Trou Noir trop court", emergencePcm.length > 400_000);
+        assertEquals("Alignement stéréo 16-bit attendu (4 octets/frame)", 0, emergencePcm.length % 4);
+
+        boolean hasSignal = false;
+        for (int i = 0; i < emergencePcm.length; i += 64) {
+            if (emergencePcm[i] != 0 || emergencePcm[i + 1] != 0) {
+                hasSignal = true;
+                break;
+            }
+        }
+        assertTrue("Signal PCM muet", hasSignal);
+
+        java.awt.image.BufferedImage mark = javax.imageio.ImageIO.read(
+                PureFPSCoreTest.class.getResourceAsStream("/assets/purefps/textures/gui/mash_mark.png")
+        );
+        assertNotNull("mash_mark.png introuvable", mark);
+        assertEquals(128, mark.getWidth());
+        assertEquals(128, mark.getHeight());
+
+        java.awt.image.BufferedImage icon16 = javax.imageio.ImageIO.read(
+                PureFPSCoreTest.class.getResourceAsStream("/assets/purefps/textures/gui/mash_icon_16.png")
+        );
+        assertNotNull("mash_icon_16.png introuvable", icon16);
+        assertEquals(16, icon16.getWidth());
+        assertEquals(16, icon16.getHeight());
+
+        java.awt.image.BufferedImage icon32 = javax.imageio.ImageIO.read(
+                PureFPSCoreTest.class.getResourceAsStream("/assets/purefps/textures/gui/mash_icon_32.png")
+        );
+        assertNotNull("mash_icon_32.png introuvable", icon32);
+        assertEquals(32, icon32.getWidth());
+        assertEquals(32, icon32.getHeight());
+
+        java.io.File tempDir = java.nio.file.Files.createTempDirectory("purefps-v42-test").toFile();
+        tempDir.deleteOnExit();
+        dev.purefps.module.MashModules.init(tempDir);
+        for (dev.purefps.module.MashModule mod : dev.purefps.module.MashModules.getAll()) {
+            String combined = mod.getName() + " " + mod.getDescription();
+            assertFalse("Terme Singularity résiduel sur " + mod.getId(), combined.contains("Singularity"));
+            assertFalse("Glyphe dingbat risquant un carré blanc sur " + mod.getId(),
+                    combined.indexOf('\u25B6') >= 0 || combined.indexOf('\u2665') >= 0 || combined.indexOf('\u2605') >= 0);
+        }
+    }
 }

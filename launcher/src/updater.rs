@@ -16,7 +16,7 @@ use std::time::Duration;
 use tao::event_loop::EventLoopProxy;
 
 pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const USER_AGENT: &str = "MashClient-Singularity-Updater/4.0";
+const USER_AGENT: &str = "MashClient-Updater/4.2";
 const GH_API_VERSION: &str = "2022-11-28";
 
 #[derive(Debug, Clone)]
@@ -665,11 +665,12 @@ pub fn cleanup_old_launcher_binary() {
     }
 }
 
-/// Relance le nouvel exécutable PureClient installé à l'emplacement courant.
+/// Relance le nouvel exécutable MashClient installé à l'emplacement courant.
 pub fn restart_launcher_process() -> Result<(), String> {
     let current_exe =
         std::env::current_exe().map_err(|e| format!("Exécutable introuvable: {e}"))?;
     Command::new(&current_exe)
+        .arg("--after-update")
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("Impossible de relancer {}: {e}", current_exe.display()))

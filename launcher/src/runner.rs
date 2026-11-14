@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.0.0.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.2.0.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -486,7 +486,7 @@ pub fn run_direct_jvm_blocking(
 
     let classpath = build_classpath(&prefs.libraries_dir)?;
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[MashClient] Démarrage Singularity JVM ({} MiB G1GC, Borderless {}x{}, joueur: {})...",
+        "[MashClient] Démarrage de Minecraft 1.8.9 ({} Mo, {}x{}, {})...",
         prefs.ram_mb, screen_w, screen_h, username
     )));
 

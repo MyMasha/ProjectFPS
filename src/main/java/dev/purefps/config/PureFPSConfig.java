@@ -85,9 +85,10 @@ public final class PureFPSConfig {
     public static int unfocusedFpsLimit = 15;
     public static boolean showF3Stats = true;
 
-    // Modules MashClient 4.0 (synchronisés avec MashModules)
+    // Modules MashClient (synchronisés avec MashModules)
     public static boolean customMainMenu = true;
     public static boolean smoothClientFont = true;
+    public static boolean sfxEnabled = true;
     public static boolean hudEnabled = true;
     public static boolean hudFpsCps = true;
     public static boolean hudPing = true;
@@ -533,6 +534,7 @@ public final class PureFPSConfig {
             noHurtCam = getBool(props, "noHurtCam", noHurtCam);
             staticFov = getBool(props, "staticFov", staticFov);
             transparentChat = getBool(props, "transparentChat", transparentChat);
+            sfxEnabled = getBool(props, "sfxEnabled", sfxEnabled);
 
             hudFpsX = clamp(getInt(props, "hudFpsX", hudFpsX), 2, 3840);
             hudFpsY = clamp(getInt(props, "hudFpsY", hudFpsY), 2, 2160);
@@ -619,6 +621,7 @@ public final class PureFPSConfig {
 
         props.setProperty("customMainMenu", Boolean.toString(customMainMenu));
         props.setProperty("smoothClientFont", Boolean.toString(smoothClientFont));
+        props.setProperty("sfxEnabled", Boolean.toString(sfxEnabled));
         props.setProperty("hudEnabled", Boolean.toString(hudEnabled));
         props.setProperty("hudFpsCps", Boolean.toString(hudFpsCps));
         props.setProperty("hudPing", Boolean.toString(hudPing));
