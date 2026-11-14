@@ -117,7 +117,7 @@ public final class SeamlessLaunchTransition {
                 cfgDir.mkdirs();
             }
             File splashFile = new File(cfgDir, "splash.properties");
-            String content = "# MashClient 4.4.2 — Single-Context NVIDIA Threaded GL Fast Boot\n"
+            String content = "# MashClient 4.4.3 — Single-Context NVIDIA Threaded GL Fast Boot\n"
                     + "enabled=false\n"
                     + "background=0x000000\n"
                     + "font=0x000000\n"
@@ -154,8 +154,8 @@ public final class SeamlessLaunchTransition {
                 Display.setLocation(0, 0);
             } catch (Throwable ignored) {
             }
-            // Place la fenêtre WS_POPUP (0, 0) en arrière-plan sous le rideau #000000 du Launcher sans voler le focus
-            BorderlessWindowHelper.ensurePostCreateBorderlessPlacement(mc, false);
+            // Sous rideau Launcher (active=true) : placement silencieux SWP_NOACTIVATE ; en lancement direct : activation immédiate
+            BorderlessWindowHelper.ensurePostCreateBorderlessPlacement(mc, !active);
         }
 
         if (active || PureFPSConfig.enabled) {

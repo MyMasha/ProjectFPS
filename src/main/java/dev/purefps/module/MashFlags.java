@@ -103,6 +103,16 @@ public final class MashFlags {
     public static boolean tntTimerDynamicColor = true;
     public static int tntTimerFuseMode = 0; // 0=Auto (BedWars 2.6s / Vanilla 4.0s), 1=Vanilla 4.0s, 2=BedWars 2.6s
 
+    // Curseur OpenGL de menu (vis_menu_cursor — contournement matériel DirectFlip / LWJGL 2.9.4)
+    public static boolean menuCursorEnabled = true;
+    public static int menuCursorStyle = 0; // 0=Flèche Système, 1=Flèche Mash, 2=Diamant, 3=Croix
+    public static float menuCursorScale = 1.0F;
+    public static int menuCursorColor = 0xFFFFFFFF;
+    public static boolean menuCursorChroma = false;
+    public static int menuCursorOutlineColor = 0xFF0A0D14;
+    public static boolean menuCursorShadow = true;
+    public static boolean menuCursorClickPulse = false;
+
     private MashFlags() {
     }
 }

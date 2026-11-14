@@ -4,6 +4,7 @@ import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.BlackHoleEmergenceRenderer;
 import dev.purefps.core.BorderlessWindowHelper;
 import dev.purefps.core.GpuFramePacer;
+import dev.purefps.core.MenuCursorRenderer;
 import dev.purefps.core.MenuUnloadManager;
 import dev.purefps.core.SeamlessLaunchTransition;
 import net.minecraft.client.Minecraft;
@@ -29,11 +30,11 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.4.2) :
+ * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.4.3) :
  * 1. Supprime les 2 appels bloquants GL11.glGetError() par frame dans checkGLError.
  * 2. Régule la file GPU (1-frame-in-flight GLSync) et le limiteur hors focus (60 FPS visible / 30 FPS réduit)
  *    pour éliminer tout freeze des streams Discord, navigateurs et applications en arrière-plan.
- * 3. Maintient un écran #000000 pur pendant startGame() et restaure le curseur flèche Win32 dans tous les menus.
+ * 3. Dessine un pointeur de souris matériel-indépendant en OpenGL dans FBO 0 avant chaque SwapBuffers.
  */
 @Mixin(Minecraft.class)
 public abstract class MixinMinecraft {
@@ -186,9 +187,14 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle("MashClient 4.4.2 | Minecraft 1.8.9");
+            Display.setTitle("MashClient 4.4.3 | Minecraft 1.8.9");
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
+    }
+
+    @Inject(method = "updateDisplay", at = @At("HEAD"))
+    private void purefps$renderHardwareIndependentMenuCursor(CallbackInfo ci) {
+        MenuCursorRenderer.onBeforeSwapBuffers((Minecraft) (Object) this);
     }
 
     @Inject(method = "displayGuiScreen", at = @At("RETURN"))

@@ -21,6 +21,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
+          cache: gradle
           java-version: |
             8
             17
@@ -41,6 +42,11 @@ jobs:
 
       - name: Setup Rust Stable
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo Build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
 
       - name: Build & Test Launcher (without secrets)
         working-directory: launcher

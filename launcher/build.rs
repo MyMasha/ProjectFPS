@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=.github_token");
@@ -33,19 +34,15 @@ fn main() {
     let resolved_ms_id = env_ms_id.or(file_ms_id).unwrap_or_default();
     println!("cargo:rustc-env=MASHCLIENT_EMBEDDED_MS_CLIENT_ID={resolved_ms_id}");
 
-    #[cfg(windows)]
-    embed_windows_exe_icon();
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        embed_windows_exe_icon();
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
+            stage_webview2_loader_dll_for_gnu();
+        }
+    }
 }
 
-#[cfg(windows)]
 fn embed_windows_exe_icon() {
-    use std::path::PathBuf;
-    use std::process::Command;
-
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
-        return;
-    }
-
     let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
         return;
     };
@@ -58,21 +55,15 @@ fn embed_windows_exe_icon() {
         return;
     }
 
-    let Some(rc_exe) = find_windows_rc_exe() else {
-        println!("cargo:warning=rc.exe introuvable sur l'hôte Windows, icône .exe ignorée");
-        return;
-    };
-
-    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "4.4.2".to_owned());
+    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "4.4.3".to_owned());
     let mut parts = pkg_ver.split('.').map(|p| p.parse::<u16>().unwrap_or(0));
     let v_maj = parts.next().unwrap_or(4);
     let v_min = parts.next().unwrap_or(4);
-    let v_pat = parts.next().unwrap_or(2);
+    let v_pat = parts.next().unwrap_or(3);
 
     let ico_escaped = ico_path.to_string_lossy().replace('\\', "/");
     let out_path = PathBuf::from(&out_dir);
     let rc_script_full = out_path.join("mashclient_res.rc");
-    let res_output = out_path.join("mashclient_res.res");
 
     let full_rc = format!(
         "#pragma code_page(65001)\r\n\
@@ -105,38 +96,96 @@ fn embed_windows_exe_icon() {
            END\r\n\
          END\r\n"
     );
-
     let _ = std::fs::write(&rc_script_full, full_rc);
-    let compiled = Command::new(&rc_exe)
-        .args(["/nologo", "/fo"])
-        .arg(&res_output)
-        .arg(&rc_script_full)
-        .status()
-        .is_ok_and(|s| s.success());
 
-    if !compiled || !res_output.is_file() {
-        let minimal_rc = format!("1 ICON \"{ico_escaped}\"\r\n");
-        let _ = std::fs::write(&rc_script_full, minimal_rc);
-        let _ = Command::new(&rc_exe)
-            .args(["/nologo", "/fo"])
-            .arg(&res_output)
+    let is_msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    if is_msvc {
+        if let Some(rc_exe) = find_windows_rc_exe() {
+            let res_output = out_path.join("mashclient_res.res");
+            let compiled = Command::new(&rc_exe)
+                .args(["/nologo", "/fo"])
+                .arg(&res_output)
+                .arg(&rc_script_full)
+                .status()
+                .is_ok_and(|s| s.success());
+
+            if !compiled || !res_output.is_file() {
+                let minimal_rc = format!("1 ICON \"{ico_escaped}\"\r\n");
+                let _ = std::fs::write(&rc_script_full, minimal_rc);
+                let _ = Command::new(&rc_exe)
+                    .args(["/nologo", "/fo"])
+                    .arg(&res_output)
+                    .arg(&rc_script_full)
+                    .status();
+            }
+
+            if res_output.is_file() {
+                println!(
+                    "cargo:rustc-link-arg-bin=MashClient={}",
+                    res_output.display()
+                );
+                return;
+            }
+        }
+    }
+
+    if let Some(windres) = find_windres_exe() {
+        let obj_output = out_path.join("mashclient_res.o");
+        let compiled = Command::new(&windres)
+            .arg("-i")
             .arg(&rc_script_full)
-            .status();
+            .arg("-o")
+            .arg(&obj_output)
+            .status()
+            .is_ok_and(|s| s.success());
+
+        if !compiled || !obj_output.is_file() {
+            let minimal_rc = format!("1 ICON \"{ico_escaped}\"\r\n");
+            let _ = std::fs::write(&rc_script_full, minimal_rc);
+            let _ = Command::new(&windres)
+                .arg("-i")
+                .arg(&rc_script_full)
+                .arg("-o")
+                .arg(&obj_output)
+                .status();
+        }
+
+        if obj_output.is_file() {
+            println!(
+                "cargo:rustc-link-arg-bin=MashClient={}",
+                obj_output.display()
+            );
+            return;
+        }
     }
 
-    if res_output.is_file() {
-        println!(
-            "cargo:rustc-link-arg-bin=MashClient={}",
-            res_output.display()
-        );
-    }
+    println!("cargo:warning=Compilateur de ressources Windows introuvable, icône .exe ignorée");
 }
 
-#[cfg(windows)]
-fn find_windows_rc_exe() -> Option<std::path::PathBuf> {
-    use std::path::PathBuf;
-    use std::process::Command;
+fn find_windres_exe() -> Option<PathBuf> {
+    let mut candidates = vec![
+        PathBuf::from("x86_64-w64-mingw32-windres"),
+        PathBuf::from("llvm-windres"),
+    ];
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.insert(
+            0,
+            Path::new(&home)
+                .join(".cache")
+                .join("llvm-mingw")
+                .join("bin")
+                .join("x86_64-w64-mingw32-windres"),
+        );
+    }
+    for cand in candidates {
+        if Command::new(&cand).arg("--version").output().is_ok() {
+            return Some(cand);
+        }
+    }
+    None
+}
 
+fn find_windows_rc_exe() -> Option<PathBuf> {
     if Command::new("rc.exe").arg("/?").output().is_ok() {
         return Some(PathBuf::from("rc.exe"));
     }
@@ -169,4 +218,55 @@ fn find_windows_rc_exe() -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+fn stage_webview2_loader_dll_for_gnu() {
+    let Ok(out_dir) = std::env::var("OUT_DIR") else {
+        return;
+    };
+    let dest = Path::new(&out_dir).join("WebView2Loader.dll");
+    if dest.is_file() {
+        return;
+    }
+
+    let mut cargo_roots = Vec::new();
+    if let Ok(ch) = std::env::var("CARGO_HOME") {
+        cargo_roots.push(PathBuf::from(ch));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        cargo_roots.push(Path::new(&home).join(".cargo"));
+    }
+    if let Ok(up) = std::env::var("USERPROFILE") {
+        cargo_roots.push(Path::new(&up).join(".cargo"));
+    }
+
+    for root in cargo_roots {
+        let reg_src = root.join("registry").join("src");
+        let Ok(indices) = std::fs::read_dir(&reg_src) else {
+            continue;
+        };
+        for idx in indices.flatten() {
+            let Ok(crates) = std::fs::read_dir(idx.path()) else {
+                continue;
+            };
+            let mut matches: Vec<PathBuf> = crates
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|s| s.starts_with("webview2-com-sys-"))
+                })
+                .collect();
+            matches.sort();
+            matches.reverse();
+            for crate_dir in matches {
+                let dll = crate_dir.join("x64").join("WebView2Loader.dll");
+                if dll.is_file() && std::fs::copy(&dll, &dest).is_ok() {
+                    return;
+                }
+            }
+        }
+    }
+    panic!("WebView2Loader.dll introuvable dans le cache Cargo de webview2-com-sys");
 }

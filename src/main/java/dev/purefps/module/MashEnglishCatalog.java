@@ -164,6 +164,7 @@ public final class MashEnglishCatalog {
         put("vis_falling_blocks", "Smooth Falling Blocks", "falling sand gravel anvil");
         put("vis_fireworks_ctrl", "Firework Limiter", "anti firework lag spark cap");
         put("vis_gui_font_hd", "Smooth Font", "custom font hd typography ttf");
+        put("vis_menu_cursor", "Menu Cursor", "mouse pointer arrow cursor fix invisible mouse");
 
         // =====================================================================
         // 4. 25 HYPIXEL & CHAT MODULES

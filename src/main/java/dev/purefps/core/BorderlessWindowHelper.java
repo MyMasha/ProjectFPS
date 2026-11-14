@@ -11,14 +11,16 @@ import org.lwjgl.opengl.DisplayMode;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Locale;
 
 /**
- * Gestionnaire natif de Plein Écran Sans Bordure ("Borderless Windowed") & Curseur Matériel Win32 :
+ * Gestionnaire natif de Plein Écran Sans Bordure ("Borderless Windowed") & Pont Curseur Win32/LWJGL :
  * - Remplace le plein écran exclusif LWJGL par une fenêtre sans bordure instantanée à (0, 0) couvrant
  *   exactement la résolution du bureau, avec pinceau de classe GDI #000000 (zéro flash blanc WM_ERASEBKGND).
- * - Corrige le bogue natif LWJGL 2.9.4 (nSetNativeCursor -> SetClassLongPtr(GCLP_HCURSOR, NULL)) qui
- *   rendait le curseur flèche Windows invisible dans les menus en mode sans bordure plein écran.
+ * - Fournit l'échantillonnage noyau direct (GetCursorPos + ScreenToClient + WindowFromPoint) à MenuCursorRenderer
+ *   et synchronise WindowsDisplay.current_cursor pour éliminer tout double curseur ou disparition matérielle.
  */
 public final class BorderlessWindowHelper {
 
@@ -56,10 +58,18 @@ public final class BorderlessWindowHelper {
         int ShowCursor(boolean bShow);
 
         boolean GetCursorInfo(Pointer pci);
+
+        boolean GetCursorPos(Pointer lpPoint);
+
+        boolean ScreenToClient(Pointer hWnd, Pointer lpPoint);
+
+        boolean GetClientRect(Pointer hWnd, Pointer lpRect);
     }
 
     public interface Win32ClassLong64 extends Library {
         Pointer SetClassLongPtrW(Pointer hWnd, int nIndex, Pointer dwNewLong);
+
+        Pointer WindowFromPoint(long packedPoint);
     }
 
     public interface Win32Gdi extends Library {
@@ -75,8 +85,22 @@ public final class BorderlessWindowHelper {
     private static Win32ClassLong64 cachedClass64;
     private static Win32Gdi cachedGdi32;
     private static Pointer cachedArrowCursor;
+    private static ByteBuffer cachedArrowCursorBuffer;
     private static Pointer cachedBlackBrush;
     private static Memory cursorInfoBuffer;
+    private static Memory pointBuffer;
+    private static Memory clientRectBuffer;
+
+    // Cache de réflexion LWJGL WindowsDisplay (zéro allocation par frame)
+    private static boolean lwjglReflectionResolved = false;
+    private static Field displayImplField;
+    private static Method getHwndMethod;
+    private static Field currentCursorField;
+    private static Field windowsMouseField;
+    private static Method getBlankCursorMethod;
+    private static Method updateCursorMethod;
+
+    private static Boolean clientHardwareCursorBlank = null;
 
     private static boolean currentlyBorderless = false;
     private static int savedWindowedW = 1280;
@@ -96,6 +120,13 @@ public final class BorderlessWindowHelper {
         return cachedUser32;
     }
 
+    private static Win32ClassLong64 class64() {
+        if (cachedClass64 == null && IS_WINDOWS && Pointer.SIZE == 8) {
+            cachedClass64 = (Win32ClassLong64) Native.loadLibrary("user32", Win32ClassLong64.class);
+        }
+        return cachedClass64;
+    }
+
     private static Win32Gdi gdi32() {
         if (cachedGdi32 == null && IS_WINDOWS) {
             cachedGdi32 = (Win32Gdi) Native.loadLibrary("gdi32", Win32Gdi.class);
@@ -104,23 +135,240 @@ public final class BorderlessWindowHelper {
     }
 
     private static void setClassPointer(Pointer hwnd, int index, Pointer value) {
-        if (hwnd == null || value == null || !IS_WINDOWS) {
+        if (hwnd == null || !IS_WINDOWS) {
             return;
         }
         try {
             if (Pointer.SIZE == 8) {
-                if (cachedClass64 == null) {
-                    cachedClass64 = (Win32ClassLong64) Native.loadLibrary("user32", Win32ClassLong64.class);
+                Win32ClassLong64 c64 = class64();
+                if (c64 != null) {
+                    c64.SetClassLongPtrW(hwnd, index, value);
                 }
-                cachedClass64.SetClassLongPtrW(hwnd, index, value);
             } else {
                 Win32Borderless u32 = user32();
                 if (u32 != null) {
-                    u32.SetClassLongW(hwnd, index, (int) Pointer.nativeValue(value));
+                    u32.SetClassLongW(hwnd, index, value == null ? 0 : (int) Pointer.nativeValue(value));
                 }
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    private static Object resolveWindowsDisplayImpl() {
+        try {
+            if (displayImplField == null) {
+                Field f = Display.class.getDeclaredField("display_impl");
+                f.setAccessible(true);
+                displayImplField = f;
+            }
+            Object impl = displayImplField.get(null);
+            if (impl != null && !lwjglReflectionResolved) {
+                lwjglReflectionResolved = true;
+                Class<?> cls = impl.getClass();
+                try {
+                    Method gh = cls.getDeclaredMethod("getHwnd");
+                    gh.setAccessible(true);
+                    getHwndMethod = gh;
+                } catch (Throwable ignored) {
+                }
+                try {
+                    Field cc = cls.getDeclaredField("current_cursor");
+                    cc.setAccessible(true);
+                    currentCursorField = cc;
+                } catch (Throwable ignored) {
+                }
+                try {
+                    Field mf = cls.getDeclaredField("mouse");
+                    mf.setAccessible(true);
+                    windowsMouseField = mf;
+                } catch (Throwable ignored) {
+                }
+                try {
+                    Method uc = cls.getDeclaredMethod("updateCursor");
+                    uc.setAccessible(true);
+                    updateCursorMethod = uc;
+                } catch (Throwable ignored) {
+                }
+            }
+            return impl;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static ByteBuffer ensureArrowCursorDirectBuffer() {
+        if (cachedArrowCursorBuffer != null) {
+            return cachedArrowCursorBuffer;
+        }
+        Win32Borderless u32 = user32();
+        if (u32 == null) {
+            return null;
+        }
+        if (cachedArrowCursor == null) {
+            cachedArrowCursor = u32.LoadCursorW(null, new Pointer(Win32Borderless.IDC_ARROW_ID));
+        }
+        if (cachedArrowCursor == null) {
+            return null;
+        }
+        long handle = Pointer.nativeValue(cachedArrowCursor);
+        ByteBuffer buf = ByteBuffer.allocateDirect(Pointer.SIZE).order(ByteOrder.nativeOrder());
+        if (Pointer.SIZE == 8) {
+            buf.putLong(0, handle);
+        } else {
+            buf.putInt(0, (int) handle);
+        }
+        cachedArrowCursorBuffer = buf;
+        return buf;
+    }
+
+    private static void ensureOsCursorCounterPositive(Win32Borderless u32) {
+        if (u32 == null) {
+            return;
+        }
+        int cbSize = Pointer.SIZE == 8 ? 24 : 20;
+        if (cursorInfoBuffer == null || cursorInfoBuffer.size() < cbSize) {
+            cursorInfoBuffer = new Memory(cbSize);
+        }
+        cursorInfoBuffer.clear();
+        cursorInfoBuffer.setInt(0, cbSize);
+        if (u32.GetCursorInfo(cursorInfoBuffer)) {
+            int flags = cursorInfoBuffer.getInt(4);
+            if ((flags & Win32Borderless.CURSOR_SHOWING) == 0) {
+                for (int i = 0; i < 8; i++) {
+                    if (u32.ShowCursor(true) >= 0) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Synchronise le curseur client matériel de LWJGL (WindowsDisplay.current_cursor) :
+     * - blankInClient = true  : lorsque MenuCursorRenderer dessine déjà le curseur OpenGL dans FBO 0,
+     *   assigne le curseur transparent 1x1 de WindowsMouse à HTCLIENT pour éviter tout double curseur.
+     * - blankInClient = false : assigne un ByteBuffer direct contenant IDC_ARROW à WindowsDisplay.current_cursor
+     *   afin que LWJGL n'écrase jamais plus GCLP_HCURSOR à NULL hors focus ou si le module est désactivé.
+     */
+    public static void setClientHardwareCursorBlank(boolean blankInClient) {
+        if (!IS_WINDOWS || !Display.isCreated()) {
+            return;
+        }
+        if (clientHardwareCursorBlank != null && clientHardwareCursorBlank == blankInClient) {
+            return;
+        }
+        try {
+            Object impl = resolveWindowsDisplayImpl();
+            if (impl == null || currentCursorField == null) {
+                return;
+            }
+            if (blankInClient) {
+                Object mouseObj = windowsMouseField != null ? windowsMouseField.get(impl) : null;
+                if (mouseObj == null) {
+                    return;
+                }
+                if (getBlankCursorMethod == null) {
+                    Method gb = mouseObj.getClass().getDeclaredMethod("getBlankCursor");
+                    gb.setAccessible(true);
+                    getBlankCursorMethod = gb;
+                }
+                Object blankCursor = getBlankCursorMethod.invoke(mouseObj);
+                if (blankCursor == null) {
+                    return;
+                }
+                currentCursorField.set(impl, blankCursor);
+                clientHardwareCursorBlank = Boolean.TRUE;
+                if (updateCursorMethod != null && (!Mouse.isCreated() || !Mouse.isGrabbed())) {
+                    updateCursorMethod.invoke(impl);
+                }
+            } else {
+                ByteBuffer arrowBuf = ensureArrowCursorDirectBuffer();
+                if (arrowBuf != null) {
+                    currentCursorField.set(impl, arrowBuf);
+                }
+                clientHardwareCursorBlank = Boolean.FALSE;
+                if (!Mouse.isCreated() || !Mouse.isGrabbed()) {
+                    if (updateCursorMethod != null) {
+                        updateCursorMethod.invoke(impl);
+                    }
+                    Win32Borderless u32 = user32();
+                    if (u32 != null) {
+                        ensureOsCursorCounterPositive(u32);
+                        if (cachedArrowCursor != null) {
+                            u32.SetCursor(cachedArrowCursor);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Interroge en direct le pointeur noyau Win32 (GetCursorPos + ScreenToClient + GetClientRect) :
+     * Retourne :
+     * - 2 si outXY est valide ET le curseur survole directement la fenêtre OpenGL (WindowFromPoint == hwnd)
+     * - 1 si outXY est valide mais une autre fenêtre recouvre ce pixel
+     * - 0 en cas d'indisponibilité
+     */
+    public static int queryClientCursorState(Minecraft mc, float[] outXY) {
+        if (outXY == null || outXY.length < 2 || !Display.isCreated()) {
+            return 0;
+        }
+        int dispW = mc != null ? Math.max(1, mc.displayWidth) : Math.max(1, Display.getWidth());
+        int dispH = mc != null ? Math.max(1, mc.displayHeight) : Math.max(1, Display.getHeight());
+
+        if (IS_WINDOWS) {
+            try {
+                Win32Borderless u32 = user32();
+                long hwndVal = extractLwjglHwnd();
+                if (u32 != null && hwndVal != 0L) {
+                    if (pointBuffer == null) {
+                        pointBuffer = new Memory(8);
+                    }
+                    if (u32.GetCursorPos(pointBuffer)) {
+                        boolean directlyOverHwnd = Display.isActive();
+                        if (!directlyOverHwnd && Pointer.SIZE == 8) {
+                            Win32ClassLong64 c64 = class64();
+                            if (c64 != null) {
+                                Pointer hit = c64.WindowFromPoint(pointBuffer.getLong(0));
+                                directlyOverHwnd = hit != null && Pointer.nativeValue(hit) == hwndVal;
+                            }
+                        }
+
+                        Pointer hwnd = new Pointer(hwndVal);
+                        if (u32.ScreenToClient(hwnd, pointBuffer)) {
+                            int cx = pointBuffer.getInt(0);
+                            int cy = pointBuffer.getInt(4);
+
+                            if (clientRectBuffer == null) {
+                                clientRectBuffer = new Memory(16);
+                            }
+                            if (u32.GetClientRect(hwnd, clientRectBuffer)) {
+                                int cw = clientRectBuffer.getInt(8) - clientRectBuffer.getInt(0);
+                                int ch = clientRectBuffer.getInt(12) - clientRectBuffer.getInt(4);
+                                if (cw > 0 && ch > 0) {
+                                    outXY[0] = (float) cx * ((float) dispW / (float) cw);
+                                    outXY[1] = (float) cy * ((float) dispH / (float) ch);
+                                    return directlyOverHwnd ? 2 : 1;
+                                }
+                            }
+                            outXY[0] = (float) cx;
+                            outXY[1] = (float) cy;
+                            return directlyOverHwnd ? 2 : 1;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+
+        if (Mouse.isCreated()) {
+            outXY[0] = (float) Mouse.getX();
+            outXY[1] = (float) (dispH - 1 - Mouse.getY());
+            return Display.isActive() ? 2 : 1;
+        }
+        return 0;
     }
 
     /**
@@ -150,9 +398,8 @@ public final class BorderlessWindowHelper {
     }
 
     /**
-     * Restaure le curseur matériel flèche (IDC_ARROW) sur la classe de fenêtre LWJGL et dans l'état Win32
-     * chaque fois qu'un menu est ouvert (contourne le bogue LWJGL 2.9.4 où nSetNativeCursor(null) écrase
-     * GCLP_HCURSOR à NULL et laisse le curseur invisible en mode Borderless 1920x1080).
+     * Maintient le compteur ShowCursor >= 0 et installe IDC_ARROW en secours lorsque le rendu OpenGL
+     * du curseur n'est pas en train de masquer volontairement le curseur client.
      */
     public static void ensureMenuCursorVisible() {
         if (!IS_WINDOWS || !Display.isCreated()) {
@@ -166,33 +413,41 @@ public final class BorderlessWindowHelper {
             if (u32 == null) {
                 return;
             }
-            if (cachedArrowCursor == null) {
-                cachedArrowCursor = u32.LoadCursorW(null, new Pointer(Win32Borderless.IDC_ARROW_ID));
+            ensureOsCursorCounterPositive(u32);
+            if (Boolean.TRUE.equals(clientHardwareCursorBlank)) {
+                return;
             }
+            ensureArrowCursorDirectBuffer();
+            setClientHardwareCursorBlank(false);
             long hwndVal = extractLwjglHwnd();
             if (hwndVal != 0L && cachedArrowCursor != null) {
                 setClassPointer(new Pointer(hwndVal), Win32Borderless.GCLP_HCURSOR, cachedArrowCursor);
-            }
-
-            int cbSize = Pointer.SIZE == 8 ? 24 : 20;
-            if (cursorInfoBuffer == null || cursorInfoBuffer.size() < cbSize) {
-                cursorInfoBuffer = new Memory(cbSize);
-            }
-            cursorInfoBuffer.clear();
-            cursorInfoBuffer.setInt(0, cbSize);
-            if (u32.GetCursorInfo(cursorInfoBuffer)) {
-                int flags = cursorInfoBuffer.getInt(4);
-                if ((flags & Win32Borderless.CURSOR_SHOWING) == 0) {
-                    for (int i = 0; i < 8; i++) {
-                        if (u32.ShowCursor(true) >= 0) {
-                            break;
-                        }
-                    }
-                }
-            }
-            if (cachedArrowCursor != null) {
                 u32.SetCursor(cachedArrowCursor);
             }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Active proprement la fenêtre Minecraft lorsqu'elle a été lancée directement sans le Launcher MashClient.
+     */
+    public static void activateWindowNow() {
+        if (!IS_WINDOWS || !Display.isCreated()) {
+            return;
+        }
+        try {
+            long hwndVal = extractLwjglHwnd();
+            if (hwndVal == 0L) {
+                return;
+            }
+            Win32Borderless u32 = user32();
+            if (u32 == null) {
+                return;
+            }
+            Pointer hwnd = new Pointer(hwndVal);
+            u32.ShowWindow(hwnd, 5);
+            u32.BringWindowToTop(hwnd);
+            u32.SetForegroundWindow(hwnd);
         } catch (Throwable ignored) {
         }
     }
@@ -348,15 +603,11 @@ public final class BorderlessWindowHelper {
 
     public static long extractLwjglHwnd() {
         try {
-            Field implField = Display.class.getDeclaredField("display_impl");
-            implField.setAccessible(true);
-            Object impl = implField.get(null);
-            if (impl == null) {
+            Object impl = resolveWindowsDisplayImpl();
+            if (impl == null || getHwndMethod == null) {
                 return 0L;
             }
-            Method getHwnd = impl.getClass().getDeclaredMethod("getHwnd");
-            getHwnd.setAccessible(true);
-            Object val = getHwnd.invoke(impl);
+            Object val = getHwndMethod.invoke(impl);
             if (val instanceof Long) {
                 return (Long) val;
             }

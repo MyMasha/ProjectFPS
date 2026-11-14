@@ -701,7 +701,7 @@ public class PureFPSCoreTest {
             java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
             java.util.List<dev.purefps.module.MashModule> huds = dev.purefps.module.MashModules.getHudModules();
 
-            assertEquals("MashClient 4.3 must expose exactly 203 modules", 203, all.size());
+            assertEquals("MashClient 4.4.3 must expose exactly 204 modules", 204, all.size());
             assertEquals("MashClient 4.0 must expose 65 draggable HUD widgets", 65, huds.size());
 
             for (dev.purefps.module.MashModule mod : all) {
@@ -821,7 +821,7 @@ public class PureFPSCoreTest {
         dev.purefps.module.MashModules.init(tempDir);
 
         java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
-        assertEquals(203, all.size());
+        assertEquals(204, all.size());
         for (dev.purefps.module.MashModule mod : all) {
             dev.purefps.module.MashEnglishCatalog.Entry entry = dev.purefps.module.MashEnglishCatalog.lookup(mod.getId());
             assertNotNull("Catalogue anglais manquant pour " + mod.getId(), entry);
@@ -856,7 +856,9 @@ public class PureFPSCoreTest {
                 {"Potion Effects", "hud_potions"},
                 {"Coordinates", "hud_coords"},
                 {"Zoom", "pvp_zoom"},
-                {"FOV Changer", "pvp_fov"}
+                {"FOV Changer", "pvp_fov"},
+                {"Menu Cursor", "vis_menu_cursor"},
+                {"invisible mouse", "vis_menu_cursor"}
         };
 
         for (String[] pair : expectedTopMatches) {
@@ -1103,5 +1105,44 @@ public class PureFPSCoreTest {
             assertFalse("Jargon IA 'Obsidienne'/'Cinétique' sur " + mod.getId(),
                     combined.contains("Obsidienne") || combined.contains("Cinétique"));
         }
+    }
+
+    @Test
+    public void testMenuCursorRendererSdfAndSupersampledRasterizer() throws Exception {
+        java.io.File tempDir = java.nio.file.Files.createTempDirectory("purefps-v443-cursor").toFile();
+        tempDir.deleteOnExit();
+        dev.purefps.module.MashModules.init(tempDir);
+
+        dev.purefps.module.MashModule cursorMod = dev.purefps.module.MashModules.getById("vis_menu_cursor");
+        assertNotNull("vis_menu_cursor doit être enregistré", cursorMod);
+        assertTrue("vis_menu_cursor doit être actif par défaut", cursorMod.isEnabled());
+        assertTrue(dev.purefps.module.MashFlags.menuCursorEnabled);
+        assertEquals(0, dev.purefps.module.MashFlags.menuCursorStyle);
+
+        for (int style = 0; style <= 2; style++) {
+            assertTrue("Intérieur flèche style " + style + " doit avoir SDF < 0",
+                    MenuCursorRenderer.evaluateCursorSdf(3.0F, 9.0F, style) < -0.5F);
+            assertTrue("Coin éloigné style " + style + " doit avoir SDF > 15",
+                    MenuCursorRenderer.evaluateCursorSdf(35.0F, 35.0F, style) > 15.0F);
+
+            byte[] rgba = MenuCursorRenderer.rasterizeSupersampledCursorRgba(style, 0xFFFFFFFF, 0xFF0A0D14, true);
+            assertEquals(64 * 64 * 4, rgba.length);
+
+            int insideIdx = ((8 + 9) * 64 + (8 + 3)) * 4;
+            assertEquals(255, rgba[insideIdx] & 0xFF);
+            assertEquals(255, rgba[insideIdx + 1] & 0xFF);
+            assertEquals(255, rgba[insideIdx + 2] & 0xFF);
+            assertEquals(255, rgba[insideIdx + 3] & 0xFF);
+
+            int cornerIdx = (63 * 64 + 63) * 4;
+            assertEquals(0, rgba[cornerIdx + 3] & 0xFF);
+        }
+
+        // Style 3 (Croix centrée sur 32, 32)
+        assertTrue(MenuCursorRenderer.evaluateCursorSdf(0.0F, 0.0F, 3) < -0.8F);
+        byte[] crossRgba = MenuCursorRenderer.rasterizeSupersampledCursorRgba(3, 0xFFFFFFFF, 0xFF0A0D14, true);
+        int centerIdx = (32 * 64 + 32) * 4;
+        assertEquals(255, crossRgba[centerIdx + 3] & 0xFF);
+        assertEquals(0, crossRgba[(63 * 64 + 63) * 4 + 3] & 0xFF);
     }
 }

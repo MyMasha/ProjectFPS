@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.2.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.3.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -584,6 +584,7 @@ pub fn run_direct_jvm_blocking(
 
     let mut cmd = Command::new(&prefs.java_path);
     cmd.current_dir(&prefs.game_dir)
+        .env_remove("SHIM_MCCOMPAT")
         .env("__GL_THREADED_OPTIMIZATIONS", "1")
         .arg(format!("-Xms{}M", prefs.ram_mb))
         .arg(format!("-Xmx{}M", prefs.ram_mb))
@@ -754,7 +755,8 @@ pub fn spawn_prism_bridge_now(
     )));
 
     let mut cmd = Command::new(&prefs.prism_exe);
-    cmd.env("__GL_THREADED_OPTIMIZATIONS", "1")
+    cmd.env_remove("SHIM_MCCOMPAT")
+        .env("__GL_THREADED_OPTIMIZATIONS", "1")
         .arg("--launch")
         .arg(instance_id);
     if prefs.quick_join_hypixel {

@@ -12,6 +12,8 @@ mod config;
 mod runner;
 mod tray;
 mod updater;
+#[cfg(all(target_os = "windows", not(target_env = "msvc")))]
+mod webview2_gnu_shim;
 
 use auth::{
     copy_to_windows_clipboard, open_verification_browser, poll_device_code_until_complete,
