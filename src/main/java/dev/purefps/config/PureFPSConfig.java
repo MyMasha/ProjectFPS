@@ -35,7 +35,7 @@ public final class PureFPSConfig {
     public static boolean disableWorldLoadGC = true;
     public static boolean skipVoidFogLoop = true;
 
-    // GPU MultiDraw, VAO GL30, Zéro glGetError, FBO Blit GL30, Frustum P-Vertex & UI
+    // GPU VAO GL30 + EBO GL_TRIANGLES, Zéro glGetError, FBO Blit GL30, Modèles compilés & UI
     public static boolean disableGlErrorChecks = true;
     public static boolean regionMultiDraw = true;
     public static boolean hardwareRegionVao = true;
@@ -43,6 +43,7 @@ public final class PureFPSConfig {
     public static boolean fastFrustumPVertex = true;
     public static boolean asyncSkinUploadPacing = true;
     public static boolean fastItemRender = true;
+    public static boolean fastBakedItemModels = true;
     public static boolean limitDistantGlint = true;
     public static boolean fastScoreboard = true;
     public static boolean smartAnimations = true;
@@ -51,11 +52,15 @@ public final class PureFPSConfig {
     public static boolean fastLightmapCoords = true;
     public static boolean disableVignette = true;
 
-    // Culling & Entités
+    // Culling, Joueurs, Item Frames & TileEntities
     public static boolean entityOcclusionCulling = true;
     public static boolean entityDistanceCulling = true;
     public static int maxEntityRenderDistance = 64;
     public static boolean fastDroppedItems = true;
+    public static boolean fastItemFrames = true;
+    public static int maxItemFrameDistance = 48;
+    public static boolean fastPlayerRendering = true;
+    public static boolean fastSignText = true;
 
     public static boolean tileEntityFrustumCulling = true;
     public static boolean tileEntityDistanceCulling = true;
@@ -127,8 +132,19 @@ public final class PureFPSConfig {
     public static int totalAnimationsCount = 0;
 
     private static File configFile;
+    private static volatile boolean dirty = false;
 
     private PureFPSConfig() {
+    }
+
+    public static void markDirty() {
+        dirty = true;
+    }
+
+    public static void saveIfDirty() {
+        if (dirty) {
+            save();
+        }
     }
 
     public static void applyProfile(PureFPSProfile profile, boolean syncVanillaGameSettings) {
@@ -157,6 +173,7 @@ public final class PureFPSConfig {
         fastFrustumPVertex = true;
         asyncSkinUploadPacing = true;
         fastItemRender = true;
+        fastBakedItemModels = true;
         fastScoreboard = true;
         fastFontRenderer = true;
         fastSkullRendering = true;
@@ -175,6 +192,10 @@ public final class PureFPSConfig {
                 entityDistanceCulling = true;
                 maxEntityRenderDistance = 48;
                 fastDroppedItems = true;
+                fastItemFrames = true;
+                maxItemFrameDistance = 36;
+                fastPlayerRendering = true;
+                fastSignText = true;
                 tileEntityDistanceCulling = true;
                 maxTileEntityRenderDistance = 32;
                 fastNametags = true;
@@ -195,6 +216,10 @@ public final class PureFPSConfig {
                 entityDistanceCulling = true;
                 maxEntityRenderDistance = 64;
                 fastDroppedItems = true;
+                fastItemFrames = true;
+                maxItemFrameDistance = 48;
+                fastPlayerRendering = true;
+                fastSignText = true;
                 tileEntityDistanceCulling = true;
                 maxTileEntityRenderDistance = 48;
                 fastNametags = true;
@@ -215,6 +240,10 @@ public final class PureFPSConfig {
                 entityDistanceCulling = false;
                 maxEntityRenderDistance = 128;
                 fastDroppedItems = false;
+                fastItemFrames = true;
+                maxItemFrameDistance = 96;
+                fastPlayerRendering = false;
+                fastSignText = false;
                 tileEntityDistanceCulling = false;
                 maxTileEntityRenderDistance = 128;
                 fastNametags = false;
@@ -235,6 +264,45 @@ public final class PureFPSConfig {
 
         if (syncVanillaGameSettings) {
             applyVanillaGraphicsForProfile(profile);
+        }
+    }
+
+    /**
+     * Synchronise VBO, VSync et limitFramerate au démarrage du client lorsque le profil FPS ou BALANCED
+     * est actif, afin d'éviter qu'un ancien plafond 120/160 FPS ou VSync dans options.txt ne bride PureClient.
+     */
+    public static void syncStartupGameSettingsIfNeeded() {
+        if (!enabled) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc == null || mc.gameSettings == null) {
+            return;
+        }
+        GameSettings gs = mc.gameSettings;
+        boolean changed = false;
+
+        if (OpenGlHelper.vboSupported && !gs.useVbo) {
+            gs.useVbo = true;
+            changed = true;
+        }
+
+        if (activeProfile == PureFPSProfile.FPS || activeProfile == PureFPSProfile.BALANCED) {
+            if (gs.enableVsync) {
+                gs.enableVsync = false;
+                if (Display.isCreated()) {
+                    Display.setVSyncEnabled(false);
+                }
+                changed = true;
+            }
+            if (gs.limitFramerate < 255) {
+                gs.limitFramerate = 260;
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            gs.saveOptions();
         }
     }
 
@@ -290,7 +358,8 @@ public final class PureFPSConfig {
     public static void refreshProfileAfterManualEdit() {
         if (matchesCoreLosslessBase()) {
             if (smartAnimations && limitDistantGlint && disableVignette && entityOcclusionCulling && entityDistanceCulling
-                    && maxEntityRenderDistance == 48 && fastDroppedItems && tileEntityDistanceCulling
+                    && maxEntityRenderDistance == 48 && fastDroppedItems && fastItemFrames && maxItemFrameDistance == 36
+                    && fastPlayerRendering && fastSignText && tileEntityDistanceCulling
                     && maxTileEntityRenderDistance == 32 && fastNametags && nametagDistanceCulling && maxNametagDistance == 24
                     && fastParticlePhysics && maxParticlesPerLayer == 250 && fastBlockBreakParticles
                     && skipClientSkylightUpdates && unfocusedFpsLimit == 10) {
@@ -298,7 +367,8 @@ public final class PureFPSConfig {
                 return;
             }
             if (smartAnimations && limitDistantGlint && disableVignette && entityOcclusionCulling && entityDistanceCulling
-                    && maxEntityRenderDistance == 64 && fastDroppedItems && tileEntityDistanceCulling
+                    && maxEntityRenderDistance == 64 && fastDroppedItems && fastItemFrames && maxItemFrameDistance == 48
+                    && fastPlayerRendering && fastSignText && tileEntityDistanceCulling
                     && maxTileEntityRenderDistance == 48 && fastNametags && nametagDistanceCulling && maxNametagDistance == 32
                     && fastParticlePhysics && maxParticlesPerLayer == 1000 && fastBlockBreakParticles
                     && !skipClientSkylightUpdates && unfocusedFpsLimit == 15) {
@@ -306,7 +376,8 @@ public final class PureFPSConfig {
                 return;
             }
             if (!smartAnimations && !limitDistantGlint && !disableVignette && !entityOcclusionCulling && !entityDistanceCulling
-                    && maxEntityRenderDistance == 128 && !fastDroppedItems && !tileEntityDistanceCulling
+                    && maxEntityRenderDistance == 128 && !fastDroppedItems && fastItemFrames && maxItemFrameDistance == 96
+                    && !fastPlayerRendering && !fastSignText && !tileEntityDistanceCulling
                     && maxTileEntityRenderDistance == 128 && !fastNametags && !nametagDistanceCulling && maxNametagDistance == 64
                     && !fastParticlePhysics && maxParticlesPerLayer == 4000 && !fastBlockBreakParticles
                     && !skipClientSkylightUpdates && unfocusedFpsLimit == 30) {
@@ -323,7 +394,7 @@ public final class PureFPSConfig {
                 && zeroAllocSmoothLighting && fastBiomeColors && multiThreadedChunkBuild && chunkWorkerThreads == 0
                 && disableWorldLoadGC && skipVoidFogLoop && regionMultiDraw && hardwareRegionVao
                 && fastFboBlit && fastFrustumPVertex
-                && asyncSkinUploadPacing && fastItemRender && fastScoreboard
+                && asyncSkinUploadPacing && fastItemRender && fastBakedItemModels && fastScoreboard
                 && fastFontRenderer && fastSkullRendering && fastLightmapCoords
                 && fastArmorStands && tileEntityFrustumCulling && particleFrustumCulling && unfocusedFpsLimiter;
     }
@@ -355,7 +426,7 @@ public final class PureFPSConfig {
             return clamp(chunkWorkerThreads, 2, maxSafeForRam);
         }
         int logicalCores = Runtime.getRuntime().availableProcessors();
-        int auto = Math.max(2, Math.min(3, logicalCores / 4));
+        int auto = Math.max(2, Math.min(4, logicalCores / 3));
         return Math.min(auto, maxSafeForRam);
     }
 
@@ -397,6 +468,7 @@ public final class PureFPSConfig {
             fastFrustumPVertex = getBool(props, "fastFrustumPVertex", fastFrustumPVertex);
             asyncSkinUploadPacing = getBool(props, "asyncSkinUploadPacing", asyncSkinUploadPacing);
             fastItemRender = getBool(props, "fastItemRender", fastItemRender);
+            fastBakedItemModels = getBool(props, "fastBakedItemModels", fastBakedItemModels);
             limitDistantGlint = getBool(props, "limitDistantGlint", limitDistantGlint);
             fastScoreboard = getBool(props, "fastScoreboard", fastScoreboard);
             smartAnimations = getBool(props, "smartAnimations", smartAnimations);
@@ -409,6 +481,10 @@ public final class PureFPSConfig {
             entityDistanceCulling = getBool(props, "entityDistanceCulling", entityDistanceCulling);
             maxEntityRenderDistance = clamp(getInt(props, "maxEntityRenderDistance", maxEntityRenderDistance), 16, 160);
             fastDroppedItems = getBool(props, "fastDroppedItems", fastDroppedItems);
+            fastItemFrames = getBool(props, "fastItemFrames", fastItemFrames);
+            maxItemFrameDistance = clamp(getInt(props, "maxItemFrameDistance", maxItemFrameDistance), 16, 128);
+            fastPlayerRendering = getBool(props, "fastPlayerRendering", fastPlayerRendering);
+            fastSignText = getBool(props, "fastSignText", fastSignText);
 
             tileEntityFrustumCulling = getBool(props, "tileEntityFrustumCulling", tileEntityFrustumCulling);
             tileEntityDistanceCulling = getBool(props, "tileEntityDistanceCulling", tileEntityDistanceCulling);
@@ -466,6 +542,7 @@ public final class PureFPSConfig {
     }
 
     public static void save() {
+        dirty = false;
         if (configFile == null) {
             File dir = Minecraft.getMinecraft() != null ? Minecraft.getMinecraft().mcDataDir : new File(".");
             configFile = new File(new File(dir, "config"), "purefps.properties");
@@ -492,6 +569,7 @@ public final class PureFPSConfig {
         props.setProperty("fastFrustumPVertex", Boolean.toString(fastFrustumPVertex));
         props.setProperty("asyncSkinUploadPacing", Boolean.toString(asyncSkinUploadPacing));
         props.setProperty("fastItemRender", Boolean.toString(fastItemRender));
+        props.setProperty("fastBakedItemModels", Boolean.toString(fastBakedItemModels));
         props.setProperty("limitDistantGlint", Boolean.toString(limitDistantGlint));
         props.setProperty("fastScoreboard", Boolean.toString(fastScoreboard));
         props.setProperty("smartAnimations", Boolean.toString(smartAnimations));
@@ -504,6 +582,10 @@ public final class PureFPSConfig {
         props.setProperty("entityDistanceCulling", Boolean.toString(entityDistanceCulling));
         props.setProperty("maxEntityRenderDistance", Integer.toString(maxEntityRenderDistance));
         props.setProperty("fastDroppedItems", Boolean.toString(fastDroppedItems));
+        props.setProperty("fastItemFrames", Boolean.toString(fastItemFrames));
+        props.setProperty("maxItemFrameDistance", Integer.toString(maxItemFrameDistance));
+        props.setProperty("fastPlayerRendering", Boolean.toString(fastPlayerRendering));
+        props.setProperty("fastSignText", Boolean.toString(fastSignText));
 
         props.setProperty("tileEntityFrustumCulling", Boolean.toString(tileEntityFrustumCulling));
         props.setProperty("tileEntityDistanceCulling", Boolean.toString(tileEntityDistanceCulling));

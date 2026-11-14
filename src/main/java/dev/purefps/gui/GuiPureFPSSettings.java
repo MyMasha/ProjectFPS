@@ -37,9 +37,9 @@ public class GuiPureFPSSettings extends GuiScreen {
 
     private static final String[] CATEGORY_SUBTITLES = {
             "Overlays temps-réel, confort PvP et typographie lissée (100% conforme Watchdog)",
-            "VAO Matériel GL30, Region MultiDraw, Zéro glGetError JNI et LOD enchantements",
+            "VAO Matériel GL30, EBO GL_TRIANGLES, Modèles GPU compilés et Zéro glGetError JNI",
             "Lazy Terrain BFS, constructeurs de chunks parallèles et caches zéro-allocation",
-            "Élimination intelligente des entités, coffres et hologrammes masqués ou lointains",
+            "Optimisation profonde des Item Frames, Joueurs distants, Panneaux, Coffres et Entités",
             "Budget de particules par couche et économie d'énergie automatique hors focus"
     };
 
@@ -104,11 +104,12 @@ public class GuiPureFPSSettings extends GuiScreen {
             this.activeCards.add(new SettingCard(71, "Chat & Pseudos Épurés", "Fond transparent sur le chat et pseudos", PureFPSConfig.transparentChat));
         } else if (this.category == 1) {
             this.activeCards.add(new SettingCard(80, "Zéro glGetError JNI", "Supprime les 2 stalls GPU/frame (+60 FPS)", PureFPSConfig.disableGlErrorChecks));
-            this.activeCards.add(new SettingCard(81, "VAO Régional GL30", "1 seul glBindVertexArray par arène VBO", PureFPSConfig.hardwareRegionVao));
-            this.activeCards.add(new SettingCard(29, "Region MultiDraw VBO", "Fusionne ~600 chunks en 4-8 appels GPU", PureFPSConfig.regionMultiDraw));
-            this.activeCards.add(new SettingCard(50, "Blit FBO Matériel GL30", "Copie framebuffer directe sans quad", PureFPSConfig.fastFboBlit));
-            this.activeCards.add(new SettingCard(82, "LOD Reflet Enchanté", "Coupe le double blend d'armure lointain", PureFPSConfig.limitDistantGlint));
+            this.activeCards.add(new SettingCard(81, "VAO Matériel GL30", "1 glBindVertexArray par chunk VBO", PureFPSConfig.hardwareRegionVao));
+            this.activeCards.add(new SettingCard(29, "Pipeline GL_TRIANGLES", "EBO 16-bit partagé + zéro glGetFloat", PureFPSConfig.regionMultiDraw));
+            this.activeCards.add(new SettingCard(50, "Blit FBO DMA GL30", "Copie framebuffer matérielle colorMask RGBA", PureFPSConfig.fastFboBlit));
+            this.activeCards.add(new SettingCard(86, "Modèles Items GPU", "Compile les épées/items en Display Lists", PureFPSConfig.fastBakedItemModels));
             this.activeCards.add(new SettingCard(83, "Items 32x Zéro-Alloc", "Supprime le clonage EnumFacing par item", PureFPSConfig.fastItemRender));
+            this.activeCards.add(new SettingCard(82, "LOD Reflet Enchanté", "Coupe le double blend d'armure lointain", PureFPSConfig.limitDistantGlint));
             this.activeCards.add(new SettingCard(51, "Frustum P-Vertex 8x", "Test de boîte englobante en 1 sommet", PureFPSConfig.fastFrustumPVertex));
             this.activeCards.add(new SettingCard(46, "Anti-Freeze Skins", "Lisse le téléversement des skins Hypixel", PureFPSConfig.asyncSkinUploadPacing));
             this.activeCards.add(new SettingCard(20, "Smart Animations", "Anime uniquement les textures visibles", PureFPSConfig.smartAnimations));
@@ -134,6 +135,10 @@ public class GuiPureFPSSettings extends GuiScreen {
             this.activeCards.add(new SettingCard(10, "Anti-Freeze System.gc()", "Bloque les pauses GC inter-lobbies", PureFPSConfig.disableWorldLoadGC));
             this.activeCards.add(new SettingCard(27, "Ignorer Skylight Client", "Saute le recalcul lumière ciel client", PureFPSConfig.skipClientSkylightUpdates));
         } else if (this.category == 3) {
+            this.activeCards.add(new SettingCard(87, "Item Frames Turbo", "1 glCallList + zéro EntityItem/PushAttrib", PureFPSConfig.fastItemFrames));
+            this.activeCards.add(new SettingCard(88, "Portée Item Frames", "Cartes murales conservées plus loin", PureFPSConfig.maxItemFrameDistance + " blocs"));
+            this.activeCards.add(new SettingCard(89, "Joueurs Distants LOD", "Armures O(1), capes et sur-couches >20m", PureFPSConfig.fastPlayerRendering));
+            this.activeCards.add(new SettingCard(90, "Panneaux Zéro-Alloc", "Cache le texte et coupe à >24-32m", PureFPSConfig.fastSignText));
             this.activeCards.add(new SettingCard(30, "Occlusion Entités 3D", "Masque les entités derrière les murs", PureFPSConfig.entityOcclusionCulling));
             this.activeCards.add(new SettingCard(31, "Limite Dist. Entités", "Coupe le rendu au-delà du rayon choisi", PureFPSConfig.entityDistanceCulling));
             this.activeCards.add(new SettingCard(32, "Portée des Entités", "Cliquez pour ajuster la distance max", PureFPSConfig.maxEntityRenderDistance + " blocs"));
@@ -150,7 +155,7 @@ public class GuiPureFPSSettings extends GuiScreen {
             this.activeCards.add(new SettingCard(43, "Débris Blocs Légers", "Réduit la saturation en cassant vite", PureFPSConfig.fastBlockBreakParticles));
             this.activeCards.add(new SettingCard(44, "Éco FPS Arrière-Plan", "Réduit la charge GPU pendant Alt-Tab", PureFPSConfig.unfocusedFpsLimiter));
             this.activeCards.add(new SettingCard(45, "Plafond Arrière-Plan", "Cadence cible fenêtre inactive", PureFPSConfig.unfocusedFpsLimit + " FPS"));
-            this.activeCards.add(new SettingCard(26, "Télémétrie Écran F3", "Affiche le diagnostic VAO/MultiDraw", PureFPSConfig.showF3Stats));
+            this.activeCards.add(new SettingCard(26, "Télémétrie Écran F3", "Affiche le diagnostic VAO+Triangles", PureFPSConfig.showF3Stats));
         }
     }
 
@@ -469,6 +474,13 @@ public class GuiPureFPSSettings extends GuiScreen {
             case 83: PureFPSConfig.fastItemRender = !PureFPSConfig.fastItemRender; break;
             case 84: PureFPSConfig.lazyTerrainSetup = !PureFPSConfig.lazyTerrainSetup; break;
             case 85: PureFPSConfig.skipVoidFogLoop = !PureFPSConfig.skipVoidFogLoop; break;
+            case 86: PureFPSConfig.fastBakedItemModels = !PureFPSConfig.fastBakedItemModels; break;
+            case 87: PureFPSConfig.fastItemFrames = !PureFPSConfig.fastItemFrames; break;
+            case 88:
+                PureFPSConfig.maxItemFrameDistance = cycleInt(PureFPSConfig.maxItemFrameDistance, new int[]{24, 36, 48, 64, 96});
+                break;
+            case 89: PureFPSConfig.fastPlayerRendering = !PureFPSConfig.fastPlayerRendering; break;
+            case 90: PureFPSConfig.fastSignText = !PureFPSConfig.fastSignText; break;
             case 2: PureFPSConfig.fastMath = !PureFPSConfig.fastMath; break;
             case 3: PureFPSConfig.multiThreadedChunkBuild = !PureFPSConfig.multiThreadedChunkBuild; break;
             case 4:

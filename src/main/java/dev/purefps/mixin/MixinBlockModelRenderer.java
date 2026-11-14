@@ -3,6 +3,7 @@ package dev.purefps.mixin;
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.BlockPosPool;
 import dev.purefps.core.EnumCaches;
+import dev.purefps.core.FastItemFrameRenderer;
 import dev.purefps.core.StandardModelContext;
 import net.minecraft.block.Block;
 import net.minecraft.client.renderer.BlockModelRenderer;
@@ -22,9 +23,10 @@ import java.util.BitSet;
 import java.util.List;
 
 /**
- * 1. @Overwrite zéro-allocation de renderModelStandard (utilisé pour 100 % des blocs en profil FPS ao:0) :
- *    élimine new CallbackInfoReturnable<Boolean>, Boolean.valueOf, new BitSet(3) et 6x BlockPos.offset par bloc !
- * 2. Pool d'offsets sans allocation pour renderModelAmbientOcclusion (profils Balanced / Quality).
+ * 1. @Overwrite zéro-allocation de renderModelStandard (utilisé pour 100 % des blocs en profil FPS ao:0).
+ * 2. @Overwrite de renderModelBrightnessColor : fusionne les 22 à 26 appels begin()+draw() par cadre d'item
+ *    (et blocs portés / pistons / sable tombant) en UN SEUL Tessellator.draw() !
+ * 3. Pool d'offsets sans allocation pour renderModelAmbientOcclusion (profils Balanced / Quality).
  */
 @Mixin(BlockModelRenderer.class)
 public abstract class MixinBlockModelRenderer {
@@ -41,6 +43,32 @@ public abstract class MixinBlockModelRenderer {
             List<BakedQuad> quads,
             BitSet boundsFlags
     ) {
+    }
+
+    @Shadow
+    private void renderModelBrightnessColorQuads(
+            float brightness,
+            float red,
+            float green,
+            float blue,
+            List<BakedQuad> listQuads
+    ) {
+    }
+
+    /**
+     * @author PureFPS
+     * @reason Fusionne les 22-26 draw calls individuels par quad de Vanilla en UN SEUL Tessellator.draw()
+     */
+    @Overwrite
+    public void renderModelBrightnessColor(IBakedModel bakedModel, float brightness, float red, float green, float blue) {
+        if (PureFPSConfig.enabled) {
+            FastItemFrameRenderer.renderModelBrightnessColorSingleDraw(bakedModel, brightness, red, green, blue);
+            return;
+        }
+        for (EnumFacing enumfacing : EnumFacing.values()) {
+            this.renderModelBrightnessColorQuads(brightness, red, green, blue, bakedModel.getFaceQuads(enumfacing));
+        }
+        this.renderModelBrightnessColorQuads(brightness, red, green, blue, bakedModel.getGeneralQuads());
     }
 
     /**

@@ -1,12 +1,14 @@
 package dev.purefps.client;
 
 import dev.purefps.config.PureFPSConfig;
+import dev.purefps.core.SeamlessLaunchTransition;
 import dev.purefps.gui.GuiPureFPSSettings;
 import dev.purefps.gui.GuiPureMainMenu;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraftforge.client.event.GuiOpenEvent;
+import net.minecraftforge.client.event.GuiScreenEvent;
 import net.minecraftforge.client.event.MouseEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
@@ -15,11 +17,11 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.lwjgl.input.Keyboard;
 
 /**
- * Pont d'événements client PureClient 3.0 (100 % conforme Hypixel Watchdog) :
- * - Right Shift : ouvre le tableau de bord PureClient 3.0
- * - ToggleSprint : pilote uniquement l'état de la KeyBinding Sprint Vanilla (zéro modification physique/paquets)
+ * Pont d'événements client PureClient 3.5 (100 % conforme Hypixel Watchdog) :
+ * - Right Shift : ouvre le tableau de bord PureClient 3.5
+ * - ToggleSprint : pilote uniquement l'état de la KeyBinding Sprint Vanilla sans écriture disque synchrone
  * - CPS & Molette Zoom : enregistrement sans allocation
- * - Menu Principal Custom PureClient 3.0 sans panorama flou énergivore
+ * - Menu Principal Custom PureClient 3.5 + émergence sans couture depuis le Trou Noir du Launcher
  */
 public final class ClientEventBridge {
 
@@ -27,6 +29,9 @@ public final class ClientEventBridge {
 
     @SubscribeEvent
     public void onGuiOpen(GuiOpenEvent event) {
+        if (event.gui != null) {
+            PureFPSConfig.saveIfDirty();
+        }
         if (event.gui != null && event.gui.getClass() == GuiMainMenu.class) {
             if (PureFPSConfig.enabled && PureFPSConfig.customMainMenu) {
                 if (GuiPureMainMenu.consumeBypassFlag()) {
@@ -35,6 +40,11 @@ public final class ClientEventBridge {
                 event.gui = new GuiPureMainMenu();
             }
         }
+    }
+
+    @SubscribeEvent
+    public void onGuiDrawPost(GuiScreenEvent.DrawScreenEvent.Post event) {
+        SeamlessLaunchTransition.renderEmergenceCurtainIfNeeded(event.gui);
     }
 
     @SubscribeEvent
@@ -79,7 +89,7 @@ public final class ClientEventBridge {
         if (mc.currentScreen == null && PureFPSConfig.enabled && PureFPSConfig.toggleSprint && mc.gameSettings != null) {
             if (key == mc.gameSettings.keyBindSprint.getKeyCode()) {
                 PureFPSConfig.sprintToggledActive = !PureFPSConfig.sprintToggledActive;
-                PureFPSConfig.save();
+                PureFPSConfig.markDirty();
             }
         }
     }

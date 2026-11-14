@@ -3,56 +3,72 @@ package dev.purefps.core;
 import dev.purefps.config.PureFPSConfig;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.OpenGlHelper;
-import net.minecraft.client.renderer.WorldRenderer;
 import net.minecraft.client.renderer.chunk.RenderChunk;
 import net.minecraft.client.renderer.vertex.VertexBuffer;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumWorldBlockLayer;
 import org.lwjgl.opengl.ContextCapabilities;
 import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GLContext;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.IntBuffer;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.nio.FloatBuffer;
 import java.util.List;
-import java.util.Map;
 
 /**
- * Moteur GPU Region MultiDraw + VAO Matériel OpenGL 3.0 (PureClient 3.5) :
- * - Regroupe jusqu'à 256 sections de chunks par arène régionale 256x256 blocs.
- * - Remplace les 8 appels JNI d'état client par lot par UN SEUL GL30.glBindVertexArray(arena.vaoId).
- * - Émet un seul GL14.glMultiDrawArrays par arène active.
+ * Moteur GPU Zéro-Stall de rendu de Chunks (PureClient 3.5) :
+ * - Remplace l'ancien glBufferSubData sur VBO partagé en vol (qui causait des attentes GPU implicites de 2-8 ms
+ *   et des chunks manquants en tournant la caméra) par des VBO par-chunk orphanés + VAO matériel GL30 +
+ *   tampon d'indices partagé GL_TRIANGLES (QuadIndexBuffer).
+ * - Émet une seule paire pushMatrix/popMatrix par couche avec translation relative GL11.glTranslatef
+ *   et anti-couture 1.000001f cuit à l'upload (zéro multModelviewMatrix par chunk).
+ * - Pré-calcule la matrice anti-couture 4x4 colonne-majeure pour éliminer les 400+ appels synchrones
+ *   GL11.glGetFloat(GL_MODELVIEW_MATRIX) lors du franchissement des bordures de chunks.
  */
 public final class ChunkRegionManager {
 
-    private static final float ANTI_SEAM_SCALE = 1.000001F;
-    private static final Map<Long, RegionLayerArena> ARENAS = new HashMap<Long, RegionLayerArena>(64);
-    private static final List<RegionLayerArena> ACTIVE_ARENAS = new ArrayList<RegionLayerArena>(32);
+    public static final float ANTI_SEAM_SCALE = 1.000001F;
+
+    /**
+     * Matrice colonne-majeure constante équivalente à :
+     * loadIdentity(); translate(-8, -8, -8); scale(1.000001f); translate(8, 8, 8);
+     */
+    public static final float[] STATIC_ANTI_SEAM_MATRIX = computeStaticAntiSeamMatrix();
 
     private static ByteBuffer stagingBuffer = ByteBuffer.allocateDirect(262144).order(ByteOrder.nativeOrder());
-    private static IntBuffer multiFirstBuf = ByteBuffer.allocateDirect(2048 * 4).order(ByteOrder.nativeOrder()).asIntBuffer();
-    private static IntBuffer multiCountBuf = ByteBuffer.allocateDirect(2048 * 4).order(ByteOrder.nativeOrder()).asIntBuffer();
 
     private static int capabilityState = 0; // 0 = inconnu, 1 = supporté, -1 = non supporté
     private static boolean hasGL30Vao = false;
-    private static boolean hasGL31Copy = false;
 
     private ChunkRegionManager() {
+    }
+
+    public static float[] computeStaticAntiSeamMatrix() {
+        float f = ANTI_SEAM_SCALE;
+        float t = 8.0F * f - 8.0F;
+        return new float[]{
+                f, 0.0F, 0.0F, 0.0F,
+                0.0F, f, 0.0F, 0.0F,
+                0.0F, 0.0F, f, 0.0F,
+                t, t, t, 1.0F
+        };
+    }
+
+    public static void fillStaticAntiSeamMatrix(FloatBuffer dst) {
+        dst.clear();
+        dst.put(STATIC_ANTI_SEAM_MATRIX, 0, 16);
+        dst.flip();
     }
 
     public static boolean isSupported() {
         if (capabilityState == 0) {
             try {
                 ContextCapabilities caps = GLContext.getCapabilities();
-                boolean ok = caps != null && caps.OpenGL15 && caps.OpenGL14 && OpenGlHelper.useVbo();
+                boolean ok = caps != null && caps.OpenGL15 && OpenGlHelper.useVbo();
                 hasGL30Vao = caps != null && caps.OpenGL30;
-                hasGL31Copy = caps != null && caps.OpenGL31;
                 capabilityState = ok ? 1 : -1;
             } catch (Throwable t) {
                 capabilityState = -1;
@@ -61,10 +77,25 @@ public final class ChunkRegionManager {
         return capabilityState == 1;
     }
 
+    public static boolean hasHardwareVao() {
+        isSupported();
+        return hasGL30Vao;
+    }
+
     public static long packRegionLayerKey(int blockX, int blockZ, int layerOrdinal) {
         int rx = blockX >> 8;
         int rz = blockZ >> 8;
         return (((long) rx & 0xFFFFFFFL) << 36) | (((long) rz & 0xFFFFFFFL) << 8) | ((long) layerOrdinal & 0xFFL);
+    }
+
+    public static ByteBuffer prepareChunkAntiSeamBuffer(ByteBuffer srcBytes, int vertexCount) {
+        int requiredBytes = vertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
+        if (stagingBuffer.capacity() < requiredBytes) {
+            int newCap = Math.max(stagingBuffer.capacity() << 1, requiredBytes);
+            stagingBuffer = ByteBuffer.allocateDirect(newCap).order(ByteOrder.nativeOrder());
+        }
+        transformBlockVertices(srcBytes, vertexCount, 0.0F, 0.0F, 0.0F, stagingBuffer);
+        return stagingBuffer;
     }
 
     public static void transformBlockVertices(
@@ -85,19 +116,19 @@ public final class ChunkRegionManager {
 
         dstBytes.clear();
 
+        float biasX = 8.0F + localOffsetX - 8.0F * ANTI_SEAM_SCALE;
+        float biasY = 8.0F + localOffsetY - 8.0F * ANTI_SEAM_SCALE;
+        float biasZ = 8.0F + localOffsetZ - 8.0F * ANTI_SEAM_SCALE;
+
         int byteOff = 0;
         for (int v = 0; v < vertexCount; v++) {
             float vx = srcBytes.getFloat(byteOff);
             float vy = srcBytes.getFloat(byteOff + 4);
             float vz = srcBytes.getFloat(byteOff + 8);
 
-            float rx = (vx - 8.0F) * ANTI_SEAM_SCALE + 8.0F + localOffsetX;
-            float ry = (vy - 8.0F) * ANTI_SEAM_SCALE + 8.0F + localOffsetY;
-            float rz = (vz - 8.0F) * ANTI_SEAM_SCALE + 8.0F + localOffsetZ;
-
-            dstBytes.putFloat(byteOff, rx);
-            dstBytes.putFloat(byteOff + 4, ry);
-            dstBytes.putFloat(byteOff + 8, rz);
+            dstBytes.putFloat(byteOff, vx * ANTI_SEAM_SCALE + biasX);
+            dstBytes.putFloat(byteOff + 4, vy * ANTI_SEAM_SCALE + biasY);
+            dstBytes.putFloat(byteOff + 8, vz * ANTI_SEAM_SCALE + biasZ);
             dstBytes.putLong(byteOff + 12, srcBytes.getLong(byteOff + 12));
             dstBytes.putLong(byteOff + 20, srcBytes.getLong(byteOff + 20));
             byteOff += RegionLayerArena.VERTEX_STRIDE_BYTES;
@@ -107,73 +138,6 @@ public final class ChunkRegionManager {
         srcBytes.position(prevPos);
         dstBytes.position(0);
         dstBytes.limit(requiredBytes);
-    }
-
-    public static void uploadChunkLayer(EnumWorldBlockLayer layer, WorldRenderer worldRenderer, RenderChunk renderChunk) {
-        isSupported();
-        int layerOrd = layer.ordinal();
-        RegionChunkSlot slot = (RegionChunkSlot) renderChunk;
-        int vertexCount = worldRenderer.getVertexCount();
-        worldRenderer.reset();
-
-        if (vertexCount <= 0) {
-            freeChunkLayer(slot, layerOrd);
-            return;
-        }
-
-        BlockPos pos = renderChunk.getPosition();
-        int bx = pos.getX();
-        int by = pos.getY();
-        int bz = pos.getZ();
-        long key = packRegionLayerKey(bx, bz, layerOrd);
-
-        RegionLayerArena arena = ARENAS.get(key);
-        if (arena == null) {
-            int originX = (bx >> 8) << 8;
-            int originZ = (bz >> 8) << 8;
-            arena = new RegionLayerArena(key, layerOrd, originX, originZ);
-            ARENAS.put(key, arena);
-        }
-
-        int neededAligned = FreeRangeAllocator.alignVertices(vertexCount);
-        RegionLayerArena prevArena = (RegionLayerArena) slot.purefps$getArena(layerOrd);
-        int prevAlloc = slot.purefps$getAllocatedVertices(layerOrd);
-        int firstVertex;
-
-        if (prevArena == arena && prevAlloc >= neededAligned && neededAligned >= (prevAlloc >> 1) && arena.vboId >= 0) {
-            firstVertex = slot.purefps$getFirstVertex(layerOrd);
-            slot.purefps$setRegionSlot(layerOrd, arena, firstVertex, vertexCount, prevAlloc);
-        } else {
-            if (prevArena != null) {
-                freeChunkLayer(slot, layerOrd);
-                if (!ARENAS.containsKey(key)) {
-                    ARENAS.put(key, arena);
-                }
-            }
-            int prevHwm = arena.allocator.getHighWaterMark();
-            firstVertex = arena.allocator.allocate(neededAligned);
-            arena.ensureCapacity(arena.allocator.getHighWaterMark(), prevHwm, hasGL31Copy, hasGL30Vao);
-            slot.purefps$setRegionSlot(layerOrd, arena, firstVertex, vertexCount, neededAligned);
-        }
-
-        int byteLen = vertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
-        if (stagingBuffer.capacity() < byteLen) {
-            int newCap = Math.max(stagingBuffer.capacity() << 1, byteLen);
-            stagingBuffer = ByteBuffer.allocateDirect(newCap).order(ByteOrder.nativeOrder());
-        }
-
-        float localX = (float) (bx - arena.originX);
-        float localY = (float) by;
-        float localZ = (float) (bz - arena.originZ);
-        transformBlockVertices(worldRenderer.getByteBuffer(), vertexCount, localX, localY, localZ, stagingBuffer);
-
-        OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, arena.vboId);
-        GL15.glBufferSubData(
-                OpenGlHelper.GL_ARRAY_BUFFER,
-                (long) firstVertex * RegionLayerArena.VERTEX_STRIDE_BYTES,
-                stagingBuffer
-        );
-        OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
     }
 
     public static void renderLayer(
@@ -187,133 +151,64 @@ public final class ChunkRegionManager {
         if (count == 0) {
             return;
         }
+
         int layerOrd = layer.ordinal();
+        boolean allowVao = PureFPSConfig.hardwareRegionVao && hasHardwareVao();
 
-        if (layer == EnumWorldBlockLayer.TRANSLUCENT) {
-            renderTranslucentOrdered(layerOrd, renderChunks, count, viewX, viewY, viewZ);
-            return;
-        }
-
-        ACTIVE_ARENAS.clear();
-        for (int i = 0; i < count; i++) {
-            RenderChunk rc = renderChunks.get(i);
-            RegionChunkSlot slot = (RegionChunkSlot) rc;
-            RegionLayerArena arena = (RegionLayerArena) slot.purefps$getArena(layerOrd);
-            int vCount = slot.purefps$getVertexCount(layerOrd);
-            if (arena != null && arena.vboId >= 0 && vCount > 0) {
-                if (arena.batchSize == 0) {
-                    ACTIVE_ARENAS.add(arena);
-                }
-                arena.addDrawCommand(slot.purefps$getFirstVertex(layerOrd), vCount);
-                PureFPSConfig.frameChunksBatchedAccumulator++;
-            } else {
-                drawFallbackSingleChunk(rc, layerOrd, viewX, viewY, viewZ);
-            }
+        if (QuadIndexBuffer.isSupported()) {
+            QuadIndexBuffer.ensureIndexBufferReady(QuadIndexBuffer.MAX_USHORT_VERTICES);
         }
 
-        int arenaCount = ACTIVE_ARENAS.size();
-        for (int i = 0; i < arenaCount; i++) {
-            RegionLayerArena arena = ACTIVE_ARENAS.get(i);
-            flushArenaBatch(arena, viewX, viewY, viewZ);
-        }
-        ACTIVE_ARENAS.clear();
-    }
-
-    private static void renderTranslucentOrdered(
-            int layerOrd,
-            List<RenderChunk> renderChunks,
-            int count,
-            double viewX,
-            double viewY,
-            double viewZ
-    ) {
-        RegionLayerArena currentArena = null;
-        for (int i = 0; i < count; i++) {
-            RenderChunk rc = renderChunks.get(i);
-            RegionChunkSlot slot = (RegionChunkSlot) rc;
-            RegionLayerArena arena = (RegionLayerArena) slot.purefps$getArena(layerOrd);
-            int vCount = slot.purefps$getVertexCount(layerOrd);
-            if (arena != null && arena.vboId >= 0 && vCount > 0) {
-                if (currentArena != null && currentArena != arena) {
-                    flushArenaBatch(currentArena, viewX, viewY, viewZ);
-                }
-                currentArena = arena;
-                arena.addDrawCommand(slot.purefps$getFirstVertex(layerOrd), vCount);
-                PureFPSConfig.frameChunksBatchedAccumulator++;
-            } else {
-                if (currentArena != null) {
-                    flushArenaBatch(currentArena, viewX, viewY, viewZ);
-                    currentArena = null;
-                }
-                drawFallbackSingleChunk(rc, layerOrd, viewX, viewY, viewZ);
-            }
-        }
-        if (currentArena != null) {
-            flushArenaBatch(currentArena, viewX, viewY, viewZ);
-        }
-    }
-
-    private static void flushArenaBatch(RegionLayerArena arena, double viewX, double viewY, double viewZ) {
-        int draws = arena.batchSize;
-        if (draws <= 0) {
-            return;
-        }
         GlStateManager.pushMatrix();
-        GlStateManager.translate(
-                (float) ((double) arena.originX - viewX),
-                (float) (-viewY),
-                (float) ((double) arena.originZ - viewZ)
-        );
+        float prevX = 0.0F;
+        float prevY = 0.0F;
+        float prevZ = 0.0F;
+        boolean boundAnyVao = false;
+        boolean boundAnyEboOnDefaultVao = false;
+        int drawnSections = 0;
 
-        boolean useVao = hasGL30Vao && PureFPSConfig.hardwareRegionVao && arena.vaoId > 0;
-        if (useVao) {
-            GL30.glBindVertexArray(arena.vaoId);
-        } else {
-            OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, arena.vboId);
-            setupBlockArrayPointers();
+        for (int i = 0; i < count; i++) {
+            RenderChunk rc = renderChunks.get(i);
+            VertexBuffer vb = rc.getVertexBufferByLayer(layerOrd);
+            if (vb == null) {
+                continue;
+            }
+            FastVertexBuffer fvb = (FastVertexBuffer) vb;
+            int vCount = fvb.purefps$getVertexCount();
+            if (vCount <= 0) {
+                continue;
+            }
+
+            BlockPos pos = rc.getPosition();
+            float targetX = (float) ((double) pos.getX() - viewX);
+            float targetY = (float) ((double) pos.getY() - viewY);
+            float targetZ = (float) ((double) pos.getZ() - viewZ);
+            GL11.glTranslatef(targetX - prevX, targetY - prevY, targetZ - prevZ);
+            prevX = targetX;
+            prevY = targetY;
+            prevZ = targetZ;
+
+            boolean usedVao = fvb.purefps$drawChunkTriangles(allowVao);
+            if (usedVao) {
+                boundAnyVao = true;
+            } else if (QuadIndexBuffer.isSupported()) {
+                boundAnyEboOnDefaultVao = true;
+            }
+            drawnSections++;
         }
 
-        if (draws == 1) {
-            GL11.glDrawArrays(GL11.GL_QUADS, arena.batchFirst[0], arena.batchCount[0]);
-        } else {
-            ensureMultiBuffersCapacity(draws);
-            multiFirstBuf.clear();
-            multiFirstBuf.put(arena.batchFirst, 0, draws);
-            multiFirstBuf.flip();
-
-            multiCountBuf.clear();
-            multiCountBuf.put(arena.batchCount, 0, draws);
-            multiCountBuf.flip();
-
-            GL14.glMultiDrawArrays(GL11.GL_QUADS, multiFirstBuf, multiCountBuf);
-        }
-
-        if (useVao) {
+        if (boundAnyVao) {
             GL30.glBindVertexArray(0);
         }
-
-        GlStateManager.popMatrix();
-        arena.batchSize = 0;
-        PureFPSConfig.frameMultiDrawsAccumulator++;
-    }
-
-    private static void drawFallbackSingleChunk(RenderChunk rc, int layerOrd, double viewX, double viewY, double viewZ) {
-        VertexBuffer vb = rc.getVertexBufferByLayer(layerOrd);
-        if (vb == null) {
-            return;
+        if (boundAnyEboOnDefaultVao) {
+            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
         }
-        BlockPos pos = rc.getPosition();
-        GlStateManager.pushMatrix();
-        GlStateManager.translate(
-                (float) ((double) pos.getX() - viewX),
-                (float) ((double) pos.getY() - viewY),
-                (float) ((double) pos.getZ() - viewZ)
-        );
-        rc.multModelviewMatrix();
-        vb.bindBuffer();
-        setupBlockArrayPointers();
-        vb.drawArrays(GL11.GL_QUADS);
         GlStateManager.popMatrix();
+
+        if (drawnSections > 0) {
+            PureFPSConfig.frameChunksBatchedAccumulator += drawnSections;
+            PureFPSConfig.frameMultiDrawsAccumulator++;
+        }
     }
 
     public static void setupBlockArrayPointers() {
@@ -325,39 +220,7 @@ public final class ChunkRegionManager {
         OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
     }
 
-    private static void ensureMultiBuffersCapacity(int draws) {
-        if (multiFirstBuf.capacity() < draws) {
-            int cap = Math.max(multiFirstBuf.capacity() << 1, draws);
-            multiFirstBuf = ByteBuffer.allocateDirect(cap * 4).order(ByteOrder.nativeOrder()).asIntBuffer();
-            multiCountBuf = ByteBuffer.allocateDirect(cap * 4).order(ByteOrder.nativeOrder()).asIntBuffer();
-        }
-    }
-
-    public static void freeChunkLayer(RegionChunkSlot slot, int layerOrd) {
-        RegionLayerArena arena = (RegionLayerArena) slot.purefps$getArena(layerOrd);
-        if (arena != null) {
-            int first = slot.purefps$getFirstVertex(layerOrd);
-            int alloc = slot.purefps$getAllocatedVertices(layerOrd);
-            slot.purefps$clearRegionSlot(layerOrd);
-            arena.allocator.free(first, alloc);
-            if (arena.allocator.getLiveAllocations() == 0) {
-                arena.destroy();
-                ARENAS.remove(arena.regionLayerKey);
-            }
-        }
-    }
-
-    public static void freeChunkAllLayers(RegionChunkSlot slot) {
-        for (int i = 0; i < 4; i++) {
-            freeChunkLayer(slot, i);
-        }
-    }
-
     public static void clearAll() {
-        for (RegionLayerArena arena : ARENAS.values()) {
-            arena.destroy();
-        }
-        ARENAS.clear();
-        ACTIVE_ARENAS.clear();
+        // Les VAO par-VertexBuffer sont désormais libérés individuellement par MixinVertexBuffer.deleteGlBuffers.
     }
 }

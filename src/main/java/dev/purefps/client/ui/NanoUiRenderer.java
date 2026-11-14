@@ -14,10 +14,8 @@ import org.lwjgl.opengl.GLContext;
 
 /**
  * Moteur UI vectoriel anti-aliasé par shader GLSL 120 (Signed Distance Field en pixels physiques) :
- * - Cartes arrondies sub-pixel (zéro escalier d'aliasing sur les coins)
- * - Bordures spéculaires hairline 1px exactes
- * - Ombres portées douces quadratiques
- * - Interrupteurs pilules fluides style Lunar / Linear / OneClient
+ * - Supporte désormais un mode beginBatch() / endBatch() pour maintenir GL20.glUseProgram(programId) actif
+ *   pendant tout le tracé des cartes du HUD au lieu d'effectuer 12 à 44 commutations de programme shader par frame !
  */
 public final class NanoUiRenderer {
 
@@ -87,6 +85,7 @@ public final class NanoUiRenderer {
     private static int locBorderColor = -1;
 
     private static float cachedScaleFactor = 2.0F;
+    private static boolean batchShaderActive = false;
 
     private NanoUiRenderer() {
     }
@@ -100,6 +99,28 @@ public final class NanoUiRenderer {
 
     public static void setScaleFactor(int scaleFactor) {
         cachedScaleFactor = Math.max(1.0F, (float) scaleFactor);
+    }
+
+    public static void beginBatch() {
+        if (batchShaderActive || !ensureShader()) {
+            return;
+        }
+        GlStateManager.enableBlend();
+        GlStateManager.disableAlpha();
+        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+        GlStateManager.enableTexture2D();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GL20.glUseProgram(programId);
+        batchShaderActive = true;
+    }
+
+    public static void endBatch() {
+        if (!batchShaderActive) {
+            return;
+        }
+        GL20.glUseProgram(0);
+        GlStateManager.enableAlpha();
+        batchShaderActive = false;
     }
 
     private static boolean ensureShader() {
@@ -175,13 +196,15 @@ public final class NanoUiRenderer {
         float totalWpx = (qx1 - qx0) * sf;
         float totalHpx = (qy1 - qy0) * sf;
 
-        GlStateManager.enableBlend();
-        GlStateManager.disableAlpha();
-        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
-        GlStateManager.enableTexture2D();
-        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        if (!batchShaderActive) {
+            GlStateManager.enableBlend();
+            GlStateManager.disableAlpha();
+            GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+            GlStateManager.enableTexture2D();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            GL20.glUseProgram(programId);
+        }
 
-        GL20.glUseProgram(programId);
         GL20.glUniform2f(locCenter, totalWpx * 0.5F, totalHpx * 0.5F);
         GL20.glUniform2f(locHalfSize, w * sf * 0.5F, h * sf * 0.5F);
         GL20.glUniform1f(locRadius, radiusGui * sf);
@@ -193,8 +216,10 @@ public final class NanoUiRenderer {
 
         emitScreenQuad(qx0, qy0, qx1, qy1, totalWpx, totalHpx);
 
-        GL20.glUseProgram(0);
-        GlStateManager.enableAlpha();
+        if (!batchShaderActive) {
+            GL20.glUseProgram(0);
+            GlStateManager.enableAlpha();
+        }
     }
 
     public static void drawRoundedRect(
@@ -241,13 +266,15 @@ public final class NanoUiRenderer {
         float totalWpx = (qx1 - qx0) * sf;
         float totalHpx = (qy1 - qy0) * sf;
 
-        GlStateManager.enableBlend();
-        GlStateManager.disableAlpha();
-        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
-        GlStateManager.enableTexture2D();
-        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        if (!batchShaderActive) {
+            GlStateManager.enableBlend();
+            GlStateManager.disableAlpha();
+            GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+            GlStateManager.enableTexture2D();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            GL20.glUseProgram(programId);
+        }
 
-        GL20.glUseProgram(programId);
         GL20.glUniform2f(locCenter, totalWpx * 0.5F, totalHpx * 0.5F);
         GL20.glUniform2f(locHalfSize, w * sf * 0.5F, h * sf * 0.5F);
         GL20.glUniform1f(locRadius, radiusGui * sf);
@@ -259,8 +286,10 @@ public final class NanoUiRenderer {
 
         emitScreenQuad(qx0, qy0, qx1, qy1, totalWpx, totalHpx);
 
-        GL20.glUseProgram(0);
-        GlStateManager.enableAlpha();
+        if (!batchShaderActive) {
+            GL20.glUseProgram(0);
+            GlStateManager.enableAlpha();
+        }
     }
 
     public static void drawCircle(float cx, float cy, float radiusGui, int fillArgb) {

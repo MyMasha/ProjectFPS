@@ -28,7 +28,7 @@ public class MixinGuiOverlayDebug {
             lines.add("\u00a7b[PureClient 3.5]\u00a7r Désactivé (/pureclient)");
         } else {
             lines.add(String.format(
-                    "\u00a7b[PureClient 3.5 | %s\u00a7b]\u00a7r VAO+MultiDraw: %dc->%dd | LazyBFS:%s | NoGLErr:%s | Culled E:%d TE:%d P:%d",
+                    "\u00a7b[PureClient 3.5 | %s\u00a7b]\u00a7r VAO+Triangles: %dc (%dd) | LazyBFS:%s | NoGLErr:%s | Culled E:%d TE:%d P:%d",
                     PureFPSConfig.activeProfile.getColoredName(),
                     PureFPSConfig.chunksBatchedLastFrame,
                     PureFPSConfig.multiDrawsLastFrame,

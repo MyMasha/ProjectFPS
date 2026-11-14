@@ -12,8 +12,10 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Blit FBO matériel direct en VRAM via GL30.glBlitFramebuffer :
- * Court-circuite toute la reconfiguration de matrices orthographiques + Tessellator quad de fin de frame.
+ * Blit FBO matériel DMA direct en VRAM via GL30.glBlitFramebuffer :
+ * - Conserve colorMask(true, true, true, true) afin que le moteur de copie DMA matériel du GPU
+ *   effectue un transfert brut 32 bits par pixel (masquer le canal alpha forçait un fallback shader
+ *   read-modify-write plein écran de 1.5 à 3 ms par frame !).
  */
 @Mixin(Framebuffer.class)
 public class MixinFramebuffer {
@@ -37,7 +39,7 @@ public class MixinFramebuffer {
                 || !FboBlitHelper.canHardwareBlit()) {
             return;
         }
-        GlStateManager.colorMask(true, true, true, false);
+        GlStateManager.colorMask(true, true, true, true);
         FboBlitHelper.blitToBackbuffer(
                 this.framebufferObject,
                 this.framebufferWidth,
@@ -46,7 +48,6 @@ public class MixinFramebuffer {
                 height
         );
         GlStateManager.depthMask(true);
-        GlStateManager.colorMask(true, true, true, true);
         ci.cancel();
     }
 }

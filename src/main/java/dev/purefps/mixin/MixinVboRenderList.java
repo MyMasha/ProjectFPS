@@ -17,15 +17,15 @@ import java.util.List;
 
 /**
  * Remplace la boucle VboRenderList.renderChunkLayer (qui exécutait ~7 200 appels JNI OpenGL par frame) :
- * - Mode Region MultiDraw actif : regroupe toute une région 256x256 en un seul GL14.glMultiDrawArrays.
- * - Mode fallback VBO individuel : une seule paire pushMatrix/popMatrix par couche avec translation relative.
+ * - Mode accéléré (VAO GL30 + QuadIndexBuffer GL_TRIANGLES) : 1 seule paire pushMatrix/popMatrix par couche,
+ *   translation relative GL11.glTranslatef, zéro multModelviewMatrix et triangles matériels natifs.
  */
 @Mixin(VboRenderList.class)
 public abstract class MixinVboRenderList extends MixinChunkRenderContainer {
 
     /**
      * @author PureFPS
-     * @reason Batching GPU MultiDraw régional + suppression des 600 pushMatrix/popMatrix/multMatrix par frame
+     * @reason Rendu VAO GL30 + GL_TRIANGLES indexé + suppression des ~600 pushMatrix/popMatrix/multMatrix par frame
      */
     @Overwrite
     public void renderChunkLayer(EnumWorldBlockLayer layer) {
@@ -46,10 +46,6 @@ public abstract class MixinVboRenderList extends MixinChunkRenderContainer {
             ChunkRegionManager.renderLayer(layer, chunks, viewX, viewY, viewZ);
         } else {
             int layerOrd = layer.ordinal();
-            GlStateManager.pushMatrix();
-            float prevX = 0.0F;
-            float prevY = 0.0F;
-            float prevZ = 0.0F;
             for (int i = 0; i < size; i++) {
                 RenderChunk rc = chunks.get(i);
                 VertexBuffer vb = rc.getVertexBufferByLayer(layerOrd);
@@ -57,19 +53,20 @@ public abstract class MixinVboRenderList extends MixinChunkRenderContainer {
                     continue;
                 }
                 BlockPos pos = rc.getPosition();
-                float targetX = (float) ((double) pos.getX() - viewX);
-                float targetY = (float) ((double) pos.getY() - viewY);
-                float targetZ = (float) ((double) pos.getZ() - viewZ);
-                GL11.glTranslatef(targetX - prevX, targetY - prevY, targetZ - prevZ);
-                prevX = targetX;
-                prevY = targetY;
-                prevZ = targetZ;
-
+                GlStateManager.pushMatrix();
+                GlStateManager.translate(
+                        (float) ((double) pos.getX() - viewX),
+                        (float) ((double) pos.getY() - viewY),
+                        (float) ((double) pos.getZ() - viewZ)
+                );
+                if (!PureFPSConfig.enabled) {
+                    rc.multModelviewMatrix();
+                }
                 vb.bindBuffer();
                 ChunkRegionManager.setupBlockArrayPointers();
                 vb.drawArrays(GL11.GL_QUADS);
+                GlStateManager.popMatrix();
             }
-            GlStateManager.popMatrix();
         }
 
         OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);

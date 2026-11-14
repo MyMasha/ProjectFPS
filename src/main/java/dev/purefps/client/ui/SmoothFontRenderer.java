@@ -16,9 +16,8 @@ import java.awt.image.BufferedImage;
 
 /**
  * Police TrueType haute définition anti-aliasée (Segoe UI sur-échantillonnée 3x avec filtrage GL_LINEAR) :
- * - Remplace le texte pixelisé 8x8 de Minecraft dans le menu principal, le tableau de bord RSHIFT et le HUD PureClient.
- * - Intègre le correctif "White-RGB Alpha Fringe" (RGB = 0xFFFFFF partout dans l'atlas) pour zéro halo sombre sur les bords.
- * - Couvre l'intégralité du français (accents Latin-1) et les symboles typographiques modernes (•, —, →).
+ * - Émet désormais l'ombre et le texte principal en UN SEUL Tessellator.draw() (divise par 2 tous les draw calls texte).
+ * - Supporte beginBatch() / endBatch() pour regrouper toutes les chaînes d'une même fonte HUD en 1 seul draw call GPU.
  */
 public final class SmoothFontRenderer {
 
@@ -42,6 +41,7 @@ public final class SmoothFontRenderer {
     private float fontHeightGui = 9.0F;
     private int textureId = -1;
     private boolean metricsBaked = false;
+    private boolean batching = false;
 
     private static final class Glyph {
         float u0;
@@ -86,9 +86,6 @@ public final class SmoothFontRenderer {
         return smallFont;
     }
 
-    /**
-     * Génère l'image de l'atlas en RAM (testable hors contexte OpenGL par JUnit).
-     */
     public BufferedImage bakeAtlasImage() {
         Font font = createBestFont(this.awtStyle, this.awtPixelSize);
         BufferedImage img = new BufferedImage(ATLAS_SIZE, ATLAS_SIZE, BufferedImage.TYPE_INT_ARGB);
@@ -143,7 +140,6 @@ public final class SmoothFontRenderer {
         }
         g.dispose();
 
-        // White-RGB Alpha Fringe Fix : force RGB = 255,255,255 sur tous les texels pour une interpolation GL_LINEAR immaculée
         int[] pixels = new int[ATLAS_SIZE * ATLAS_SIZE];
         img.getRGB(0, 0, ATLAS_SIZE, ATLAS_SIZE, pixels, 0, ATLAS_SIZE);
         for (int i = 0; i < pixels.length; i++) {
@@ -196,19 +192,67 @@ public final class SmoothFontRenderer {
         return width;
     }
 
+    public void beginBatch() {
+        if (this.batching) {
+            return;
+        }
+        ensureUploaded();
+        GlStateManager.enableBlend();
+        GlStateManager.disableAlpha();
+        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+        GlStateManager.enableTexture2D();
+        GlStateManager.bindTexture(this.textureId);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        Tessellator.getInstance().getWorldRenderer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
+        this.batching = true;
+    }
+
+    public void endBatch() {
+        if (!this.batching) {
+            return;
+        }
+        this.batching = false;
+        Tessellator.getInstance().draw();
+        GlStateManager.enableAlpha();
+    }
+
     public void drawString(String text, float x, float y, int argb) {
-        drawInternal(text, x, y, argb, false);
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        if (this.batching) {
+            emitVertices(Tessellator.getInstance().getWorldRenderer(), text, x, y, argb, false);
+            return;
+        }
+        beginSingleDraw();
+        emitVertices(Tessellator.getInstance().getWorldRenderer(), text, x, y, argb, false);
+        finishSingleDraw();
     }
 
     public void drawStringWithShadow(String text, float x, float y, int argb) {
+        if (text == null || text.isEmpty()) {
+            return;
+        }
         int baseAlpha = ((argb >>> 24) & 0xFF);
         if (baseAlpha == 0) {
             baseAlpha = 255;
             argb |= 0xFF000000;
         }
         int shadowAlpha = (baseAlpha * 115) / 255;
-        drawInternal(text, x + 0.55F, y + 0.60F, (shadowAlpha << 24) | 0x05070D, true);
-        drawInternal(text, x, y, argb, false);
+        int shadowArgb = (shadowAlpha << 24) | 0x05070D;
+
+        if (this.batching) {
+            WorldRenderer wr = Tessellator.getInstance().getWorldRenderer();
+            emitVertices(wr, text, x + 0.55F, y + 0.60F, shadowArgb, true);
+            emitVertices(wr, text, x, y, argb, false);
+            return;
+        }
+
+        beginSingleDraw();
+        WorldRenderer wr = Tessellator.getInstance().getWorldRenderer();
+        emitVertices(wr, text, x + 0.55F, y + 0.60F, shadowArgb, true);
+        emitVertices(wr, text, x, y, argb, false);
+        finishSingleDraw();
     }
 
     public void drawCentered(String text, float centerX, float y, int argb, boolean shadow) {
@@ -220,12 +264,23 @@ public final class SmoothFontRenderer {
         }
     }
 
-    private void drawInternal(String text, float x, float y, int argb, boolean ignoreColorCodes) {
-        if (text == null || text.isEmpty()) {
-            return;
-        }
+    private void beginSingleDraw() {
         ensureUploaded();
+        GlStateManager.enableBlend();
+        GlStateManager.disableAlpha();
+        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+        GlStateManager.enableTexture2D();
+        GlStateManager.bindTexture(this.textureId);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        Tessellator.getInstance().getWorldRenderer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
+    }
 
+    private static void finishSingleDraw() {
+        Tessellator.getInstance().draw();
+        GlStateManager.enableAlpha();
+    }
+
+    private void emitVertices(WorldRenderer wr, String text, float x, float y, int argb, boolean ignoreColorCodes) {
         int alphaInt = (argb >>> 24) & 0xFF;
         if (alphaInt == 0) {
             alphaInt = 255;
@@ -237,17 +292,6 @@ public final class SmoothFontRenderer {
         float padOffset = (4.0F * 0.5F) / GUI_SCALE_DIVISOR;
         float cursorX = x;
         float cursorY = y - 1.0F;
-
-        GlStateManager.enableBlend();
-        GlStateManager.disableAlpha();
-        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
-        GlStateManager.enableTexture2D();
-        GlStateManager.bindTexture(this.textureId);
-        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-
-        Tessellator tess = Tessellator.getInstance();
-        WorldRenderer wr = tess.getWorldRenderer();
-        wr.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
 
         int len = text.length();
         for (int i = 0; i < len; i++) {
@@ -280,9 +324,6 @@ public final class SmoothFontRenderer {
 
             cursorX += g.advanceGui;
         }
-
-        tess.draw();
-        GlStateManager.enableAlpha();
     }
 
     private Glyph lookupGlyph(char ch) {

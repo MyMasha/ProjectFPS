@@ -30,6 +30,9 @@ target/
 # Auth / Local Secrets (Never Commit)
 account.json
 launcher_prefs.json
+launcher/.github_token
+.github_token
+updater_token.txt
 *.env
 .env.*
 

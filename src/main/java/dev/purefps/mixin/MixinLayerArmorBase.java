@@ -2,22 +2,25 @@ package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.config.PureFPSProfile;
+import dev.purefps.core.FastArmorCache;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.layers.LayerArmorBase;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.item.ItemStack;
+import net.minecraft.util.ResourceLocation;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * LOD du reflet d'enchantement d'armure (LayerArmorBase.skipRenderGlint) :
- * Sur Hypixel (lobbies, BedWars, SkyWars) avec un pack 32x, chaque pièce d'armure enchantée
- * redessine deux fois le ModelBiped complet avec blend matriciel (8 passes supplémentaires par joueur !).
- * Au-delà de 18 blocs (FPS) ou 32 blocs (Équilibré), désactive temporairement skipRenderGlint sans affecter l'armure proche.
+ * Optimisations majeures du rendu d'armures sur les joueurs et entités (LayerArmorBase) :
+ * 1. Table O(1) FastArmorCache : élimine les 4 à 8 appels String.format() + HashMap.get() par joueur équipé à chaque frame.
+ * 2. LOD du reflet d'enchantement d'armure (skipRenderGlint) au-delà de 18m (FPS) / 32m (Équilibré).
  */
 @Mixin(LayerArmorBase.class)
 public class MixinLayerArmorBase {
@@ -29,6 +32,27 @@ public class MixinLayerArmorBase {
     private boolean purefps$prevSkipGlint = false;
     @Unique
     private boolean purefps$overrodeSkipGlint = false;
+
+    @Inject(
+            method = "getArmorResource(Lnet/minecraft/entity/Entity;Lnet/minecraft/item/ItemStack;ILjava/lang/String;)Lnet/minecraft/util/ResourceLocation;",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false
+    )
+    private void purefps$fastVanillaArmorResource(
+            Entity entity,
+            ItemStack stack,
+            int slot,
+            String type,
+            CallbackInfoReturnable<ResourceLocation> cir
+    ) {
+        if (PureFPSConfig.enabled && PureFPSConfig.fastItemRender) {
+            ResourceLocation cached = FastArmorCache.lookupVanillaArmor(stack, slot, type);
+            if (cached != null) {
+                cir.setReturnValue(cached);
+            }
+        }
+    }
 
     @Inject(method = "doRenderLayer", at = @At("HEAD"))
     private void purefps$beginDistantArmorGlintLod(

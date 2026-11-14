@@ -7,6 +7,7 @@ import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
 import org.junit.Test;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -446,5 +447,199 @@ public class PureFPSCoreTest {
         float w = font.getStringWidth("Équilibré \u2022 500 FPS");
         assertTrue("Expected positive string width, got " + w, w > 40.0f);
         assertTrue(font.getHeight() > 6.0f);
+    }
+
+    @Test
+    public void testQuadIndexBufferUshortAndUintConversion() {
+        assertEquals(0, QuadIndexBuffer.quadVertexCountToIndexCount(0));
+        assertEquals(6, QuadIndexBuffer.quadVertexCountToIndexCount(4));
+        assertEquals(98304, QuadIndexBuffer.quadVertexCountToIndexCount(65536));
+
+        java.nio.ShortBuffer sb = ByteBuffer.allocateDirect(QuadIndexBuffer.MAX_USHORT_QUADS * 6 * 2)
+                .order(ByteOrder.nativeOrder())
+                .asShortBuffer();
+        QuadIndexBuffer.fillUshortIndices(sb, QuadIndexBuffer.MAX_USHORT_QUADS);
+        assertEquals(0, sb.position());
+        assertEquals(QuadIndexBuffer.MAX_USHORT_QUADS * 6, sb.limit());
+
+        // Premier quad : {0, 1, 2, 2, 3, 0}
+        assertEquals(0, sb.get(0) & 0xFFFF);
+        assertEquals(1, sb.get(1) & 0xFFFF);
+        assertEquals(2, sb.get(2) & 0xFFFF);
+        assertEquals(2, sb.get(3) & 0xFFFF);
+        assertEquals(3, sb.get(4) & 0xFFFF);
+        assertEquals(0, sb.get(5) & 0xFFFF);
+
+        // Dernier quad USHORT (quad 16383 -> sommets non signés 65532..65535)
+        int lastOff = (QuadIndexBuffer.MAX_USHORT_QUADS - 1) * 6;
+        assertEquals(65532, sb.get(lastOff) & 0xFFFF);
+        assertEquals(65533, sb.get(lastOff + 1) & 0xFFFF);
+        assertEquals(65534, sb.get(lastOff + 2) & 0xFFFF);
+        assertEquals(65534, sb.get(lastOff + 3) & 0xFFFF);
+        assertEquals(65535, sb.get(lastOff + 4) & 0xFFFF);
+        assertEquals(65532, sb.get(lastOff + 5) & 0xFFFF);
+
+        // Tampon UINT (> 65536 sommets)
+        int quadCountUint = 20000;
+        IntBuffer ib = ByteBuffer.allocateDirect(quadCountUint * 6 * 4)
+                .order(ByteOrder.nativeOrder())
+                .asIntBuffer();
+        QuadIndexBuffer.fillUintIndices(ib, quadCountUint);
+        int lastUintOff = (quadCountUint - 1) * 6;
+        int expectedBase = (quadCountUint - 1) * 4;
+        assertEquals(expectedBase, ib.get(lastUintOff));
+        assertEquals(expectedBase + 1, ib.get(lastUintOff + 1));
+        assertEquals(expectedBase + 2, ib.get(lastUintOff + 2));
+        assertEquals(expectedBase + 2, ib.get(lastUintOff + 3));
+        assertEquals(expectedBase + 3, ib.get(lastUintOff + 4));
+        assertEquals(expectedBase, ib.get(lastUintOff + 5));
+    }
+
+    @Test
+    public void testStaticAntiSeamMatrixAndChunkStaging() {
+        FloatBuffer fb = ByteBuffer.allocateDirect(16 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        ChunkRegionManager.fillStaticAntiSeamMatrix(fb);
+        assertEquals(0, fb.position());
+        assertEquals(16, fb.limit());
+
+        float s = ChunkRegionManager.ANTI_SEAM_SCALE;
+        // En OpenGL : translate(-8,-8,-8) * scale(s,s,s) * translate(8,8,8) applique à un point X :
+        // X' = (X + 8) * s - 8  (car OpenGL post-multiplie : M = T(-8) * S(s) * T(8) -> t = 8*s - 8)
+        float expectedT = 8.0F * s - 8.0F;
+        assertEquals(s, fb.get(0), 1e-7f);
+        assertEquals(s, fb.get(5), 1e-7f);
+        assertEquals(s, fb.get(10), 1e-7f);
+        assertEquals(expectedT, fb.get(12), 1e-7f);
+        assertEquals(expectedT, fb.get(13), 1e-7f);
+        assertEquals(expectedT, fb.get(14), 1e-7f);
+        assertEquals(1.0F, fb.get(15), 1e-7f);
+
+        ByteBuffer rawVerts = ByteBuffer.allocateDirect(4 * 28).order(ByteOrder.nativeOrder());
+        for (int v = 0; v < 4; v++) {
+            int off = v * 28;
+            rawVerts.putFloat(off, 8.0F);
+            rawVerts.putFloat(off + 4, 16.0F);
+            rawVerts.putFloat(off + 8, 0.0F);
+            rawVerts.putInt(off + 12, 0xFFFFFFFF);
+            rawVerts.putFloat(off + 16, 0.25F);
+            rawVerts.putFloat(off + 20, 0.75F);
+            rawVerts.putInt(off + 24, 0x00F000F0);
+        }
+        ByteBuffer staged = ChunkRegionManager.prepareChunkAntiSeamBuffer(rawVerts, 4);
+        assertEquals(4 * 28, staged.limit());
+        assertEquals(8.0F, staged.getFloat(0), 1e-6f);
+        assertEquals((16.0F - 8.0F) * s + 8.0F, staged.getFloat(4), 1e-5f);
+        assertEquals((0.0F - 8.0F) * s + 8.0F, staged.getFloat(8), 1e-5f);
+    }
+
+    @Test
+    public void testFastArmorCacheVanillaTable() {
+        String[] expectedNames = {"leather", "chainmail", "iron", "gold", "diamond"};
+        for (int ord = 0; ord < expectedNames.length; ord++) {
+            String n = expectedNames[ord];
+            assertEquals(
+                    "minecraft:textures/models/armor/" + n + "_layer_1.png",
+                    FastArmorCache.lookupByOrdinalForTest(ord, false, false).toString()
+            );
+            assertEquals(
+                    "minecraft:textures/models/armor/" + n + "_layer_1_overlay.png",
+                    FastArmorCache.lookupByOrdinalForTest(ord, false, true).toString()
+            );
+            assertEquals(
+                    "minecraft:textures/models/armor/" + n + "_layer_2.png",
+                    FastArmorCache.lookupByOrdinalForTest(ord, true, false).toString()
+            );
+            assertEquals(
+                    "minecraft:textures/models/armor/" + n + "_layer_2_overlay.png",
+                    FastArmorCache.lookupByOrdinalForTest(ord, true, true).toString()
+            );
+        }
+        assertNull(FastArmorCache.lookupByOrdinalForTest(-1, false, false));
+        assertNull(FastArmorCache.lookupByOrdinalForTest(5, false, false));
+    }
+
+    @Test
+    public void testNewEntityItemFramePlayerAndSignProfileFlags() {
+        PureFPSConfig.applyProfile(PureFPSProfile.FPS, false);
+        assertTrue(PureFPSConfig.fastBakedItemModels);
+        assertTrue(PureFPSConfig.fastItemFrames);
+        assertEquals(36, PureFPSConfig.maxItemFrameDistance);
+        assertTrue(PureFPSConfig.fastPlayerRendering);
+        assertTrue(PureFPSConfig.fastSignText);
+        PureFPSConfig.refreshProfileAfterManualEdit();
+        assertEquals(PureFPSProfile.FPS, PureFPSConfig.activeProfile);
+
+        PureFPSConfig.maxItemFrameDistance = 64;
+        PureFPSConfig.refreshProfileAfterManualEdit();
+        assertEquals(PureFPSProfile.CUSTOM, PureFPSConfig.activeProfile);
+
+        PureFPSConfig.applyProfile(PureFPSProfile.QUALITY, false);
+        assertTrue(PureFPSConfig.fastBakedItemModels);
+        assertTrue(PureFPSConfig.fastItemFrames);
+        assertEquals(96, PureFPSConfig.maxItemFrameDistance);
+        assertFalse(PureFPSConfig.fastPlayerRendering);
+        assertFalse(PureFPSConfig.fastSignText);
+        PureFPSConfig.refreshProfileAfterManualEdit();
+        assertEquals(PureFPSProfile.QUALITY, PureFPSConfig.activeProfile);
+
+        PureFPSConfig.applyProfile(PureFPSProfile.BALANCED, false);
+        assertEquals(48, PureFPSConfig.maxItemFrameDistance);
+        assertTrue(PureFPSConfig.fastPlayerRendering);
+        assertTrue(PureFPSConfig.fastSignText);
+        PureFPSConfig.refreshProfileAfterManualEdit();
+        assertEquals(PureFPSProfile.BALANCED, PureFPSConfig.activeProfile);
+    }
+
+    @Test
+    public void testSeamlessLaunchTransitionHandoffAndEmergenceFade() throws Exception {
+        File tmpMc = new File(System.getProperty("java.io.tmpdir"), "purefps_seamless_test_" + System.nanoTime());
+        File cfgDir = new File(tmpMc, "config");
+        assertTrue(cfgDir.mkdirs());
+        File handoff = new File(cfgDir, ".purefps_handoff");
+        File ready = new File(cfgDir, ".purefps_menu_ready");
+
+        try {
+            // 1. Jeton expiré (> 120s) -> ignoré et supprimé proprement
+            assertTrue(handoff.createNewFile());
+            long now = 1_000_000_000L;
+            assertTrue(handoff.setLastModified(now - 300_000L));
+            SeamlessLaunchTransition.resetForTest();
+            assertFalse(SeamlessLaunchTransition.evaluateHandoffActivation(false, tmpMc, now));
+            assertFalse(handoff.exists());
+
+            // 2. Jeton frais -> active la transition sans couture
+            assertTrue(handoff.createNewFile());
+            long freshNow = System.currentTimeMillis();
+            SeamlessLaunchTransition.resetForTest();
+            assertTrue(SeamlessLaunchTransition.evaluateHandoffActivation(false, tmpMc, freshNow));
+            assertTrue(SeamlessLaunchTransition.isActive());
+
+            // Frame 1 : écran 100 % noir (255), pas encore de signal au Launcher
+            assertEquals(255, SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow));
+            assertFalse(ready.exists());
+
+            // Frame 2 : signal .purefps_menu_ready écrit + .purefps_handoff consommé + début du fondu (255)
+            assertEquals(255, SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow + 16L));
+            assertTrue(ready.isFile());
+            assertFalse(handoff.exists());
+
+            // Milieu de l'émergence (~425 ms sur 850 ms -> ease-out cubique ~ (0.5)^3 * 255 = 32)
+            int midAlpha = SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow + 16L + 425L);
+            assertTrue(midAlpha > 20 && midAlpha < 50);
+
+            // Fin de l'émergence (>= 850 ms) -> alpha = 0 et court-circuit définitif
+            assertEquals(0, SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow + 16L + 900L));
+            assertEquals(0, SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow + 16L + 2000L));
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            ready.delete();
+            //noinspection ResultOfMethodCallIgnored
+            handoff.delete();
+            //noinspection ResultOfMethodCallIgnored
+            cfgDir.delete();
+            //noinspection ResultOfMethodCallIgnored
+            tmpMc.delete();
+            SeamlessLaunchTransition.resetForTest();
+        }
     }
 }

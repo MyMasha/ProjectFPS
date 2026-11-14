@@ -1,1158 +1,1019 @@
 <!DOCTYPE html>
-<html lang="fr" data-theme="dark">
+<html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PureClient 3.5 Launcher</title>
+<title>PureClient 3.5 — Singularity Launcher</title>
+<meta name="description" content="PureClient 3.5 Singularity Edition — Launcher compétitif Minecraft 1.8.9 avec transition Trou Noir temps-réel sans changement de fenêtre.">
 <style>
   :root {
-    --bg-canvas: #080a10;
-    --bg-surface-1: #0e111a;
-    --bg-surface-2: #141824;
-    --bg-surface-3: #1b2131;
-    --bg-glass: rgba(16, 20, 30, 0.82);
+    --void-0: #000000;
+    --void-1: #040508;
+    --void-2: #090b11;
+    --glass-panel: rgba(9, 11, 16, 0.72);
+    --glass-elevated: rgba(15, 18, 26, 0.78);
+    --glass-subtle: rgba(255, 255, 255, 0.035);
+    --glass-hover: rgba(255, 255, 255, 0.065);
 
-    --border-subtle: rgba(255, 255, 255, 0.075);
-    --border-strong: rgba(255, 255, 255, 0.15);
-    --border-accent: rgba(94, 106, 210, 0.55);
+    --border-hairline: rgba(255, 255, 255, 0.085);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --border-warm: rgba(245, 184, 92, 0.38);
 
-    --text-primary: #eceff6;
-    --text-secondary: #949cb0;
-    --text-muted: #5e667a;
+    --text-primary: #f5f3ee;
+    --text-secondary: rgba(226, 224, 218, 0.68);
+    --text-muted: rgba(180, 182, 192, 0.44);
 
-    --accent: #5e6ad2;
-    --accent-hover: #6e7ae8;
-    --accent-subtle: rgba(94, 106, 210, 0.16);
-    --success: #34d399;
-    --success-subtle: rgba(52, 211, 153, 0.14);
-    --warning: #fbbf24;
-    --warning-subtle: rgba(251, 191, 36, 0.14);
-    --danger: #f87171;
-    --danger-subtle: rgba(248, 113, 113, 0.14);
+    --gold-bright: #ffdf9e;
+    --gold-core: #f0b254;
+    --gold-deep: #c97d22;
+    --gold-glow: rgba(240, 178, 84, 0.24);
 
-    --titlebar-h: 38px;
-    --dock-h: 72px;
-    --sidebar-w: 236px;
+    --status-ok: #34d399;
+    --status-danger: #f87171;
+
     --radius-sm: 6px;
-    --radius-md: 9px;
-    --radius-lg: 13px;
-    --radius-pill: 9999px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
 
-    --shadow-card: 0 10px 28px rgba(0, 0, 0, 0.38), 0 1px 0 rgba(255, 255, 255, 0.045) inset;
-    --shadow-popover: 0 24px 60px rgba(0, 0, 0, 0.68), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
-    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-    --dur: 140ms;
-
-    --font-sans: "Segoe UI Variable Text", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-    --font-display: "Segoe UI Variable Display", "Inter", "Segoe UI", system-ui, sans-serif;
-    --font-mono: "Cascadia Code", "JetBrains Mono", "Consolas", ui-monospace, monospace;
+    --ease-cinema: cubic-bezier(0.16, 1, 0.3, 1);
+    --font-sans: "Segoe UI Variable Display", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
   }
 
-  *, *::before, *::after {
+  * {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: var(--bg-canvas);
+    background: #000000;
     color: var(--text-primary);
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 1.45;
     -webkit-font-smoothing: antialiased;
-    user-select: none;
-    cursor: default;
   }
 
-  body::before {
-    content: "";
+  /* Toile WebGL2 Trou Noir Relativiste plein écran */
+  #singularity-canvas {
     position: fixed;
     inset: 0;
-    background:
-      radial-gradient(ellipse 64% 42% at 56% -6%, rgba(94, 106, 210, 0.19), transparent 70%),
-      radial-gradient(ellipse 42% 34% at 92% 104%, rgba(52, 211, 153, 0.08), transparent 68%);
-    pointer-events: none;
+    width: 100vw;
+    height: 100vh;
+    display: block;
     z-index: 0;
+    background: #000000;
   }
 
-  input, pre, code, .selectable {
-    user-select: text;
-  }
-
-  .tabular-nums {
-    font-variant-numeric: tabular-nums;
-  }
-
-  .mono {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: rgba(148, 156, 176, 0.22);
-    border-radius: var(--radius-pill);
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(148, 156, 176, 0.4);
-  }
-
-  /* Custom Frameless Titlebar */
-  .app-titlebar {
+  /* Vignettage cinématique calibré : préserve 100 % de l'éclat du Trou Noir tout en ancrant la typographie à gauche */
+  .cinema-vignette {
     position: fixed;
-    inset: 0 0 auto 0;
-    height: var(--titlebar-h);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-left: 14px;
-    background: rgba(11, 14, 22, 0.84);
-    backdrop-filter: blur(16px);
-    border-bottom: 1px solid var(--border-subtle);
-    z-index: 900;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 58% 47%, rgba(0, 0, 0, 0) 38%, rgba(0, 0, 0, 0.28) 78%, rgba(0, 0, 0, 0.68) 100%),
+      linear-gradient(90deg, rgba(2, 3, 6, 0.72) 0%, rgba(2, 3, 6, 0.22) 34%, rgba(2, 3, 6, 0.0) 55%),
+      linear-gradient(180deg, rgba(2, 3, 6, 0.52) 0%, rgba(2, 3, 6, 0.0) 14%, rgba(2, 3, 6, 0.0) 80%, rgba(2, 3, 6, 0.76) 100%);
+    transition: opacity 0.55s var(--ease-cinema);
   }
 
-  .tb-left {
+  /* Conteneur d'interface globale — s'efface et s'écarte pendant l'aspiration dans le trou noir */
+  #launcher-shell {
+    position: relative;
+    z-index: 2;
+    width: 100vw;
+    height: 100vh;
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: opacity 0.6s var(--ease-cinema), transform 0.95s cubic-bezier(0.4, 0, 0.2, 1), filter 0.6s ease;
+    will-change: opacity, transform;
+  }
+
+  body.plunging #launcher-shell {
+    opacity: 0;
+    transform: scale(1.06);
+    filter: blur(8px);
     pointer-events: none;
   }
 
-  .brand-mark {
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    background: linear-gradient(135deg, #6f7bf2 0%, #4853bd 100%);
-    box-shadow: 0 0 14px rgba(94, 106, 210, 0.45), 0 1px 0 rgba(255, 255, 255, 0.3) inset;
+  body.plunging .cinema-vignette {
+    opacity: 0;
+  }
+
+  /* Rideau Noir Absolu post-Horizon des Événements (#000000) */
+  #horizon-blackout {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: #000000;
+    opacity: 0;
+    pointer-events: none;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: center;
-    color: #fff;
+    padding-bottom: 36px;
+    transition: opacity 0.28s linear;
   }
 
-  .tb-title {
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 12.5px;
-    letter-spacing: 0.04em;
-    color: var(--text-primary);
+  #horizon-blackout.active {
+    opacity: 1;
+    pointer-events: auto;
   }
 
-  .tb-version {
+  .horizon-telemetry {
+    font-family: var(--font-mono);
     font-size: 11px;
-    font-weight: 600;
-    padding: 1px 7px;
-    border-radius: var(--radius-pill);
-    background: var(--accent-subtle);
-    border: 1px solid rgba(94, 106, 210, 0.38);
-    color: #a9b3ff;
-  }
-
-  .tb-engine-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 9px;
-    border-radius: var(--radius-pill);
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid var(--border-subtle);
-    font-size: 11px;
-    color: var(--text-secondary);
-    margin-left: 4px;
-  }
-
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--success);
-    box-shadow: 0 0 8px rgba(52, 211, 153, 0.65);
-  }
-
-  .tb-controls {
-    display: flex;
-    height: 100%;
-  }
-
-  .win-btn {
-    width: 46px;
-    height: 100%;
-    border: 0;
-    background: transparent;
-    color: var(--text-secondary);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
-  }
-
-  .win-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text-primary);
-  }
-
-  .win-btn.close:hover {
-    background: #e81123;
-    color: #ffffff;
-  }
-
-  /* App Shell */
-  .app-layout {
-    position: relative;
-    z-index: 1;
-    display: grid;
-    grid-template-columns: var(--sidebar-w) 1fr;
-    height: calc(100vh - var(--dock-h));
-    padding-top: var(--titlebar-h);
-  }
-
-  /* Sidebar */
-  .sidebar {
-    background: rgba(12, 15, 23, 0.78);
-    border-right: 1px solid var(--border-subtle);
-    padding: 14px 12px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    overflow-y: auto;
-  }
-
-  .nav-group-label {
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.22em;
     text-transform: uppercase;
-    color: var(--text-muted);
-    padding: 4px 10px 8px;
+    color: rgba(245, 243, 238, 0.22);
+    transition: opacity 0.4s ease;
   }
 
-  .nav-list {
+  /* Barre supérieure architecturale sans bordure */
+  .topbar {
+    height: 54px;
+    padding: 0 22px 0 26px;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: linear-gradient(180deg, rgba(5, 6, 10, 0.72) 0%, rgba(5, 6, 10, 0.18) 100%);
+    backdrop-filter: blur(14px);
   }
 
-  .nav-btn {
+  .brand-cluster {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .singularity-mark {
+    width: 24px;
+    height: 24px;
     position: relative;
-    width: 100%;
-    height: 36px;
-    padding: 0 11px;
-    border-radius: var(--radius-md);
-    border: 1px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .singularity-mark svg {
+    width: 24px;
+    height: 24px;
+    overflow: visible;
+  }
+
+  .brand-wordmark {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    color: var(--text-primary);
+  }
+
+  .brand-edition {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    color: var(--gold-bright);
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(240, 178, 84, 0.10);
+    border: 1px solid rgba(240, 178, 84, 0.24);
+  }
+
+  /* Navigation centrale épurée */
+  .top-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px;
+    border-radius: 999px;
+    background: rgba(10, 12, 18, 0.56);
+    border: 1px solid var(--border-hairline);
+  }
+
+  .nav-tab {
+    position: relative;
+    height: 30px;
+    padding: 0 15px;
+    border: none;
+    border-radius: 999px;
     background: transparent;
     color: var(--text-secondary);
     font-family: inherit;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    letter-spacing: 0.03em;
     cursor: pointer;
-    transition: all var(--dur) var(--ease-out);
-  }
-
-  .nav-btn-left {
-    display: flex;
+    transition: color 0.2s ease, background 0.2s ease;
+    display: inline-flex;
     align-items: center;
-    gap: 9px;
+    gap: 7px;
   }
 
-  .nav-btn:hover {
-    background: rgba(255, 255, 255, 0.045);
+  .nav-tab:hover {
     color: var(--text-primary);
   }
 
-  .nav-btn.active {
-    background: linear-gradient(90deg, rgba(94, 106, 210, 0.20) 0%, rgba(94, 106, 210, 0.06) 100%);
-    border-color: rgba(94, 106, 210, 0.36);
+  .nav-tab.active {
+    background: rgba(245, 243, 238, 0.10);
     color: #ffffff;
     font-weight: 600;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 
-  .nav-btn.active::before {
-    content: "";
-    position: absolute;
-    left: -1px;
-    top: 8px;
-    bottom: 8px;
-    width: 3px;
-    border-radius: 2px;
-    background: #818cf8;
+  .nav-count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--gold-bright);
+    opacity: 0.85;
   }
 
-  .nav-badge {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: var(--radius-pill);
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text-secondary);
-  }
-
-  .nav-btn.active .nav-badge {
-    background: rgba(94, 106, 210, 0.28);
-    color: #c7d2fe;
-  }
-
-  /* Account Card in Sidebar */
-  .account-card {
-    background: var(--bg-surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: 12px;
-    box-shadow: var(--shadow-card);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .acc-row {
+  /* Zone droite Topbar : Compte Microsoft + Contrôles fenêtre */
+  .topbar-right {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
   }
 
-  .acc-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    background: var(--bg-surface-3);
-    border: 1px solid var(--border-strong);
+  .account-pill {
+    height: 32px;
+    padding: 0 11px 0 7px;
+    border-radius: 999px;
+    background: rgba(12, 15, 22, 0.68);
+    border: 1px solid var(--border-hairline);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+
+  .account-pill:hover {
+    background: rgba(20, 24, 34, 0.84);
+    border-color: var(--border-strong);
+  }
+
+  .avatar-box {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
     flex-shrink: 0;
   }
 
-  .acc-avatar img {
+  .avatar-box img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
     image-rendering: pixelated;
   }
 
-  .acc-meta {
-    min-width: 0;
-    flex: 1;
+  .online-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--status-ok);
+    box-shadow: 0 0 8px rgba(52, 211, 153, 0.65);
   }
 
-  .acc-name {
-    font-weight: 600;
-    font-size: 13px;
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .acc-sub {
+  .win-controls {
     display: flex;
     align-items: center;
-    gap: 5px;
-    font-size: 11px;
-    color: var(--text-secondary);
+    gap: 2px;
   }
 
-  .ms-btn {
-    width: 100%;
-    height: 34px;
-    padding: 0 12px;
-    border-radius: var(--radius-md);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: linear-gradient(180deg, #6470e8 0%, #4e59c4 100%);
-    color: #ffffff;
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    cursor: pointer;
-    box-shadow: 0 4px 14px rgba(94, 106, 210, 0.32), 0 1px 0 rgba(255, 255, 255, 0.22) inset;
-    transition: all var(--dur) var(--ease-out);
-  }
-
-  .ms-btn:hover {
-    background: linear-gradient(180deg, #717df2 0%, #5864d2 100%);
-    transform: translateY(-1px);
-  }
-
-  .ms-btn:active {
-    transform: scale(0.985);
-  }
-
-  .acc-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-  }
-
-  .btn-mini {
+  .win-btn {
+    width: 30px;
     height: 28px;
-    padding: 0 10px;
+    border: none;
     border-radius: var(--radius-sm);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-surface-3);
+    background: transparent;
     color: var(--text-secondary);
-    font-family: inherit;
-    font-size: 11.5px;
-    font-weight: 500;
-    white-space: nowrap;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 5px;
     cursor: pointer;
-    transition: all var(--dur) var(--ease-out);
+    transition: background 0.16s ease, color 0.16s ease;
   }
 
-  .btn-mini:hover {
-    border-color: var(--border-strong);
-    color: var(--text-primary);
+  .win-btn:hover {
+    background: var(--glass-hover);
+    color: #ffffff;
   }
 
-  .btn-mini.danger:hover {
-    border-color: rgba(248, 113, 113, 0.45);
-    color: var(--danger);
-    background: var(--danger-subtle);
+  .win-btn.close:hover {
+    background: rgba(239, 68, 68, 0.85);
+    color: #ffffff;
   }
 
-  /* Main Stage */
-  .main-stage {
-    padding: 20px 24px;
-    overflow-y: auto;
+  /* Corps central : laisse respirer le Trou Noir sur l'onglet JOUER, affiche un tiroir verre fumé sur les autres */
+  .stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
     display: flex;
-    flex-direction: column;
-    gap: 18px;
+    align-items: stretch;
+    padding: 24px 34px;
   }
 
-  .view-panel {
+  .stage-view {
     display: none;
-    flex-direction: column;
-    gap: 18px;
-    animation: fadeSlide 180ms var(--ease-out);
+    width: 100%;
+    height: 100%;
+    animation: stageFade 0.28s var(--ease-cinema);
   }
 
-  .view-panel.active {
+  .stage-view.active {
     display: flex;
   }
 
-  @keyframes fadeSlide {
-    from { opacity: 0; transform: translateY(4px); }
+  @keyframes stageFade {
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
   }
 
-  /* Hero Card */
-  .hero-banner {
-    position: relative;
-    overflow: hidden;
-    border-radius: var(--radius-lg);
-    border: 1px solid rgba(129, 140, 248, 0.24);
-    background:
-      radial-gradient(ellipse 75% 95% at 88% 15%, rgba(94, 106, 210, 0.28), transparent 65%),
-      radial-gradient(ellipse 50% 80% at 15% 110%, rgba(52, 211, 153, 0.12), transparent 60%),
-      linear-gradient(180deg, #131726 0%, #0e111b 100%);
-    padding: 22px 24px;
-    box-shadow: var(--shadow-card);
-    display: flex;
-    align-items: center;
+  /* Vue JOUER : mise en scène cinématique dégagée autour du Trou Noir */
+  #view-play {
+    flex-direction: column;
     justify-content: space-between;
-    gap: 20px;
-  }
-
-  .hero-banner::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image:
-      linear-gradient(to right, rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 24px 24px;
-    mask-image: radial-gradient(ellipse at 80% 40%, black 20%, transparent 72%);
     pointer-events: none;
   }
 
-  .hero-copy {
-    position: relative;
-    z-index: 1;
-    max-width: 600px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  .hero-editorial {
+    max-width: 430px;
+    margin-top: auto;
+    margin-bottom: 12px;
+    pointer-events: auto;
   }
 
-  .hero-eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    width: fit-content;
+  .hero-kicker {
+    font-family: var(--font-mono);
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
-    padding: 3px 9px;
-    border-radius: var(--radius-pill);
-    background: rgba(52, 211, 153, 0.12);
-    border: 1px solid rgba(52, 211, 153, 0.32);
-    color: #6ee7b7;
+    color: var(--gold-bright);
+    opacity: 0.88;
+    margin-bottom: 10px;
   }
 
   .hero-title {
-    font-family: var(--font-display);
-    font-size: 22px;
+    font-size: 46px;
     font-weight: 700;
-    letter-spacing: -0.022em;
+    letter-spacing: -0.03em;
+    line-height: 1.02;
     color: #ffffff;
+    text-shadow: 0 12px 38px rgba(0, 0, 0, 0.75);
   }
 
-  .hero-desc {
-    font-size: 13px;
+  .hero-subtitle {
+    margin-top: 12px;
+    font-size: 13.5px;
+    line-height: 1.55;
     color: var(--text-secondary);
-    line-height: 1.5;
+    max-width: 390px;
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.9);
   }
 
-  .hero-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-    margin-top: 4px;
-  }
-
-  .chip {
-    font-size: 11.5px;
-    font-weight: 500;
-    padding: 3px 9px;
-    border-radius: var(--radius-sm);
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid var(--border-subtle);
-    color: #cbd5e1;
-  }
-
-  .hero-actions {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-
-  .btn-secondary {
-    height: 34px;
-    padding: 0 14px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-strong);
-    background: rgba(23, 28, 42, 0.85);
-    color: var(--text-primary);
-    font-family: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
+  /* Sélecteur de profils minimaliste en verre fumé */
+  .profile-strip {
+    margin-top: 22px;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: 7px;
-    cursor: pointer;
-    transition: all var(--dur) var(--ease-out);
-  }
-
-  .btn-secondary:hover {
-    background: var(--bg-surface-3);
-    border-color: rgba(255, 255, 255, 0.25);
-  }
-
-  /* Section Headers */
-  .section-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .section-title {
-    font-family: var(--font-display);
-    font-size: 14.5px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--text-primary);
-  }
-
-  .section-sub {
-    font-size: 12px;
-    color: var(--text-secondary);
-  }
-
-  /* Profile Cards Grid */
-  .profiles-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-  }
-
-  .profile-card {
-    position: relative;
-    background: var(--bg-surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: 16px;
-    box-shadow: var(--shadow-card);
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
-    text-align: left;
-    transition: all var(--dur) var(--ease-out);
-  }
-
-  .profile-card:hover {
-    background: var(--bg-surface-2);
-    border-color: var(--border-strong);
-    transform: translateY(-1px);
-  }
-
-  .profile-card.active-fps {
-    background: linear-gradient(180deg, rgba(52, 211, 153, 0.11) 0%, var(--bg-surface-1) 100%);
-    border-color: rgba(52, 211, 153, 0.55);
-  }
-
-  .profile-card.active-balanced {
-    background: linear-gradient(180deg, rgba(94, 106, 210, 0.15) 0%, var(--bg-surface-1) 100%);
-    border-color: rgba(94, 106, 210, 0.65);
-  }
-
-  .profile-card.active-quality {
-    background: linear-gradient(180deg, rgba(251, 191, 36, 0.11) 0%, var(--bg-surface-1) 100%);
-    border-color: rgba(251, 191, 36, 0.55);
-  }
-
-  .prof-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .prof-icon {
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-surface-2);
-    border: 1px solid var(--border-subtle);
-  }
-
-  .prof-state-tag {
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    padding: 2px 8px;
-    border-radius: var(--radius-pill);
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--text-muted);
-  }
-
-  .profile-card.active-fps .prof-state-tag { background: var(--success-subtle); color: var(--success); }
-  .profile-card.active-balanced .prof-state-tag { background: var(--accent-subtle); color: #a5b4fc; }
-  .profile-card.active-quality .prof-state-tag { background: var(--warning-subtle); color: var(--warning); }
-
-  .prof-name {
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-
-  .prof-desc {
-    font-size: 12px;
-    color: var(--text-secondary);
-    line-height: 1.4;
-  }
-
-  .prof-metrics {
-    margin-top: auto;
-    padding-top: 8px;
-    border-top: 1px solid var(--border-subtle);
-    font-size: 11px;
-    color: var(--text-muted);
-    display: flex;
-    justify-content: space-between;
-  }
-
-  /* Quick Info Strip */
-  .telemetry-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-  }
-
-  .stat-card {
-    background: var(--bg-surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
+    padding: 4px;
     gap: 4px;
+    border-radius: var(--radius-md);
+    background: rgba(9, 11, 16, 0.68);
+    border: 1px solid var(--border-hairline);
+    backdrop-filter: blur(18px);
   }
 
-  .stat-label {
-    font-size: 11px;
+  .prof-pill {
+    height: 32px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s var(--ease-cinema);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .prof-pill:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .prof-pill.active {
+    background: rgba(240, 178, 84, 0.13);
+    border-color: rgba(240, 178, 84, 0.36);
+    color: var(--gold-bright);
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
   }
 
-  .stat-val {
-    font-family: var(--font-display);
-    font-size: 16px;
-    font-weight: 700;
+  .prof-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.75;
+  }
+
+  /* Panneaux de réglages flottants (Optimisations / Modules HUD / Système) */
+  .glass-sheet {
+    width: 100%;
+    max-width: 1040px;
+    margin: 0 auto;
+    height: 100%;
+    background: var(--glass-panel);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-xl);
+    backdrop-filter: blur(28px) saturate(135%);
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.72);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sheet-header {
+    padding: 20px 26px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.065);
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .sheet-title {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
     color: var(--text-primary);
   }
 
-  .stat-sub {
-    font-size: 11.5px;
+  .sheet-desc {
+    margin-top: 3px;
+    font-size: 12.5px;
     color: var(--text-secondary);
   }
 
-  /* Bento Module Cards & Search */
-  .toolbar-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .search-box {
-    position: relative;
-    flex: 1;
-    max-width: 340px;
-  }
-
-  .search-box svg {
-    position: absolute;
-    left: 11px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-muted);
-    pointer-events: none;
-  }
-
-  .search-input {
-    width: 100%;
+  .search-field {
+    width: 240px;
     height: 34px;
-    padding: 0 12px 0 34px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-surface-1);
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-hairline);
+    background: rgba(0, 0, 0, 0.36);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 12.5px;
     outline: none;
-    transition: border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+    transition: border-color 0.18s ease;
   }
 
-  .search-input:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-subtle);
+  .search-field:focus {
+    border-color: var(--border-warm);
   }
 
-  .bento-grid {
+  .sheet-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 26px 24px;
+  }
+
+  .sheet-scroll::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .sheet-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+  }
+
+  /* Lignes d'interrupteurs minimalistes (zéro boîte d'icônes gadget) */
+  .settings-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
   }
 
-  .mod-card {
-    background: var(--bg-surface-1);
-    border: 1px solid var(--border-subtle);
+  .setting-row {
+    padding: 12px 15px;
     border-radius: var(--radius-md);
-    padding: 13px 15px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.06);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 14px;
     cursor: pointer;
-    transition: all var(--dur) var(--ease-out);
+    transition: background 0.18s ease, border-color 0.18s ease;
   }
 
-  .mod-card:hover {
-    background: var(--bg-surface-2);
-    border-color: var(--border-strong);
+  .setting-row:hover {
+    background: rgba(255, 255, 255, 0.048);
+    border-color: rgba(255, 255, 255, 0.12);
   }
 
-  .mod-card.is-on {
-    border-color: rgba(94, 106, 210, 0.36);
-    background: linear-gradient(90deg, rgba(94, 106, 210, 0.07) 0%, var(--bg-surface-1) 100%);
+  .setting-row.is-on {
+    border-color: rgba(240, 178, 84, 0.22);
+    background: linear-gradient(90deg, rgba(240, 178, 84, 0.065) 0%, rgba(255, 255, 255, 0.02) 100%);
   }
 
-  .mod-left {
-    display: flex;
-    align-items: center;
-    gap: 11px;
+  .setting-meta {
     min-width: 0;
   }
 
-  .mod-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: var(--bg-surface-2);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .mod-card.is-on .mod-icon {
-    background: var(--accent-subtle);
-    border-color: rgba(94, 106, 210, 0.4);
-    color: #a5b4fc;
-  }
-
-  .mod-title-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .mod-title {
-    font-weight: 600;
+  .setting-name {
     font-size: 13px;
-    color: var(--text-primary);
-  }
-
-  .tag-safe {
-    font-size: 10px;
     font-weight: 600;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: rgba(52, 211, 153, 0.12);
-    color: #6ee7b7;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
-  .mod-desc {
+  .setting-sub {
+    margin-top: 2px;
     font-size: 11.5px;
     color: var(--text-secondary);
+    line-height: 1.38;
   }
 
-  /* Pill Switch */
-  .switch {
+  /* Interrupteur pilule de précision */
+  .toggle-pill {
+    width: 36px;
+    height: 20px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     position: relative;
-    width: 38px;
-    height: 21px;
-    border-radius: var(--radius-pill);
-    background: #1d2232;
-    border: 1px solid rgba(255, 255, 255, 0.12);
     flex-shrink: 0;
-    transition: all var(--dur) var(--ease-out);
+    transition: background 0.2s var(--ease-cinema), border-color 0.2s var(--ease-cinema);
   }
 
-  .switch::after {
+  .toggle-pill::after {
     content: "";
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 15px;
-    height: 15px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    background: #949cb0;
-    transition: transform var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
+    background: rgba(255, 255, 255, 0.72);
+    transition: transform 0.22s var(--ease-cinema), background 0.2s ease;
   }
 
-  .mod-card.is-on .switch {
-    background: var(--accent);
-    border-color: rgba(255, 255, 255, 0.28);
-    box-shadow: 0 0 12px rgba(94, 106, 210, 0.42);
+  .setting-row.is-on .toggle-pill {
+    background: rgba(240, 178, 84, 0.88);
+    border-color: rgba(255, 223, 158, 0.75);
   }
 
-  .mod-card.is-on .switch::after {
-    transform: translateX(17px);
-    background: #ffffff;
+  .setting-row.is-on .toggle-pill::after {
+    transform: translateX(16px);
+    background: #090b10;
   }
 
-  /* Sliders Panel */
-  .sliders-card {
-    background: var(--bg-surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: 16px 18px;
+  /* Sliders de télémétrie & distances */
+  .sliders-band {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px 22px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 18px;
   }
 
-  .slider-group {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
+  .slider-box {
+    padding: 12px 15px;
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   .slider-top {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-  }
-
-  .slider-label {
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--text-primary);
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
   }
 
   .slider-val {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 600;
-    padding: 2px 7px;
-    border-radius: 5px;
-    background: var(--accent-subtle);
-    color: #c7d2fe;
+    color: var(--gold-bright);
   }
 
   input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
     width: 100%;
-    height: 6px;
-    border-radius: var(--radius-pill);
-    background: var(--bg-surface-3);
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
     outline: none;
-    cursor: pointer;
   }
 
   input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 16px;
-    height: 16px;
+    appearance: none;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    background: #ffffff;
-    border: 3px solid var(--accent);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-    transition: transform 100ms ease;
-  }
-
-  input[type="range"]::-webkit-slider-thumb:hover {
-    transform: scale(1.12);
-  }
-
-  /* System & Logs View */
-  .sys-grid {
-    display: grid;
-    grid-template-columns: 1.1fr 0.9fr;
-    gap: 12px;
-  }
-
-  .surface-panel {
-    background: var(--bg-surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: 16px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .field-row {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-
-  .field-label {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--text-secondary);
-  }
-
-  .text-input {
-    height: 33px;
-    padding: 0 10px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-surface-2);
-    color: var(--text-primary);
-    font-family: inherit;
-    font-size: 12.5px;
-    outline: none;
-  }
-
-  .text-input:focus {
-    border-color: var(--accent);
-  }
-
-  .log-console {
-    background: #07090e;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: 12px 14px;
-    height: 210px;
-    overflow-y: auto;
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    line-height: 1.55;
-    color: #94a3b8;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  /* Bottom Launch Dock */
-  .launch-dock {
-    position: fixed;
-    inset: auto 0 0 0;
-    height: var(--dock-h);
-    background: rgba(12, 15, 24, 0.92);
-    backdrop-filter: blur(20px);
-    border-top: 1px solid var(--border-subtle);
-    padding: 0 22px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    z-index: 800;
-  }
-
-  .dock-left {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .segmented {
-    display: inline-flex;
-    background: var(--bg-surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    padding: 3px;
-    gap: 2px;
-  }
-
-  .seg-btn {
-    height: 30px;
-    padding: 0 11px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-secondary);
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
+    background: var(--gold-bright);
+    border: 2px solid #090b10;
     cursor: pointer;
-    transition: all var(--dur) var(--ease-out);
+    box-shadow: 0 0 10px rgba(240, 178, 84, 0.55);
   }
 
-  .seg-btn:hover {
-    color: var(--text-primary);
-  }
-
-  .seg-btn.active {
-    background: var(--bg-surface-3);
-    color: #ffffff;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  }
-
-  .hypixel-chip {
-    height: 36px;
-    padding: 0 12px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-surface-2);
-    color: var(--text-secondary);
+  /* Vue Système, Auto-Updater GitHub Releases & Console */
+  .update-pill {
+    position: relative;
+    height: 32px;
+    padding: 0 13px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(240, 178, 84, 0.18) 0%, rgba(212, 139, 43, 0.10) 100%);
+    border: 1px solid rgba(240, 178, 84, 0.48);
+    color: var(--gold-bright);
     font-family: inherit;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 600;
-    display: inline-flex;
+    display: none;
     align-items: center;
     gap: 7px;
     cursor: pointer;
-    transition: all var(--dur) var(--ease-out);
+    overflow: hidden;
+    box-shadow: 0 0 20px rgba(240, 178, 84, 0.16);
+    transition: all 0.2s var(--ease-cinema);
   }
 
-  .hypixel-chip.active {
-    border-color: rgba(251, 191, 36, 0.48);
-    background: rgba(251, 191, 36, 0.10);
-    color: #fde68a;
+  .update-pill.visible {
+    display: inline-flex;
   }
 
-  .launch-btn {
-    height: 46px;
-    min-width: 248px;
-    padding: 0 24px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    background: linear-gradient(180deg, #6b78f5 0%, #4e59cb 100%);
-    color: #ffffff;
-    font-family: var(--font-display);
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
+  .update-pill:hover {
+    background: linear-gradient(180deg, rgba(240, 178, 84, 0.28) 0%, rgba(212, 139, 43, 0.18) 100%);
+    border-color: rgba(255, 223, 158, 0.72);
+  }
+
+  .update-pill.ready {
+    border-color: rgba(52, 211, 153, 0.55);
+    background: rgba(16, 185, 129, 0.14);
+    color: #6ee7b7;
+  }
+
+  .update-pill-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0%;
+    background: rgba(240, 178, 84, 0.22);
+    pointer-events: none;
+    transition: width 0.2s ease;
+  }
+
+  .updater-card {
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, rgba(18, 21, 30, 0.74) 0%, rgba(9, 11, 16, 0.78) 100%);
+    border: 1px solid rgba(240, 178, 84, 0.22);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .updater-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .updater-title-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .updater-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .updater-badge {
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+  }
+
+  .updater-badge.ok {
+    border-color: rgba(52, 211, 153, 0.38);
+    background: rgba(52, 211, 153, 0.10);
+    color: #6ee7b7;
+  }
+
+  .updater-badge.gold {
+    border-color: rgba(240, 178, 84, 0.48);
+    background: rgba(240, 178, 84, 0.13);
+    color: var(--gold-bright);
+  }
+
+  .updater-badge.err {
+    border-color: rgba(248, 113, 113, 0.45);
+    background: rgba(248, 113, 113, 0.10);
+    color: #fca5a5;
+  }
+
+  .updater-progress-track {
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.09);
+    overflow: hidden;
+    display: none;
+  }
+
+  .updater-progress-track.active {
+    display: block;
+  }
+
+  .updater-progress-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #d48b2b 0%, #ffdf9e 100%);
+    transition: width 0.2s ease;
+  }
+
+  .updater-grid {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: 12px;
+    align-items: end;
+  }
+
+  .sys-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .sys-card {
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.065);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .sys-label {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+  }
+
+  .sys-input {
+    width: 100%;
+    height: 34px;
+    padding: 0 11px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-hairline);
+    background: rgba(0, 0, 0, 0.42);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    outline: none;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .sys-input:focus {
+    border-color: var(--border-warm);
+  }
+
+  .btn-outline {
+    height: 32px;
+    padding: 0 13px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 7px;
+  }
+
+  .btn-outline:hover {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.26);
+  }
+
+  .log-terminal {
+    height: 136px;
+    padding: 11px 14px;
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.58);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: rgba(226, 228, 236, 0.78);
+    overflow-y: auto;
+    white-space: pre-wrap;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  /* Dock inférieur de lancement */
+  .bottom-dock {
+    height: 78px;
+    padding: 0 34px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid rgba(255, 255, 255, 0.065);
+    background: linear-gradient(0deg, rgba(4, 5, 9, 0.86) 0%, rgba(4, 5, 9, 0.36) 100%);
+    backdrop-filter: blur(16px);
+  }
+
+  .dock-meta {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .mode-selector {
+    display: inline-flex;
+    padding: 3px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--border-hairline);
+  }
+
+  .mode-btn {
+    height: 30px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
     cursor: pointer;
-    box-shadow: 0 8px 24px rgba(94, 106, 210, 0.42), 0 1px 0 rgba(255, 255, 255, 0.28) inset;
-    transition: all var(--dur) var(--ease-out);
+    transition: all 0.18s ease;
   }
 
-  .launch-btn:hover {
-    background: linear-gradient(180deg, #7784fa 0%, #5864d8 100%);
+  .mode-btn.active {
+    background: rgba(255, 255, 255, 0.10);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .quick-chip {
+    height: 36px;
+    padding: 0 13px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-hairline);
+    background: rgba(255, 255, 255, 0.025);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+  }
+
+  .quick-chip:hover {
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  .quick-chip.active {
+    border-color: rgba(240, 178, 84, 0.42);
+    background: rgba(240, 178, 84, 0.10);
+    color: var(--gold-bright);
+  }
+
+  .telemetry-readout {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+
+  /* Bouton Signature JOUER — Or Doppler & Obsidienne */
+  .play-cta {
+    position: relative;
+    height: 50px;
+    min-width: 248px;
+    padding: 0 28px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 232, 186, 0.55);
+    background: linear-gradient(180deg, #f7cb79 0%, #e5a240 52%, #c97f21 100%);
+    color: #08090c;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 11px;
+    box-shadow:
+      0 10px 32px rgba(235, 162, 62, 0.30),
+      inset 0 1px 0 rgba(255, 250, 235, 0.65);
+    transition: transform 0.22s var(--ease-cinema), box-shadow 0.22s var(--ease-cinema), filter 0.2s ease;
+  }
+
+  .play-cta:hover {
     transform: translateY(-1px);
-    box-shadow: 0 12px 28px rgba(94, 106, 210, 0.55), 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+    filter: brightness(1.05);
+    box-shadow:
+      0 14px 42px rgba(240, 178, 84, 0.44),
+      inset 0 1px 0 rgba(255, 252, 242, 0.8);
   }
 
-  .launch-btn:active {
+  .play-cta:active {
     transform: scale(0.985);
   }
 
-  .launch-btn.running {
-    background: linear-gradient(180deg, #10b981 0%, #059669 100%);
-    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.35);
-    cursor: default;
+  .play-cta.running {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--border-strong);
+    color: var(--text-secondary);
+    box-shadow: none;
   }
 
-  /* Microsoft Device Code Modal */
+  /* Modale Compte Microsoft / OAuth2 Device Code */
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(5, 7, 12, 0.76);
-    backdrop-filter: blur(12px);
+    z-index: 12;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(14px);
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 1200;
   }
 
   .modal-backdrop.open {
     display: flex;
-    animation: fadeSlide 150ms var(--ease-out);
   }
 
-  .modal-box {
+  .modal-card {
     width: 440px;
-    background: var(--bg-glass);
-    border: 1px solid var(--border-strong);
-    border-radius: 16px;
     padding: 24px;
-    box-shadow: var(--shadow-popover);
+    border-radius: var(--radius-xl);
+    background: rgba(11, 13, 19, 0.94);
+    border: 1px solid var(--border-strong);
+    box-shadow: 0 32px 90px rgba(0, 0, 0, 0.85);
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -1165,101 +1026,161 @@
   }
 
   .modal-title {
+    font-size: 16px;
+    font-weight: 600;
     display: flex;
     align-items: center;
     gap: 9px;
-    font-family: var(--font-display);
-    font-size: 16px;
-    font-weight: 700;
-    color: #ffffff;
   }
 
-  .code-display {
-    background: #090c14;
-    border: 1px solid rgba(94, 106, 210, 0.45);
-    border-radius: 12px;
-    padding: 16px;
+  .device-code-box {
+    padding: 18px;
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(240, 178, 84, 0.30);
     text-align: center;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
   }
 
-  .code-chars {
+  .device-code-digits {
     font-family: var(--font-mono);
     font-size: 28px;
     font-weight: 700;
-    letter-spacing: 0.16em;
-    color: #ffffff;
-    user-select: text;
+    letter-spacing: 0.18em;
+    color: var(--gold-bright);
   }
 
-  .copied-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    margin: 0 auto;
+  .device-code-hint {
+    margin-top: 6px;
     font-size: 11.5px;
-    font-weight: 600;
-    color: var(--success);
-  }
-
-  .poll-bar {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 10px 12px;
-    border-radius: var(--radius-md);
-    background: rgba(94, 106, 210, 0.12);
-    border: 1px solid rgba(94, 106, 210, 0.28);
-    font-size: 12px;
-    color: #c7d2fe;
-  }
-
-  .spinner {
-    width: 14px;
-    height: 14px;
-    border: 2px solid rgba(199, 210, 254, 0.25);
-    border-top-color: #818cf8;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    flex-shrink: 0;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
+    color: var(--status-ok);
   }
 
   .modal-actions {
-    display: grid;
-    grid-template-columns: 1fr auto;
+    display: flex;
     gap: 8px;
   }
 
-  /* Toast Banner */
-  .toast {
+  .btn-gold {
+    flex: 1;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 226, 170, 0.45);
+    background: linear-gradient(180deg, #f3c16c 0%, #d48b2b 100%);
+    color: #08090c;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  /* Aperçu du Menu Minecraft Singularity (utilisé en mode démo navigateur hors-JVM) */
+  #mc-menu-preview {
     position: fixed;
-    right: 22px;
-    bottom: 86px;
-    max-width: 420px;
-    padding: 11px 15px;
-    border-radius: 10px;
-    background: rgba(16, 20, 31, 0.95);
-    border: 1px solid var(--border-strong);
-    box-shadow: var(--shadow-popover);
+    inset: 0;
+    z-index: 25;
+    background: radial-gradient(circle at 50% 50%, #0a0c14 0%, #030407 72%, #000000 100%);
+    opacity: 0;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: opacity 0.85s var(--ease-cinema);
+  }
+
+  #mc-menu-preview.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mc-topbar {
+    height: 34px;
+    padding: 0 14px;
+    background: rgba(6, 8, 13, 0.86);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+  }
+
+  .mc-center-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mc-halo {
+    position: absolute;
+    width: 340px;
+    height: 340px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(245, 184, 92, 0.16) 0%, rgba(217, 107, 39, 0.08) 42%, transparent 70%);
+    filter: blur(18px);
+    pointer-events: none;
+  }
+
+  .mc-card {
+    position: relative;
+    width: 320px;
+    padding: 22px 24px;
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(12, 15, 22, 0.94) 0%, rgba(7, 9, 14, 0.96) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    text-align: center;
+  }
+
+  .mc-btn {
+    height: 34px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    background: rgba(20, 24, 34, 0.9);
+    color: var(--text-primary);
+    font-family: inherit;
     font-size: 12.5px;
     font-weight: 500;
+    cursor: pointer;
+  }
+
+  .mc-btn.primary {
+    height: 38px;
+    background: linear-gradient(180deg, #eab354 0%, #c98324 100%);
+    border-color: rgba(255, 230, 179, 0.5);
+    color: #090a0d;
+    font-weight: 700;
+  }
+
+  .mc-btn.accent {
+    border-color: rgba(245, 184, 92, 0.35);
+    color: #f5c878;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 92px;
+    right: 34px;
+    z-index: 30;
+    padding: 10px 16px;
+    border-radius: var(--radius-md);
+    background: rgba(12, 15, 22, 0.94);
+    border: 1px solid var(--border-strong);
     color: var(--text-primary);
-    display: none;
-    align-items: center;
-    gap: 9px;
-    z-index: 1300;
+    font-size: 12.5px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+    transition: all 0.22s var(--ease-cinema);
   }
 
   .toast.show {
-    display: flex;
-    animation: fadeSlide 150ms var(--ease-out);
+    opacity: 1;
+    transform: translateY(0);
   }
 
   .toast.error {
@@ -1270,422 +1191,354 @@
 </head>
 <body>
 
-  <!-- Custom Frameless Titlebar -->
-  <header class="app-titlebar" id="titlebar">
-    <div class="tb-left">
-      <div class="brand-mark">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-        </svg>
+  <!-- Trou Noir Relativiste Temps-Réel (Raymarching Géodésique de Schwarzschild WebGL2) -->
+  <canvas id="singularity-canvas"></canvas>
+  <div class="cinema-vignette"></div>
+
+  <!-- Interface Principale PureClient Singularity -->
+  <div id="launcher-shell">
+    <header class="topbar" id="titlebar">
+      <div class="brand-cluster">
+        <div class="singularity-mark" aria-hidden="true">
+          <svg viewBox="0 0 28 28" fill="none">
+            <ellipse cx="14" cy="14" rx="12.5" ry="4.4" transform="rotate(-16 14 14)" stroke="#f0b254" stroke-width="1.35" stroke-opacity="0.85"/>
+            <circle cx="14" cy="14" r="5.4" fill="#000000" stroke="#ffdf9e" stroke-width="1.2"/>
+          </svg>
+        </div>
+        <span class="brand-wordmark">PURECLIENT</span>
+        <span class="brand-edition">SINGULARITY 3.5</span>
       </div>
-      <span class="tb-title">PURECLIENT</span>
-      <span class="tb-version">v3.5</span>
-      <span class="tb-engine-pill">
-        <span class="status-dot"></span>
-        <span>OpenGL 3.0 VAO &bull; MultiDraw 1.8.9</span>
-      </span>
-    </div>
 
-    <div class="tb-controls">
-      <button class="win-btn" onclick="sendIpc({cmd:'minimize'})" title="Réduire">
-        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="5.5" width="10" height="1" fill="currentColor"/></svg>
-      </button>
-      <button class="win-btn" onclick="sendIpc({cmd:'toggle_maximize'})" title="Agrandir">
-        <svg width="11" height="11" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
-      </button>
-      <button class="win-btn close" onclick="sendIpc({cmd:'close'})" title="Fermer">
-        <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.3"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
-      </button>
-    </div>
-  </header>
+      <nav class="top-nav" aria-label="Navigation principale">
+        <button class="nav-tab active" id="tab-btn-play" data-tab="play" onclick="switchTab('play')">Jouer</button>
+        <button class="nav-tab" id="tab-btn-engine" data-tab="engine" onclick="switchTab('engine')">
+          <span>Optimisations</span>
+          <span class="nav-count" id="nav-engine-count">18/18</span>
+        </button>
+        <button class="nav-tab" id="tab-btn-modules" data-tab="modules" onclick="switchTab('modules')">
+          <span>Modules HUD</span>
+          <span class="nav-count" id="nav-mod-count">10/13</span>
+        </button>
+        <button class="nav-tab" id="tab-btn-system" data-tab="system" onclick="switchTab('system')">Système</button>
+      </nav>
 
-  <div class="app-layout">
-    <!-- Left Navigation Rail -->
-    <aside class="sidebar">
-      <div>
-        <div class="nav-group-label">Espace Client</div>
-        <div class="nav-list">
-          <button class="nav-btn active" data-tab="home" onclick="switchTab('home')">
-            <span class="nav-btn-left">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-              <span>Accueil &amp; Profils</span>
-            </span>
+      <div class="topbar-right">
+        <button class="update-pill" id="btn-update-pill" onclick="triggerUpdatePillAction()">
+          <span class="update-pill-fill" id="top-update-fill"></span>
+          <span id="top-update-label" style="position:relative;z-index:1;">Mise à jour</span>
+        </button>
+
+        <button class="account-pill" id="btn-account-pill" onclick="openAccountModal()">
+          <span class="avatar-box" id="top-avatar-box">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M5 20c1.5-3.5 12.5-3.5 14 0"/></svg>
+          </span>
+          <span id="top-account-label">Connexion Microsoft</span>
+        </button>
+
+        <div class="win-controls">
+          <button class="win-btn" id="btn-win-min" title="Réduire" onclick="sendIpc({cmd:'minimize'})">
+            <svg width="11" height="11" viewBox="0 0 12 12"><rect x="1" y="5.5" width="10" height="1" fill="currentColor"/></svg>
           </button>
-
-          <button class="nav-btn" data-tab="modules" onclick="switchTab('modules')">
-            <span class="nav-btn-left">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
-              <span>Modules &amp; HUD</span>
-            </span>
-            <span class="nav-badge tabular-nums" id="nav-mod-count">9/13</span>
+          <button class="win-btn" id="btn-win-max" title="Agrandir" onclick="sendIpc({cmd:'toggle_maximize'})">
+            <svg width="10" height="10" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
           </button>
-
-          <button class="nav-btn" data-tab="engine" onclick="switchTab('engine')">
-            <span class="nav-btn-left">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
-              <span>Moteur GPU / CPU</span>
-            </span>
-            <span class="nav-badge">3.5</span>
-          </button>
-
-          <button class="nav-btn" data-tab="system" onclick="switchTab('system')">
-            <span class="nav-btn-left">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
-              <span>Système &amp; Console</span>
-            </span>
+          <button class="win-btn close" id="btn-win-close" title="Fermer" onclick="sendIpc({cmd:'close'})">
+            <svg width="11" height="11" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2L2 10" stroke="currentColor" stroke-width="1.3"/></svg>
           </button>
         </div>
       </div>
+    </header>
 
-      <!-- Microsoft Account Card -->
-      <div class="account-card" id="account-card"></div>
-    </aside>
+    <main class="stage">
+      <!-- VUE 1 : JOUER (Mise en valeur du Trou Noir en rotation) -->
+      <section class="stage-view active" id="view-play">
+        <div></div>
+        <div class="hero-editorial">
+          <div class="hero-kicker">FORGE 1.8.9  &bull;  VAO GL30 + TRIANGLES</div>
+          <h1 class="hero-title">PURECLIENT</h1>
+          <p class="hero-subtitle">
+            Pipeline OpenGL sans blocage GPU, Item Frames compilés, LOD joueurs et transition directe dans l'horizon des événements vers votre menu Minecraft.
+          </p>
 
-    <!-- Main Stage -->
-    <main class="main-stage">
-      <!-- TAB 1: HOME -->
-      <section class="view-panel active" id="view-home">
-        <div class="hero-banner">
-          <div class="hero-copy">
-            <div class="hero-eyebrow">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>Architecture Compétitive 1.8.9 &bull; 100% Safe Watchdog</span>
-            </div>
-            <h1 class="hero-title">Performance Brute. Interface Chirurgicale.</h1>
-            <p class="hero-desc">
-              PureClient 3.5 élimine les goulots CPU/JNI historiques de Minecraft 1.8.9 grâce aux VAO matériels OpenGL 3.0, au Region MultiDraw, à la suppression des appels bloquants glGetError et au cache Lazy Terrain BFS.
-            </p>
-            <div class="hero-chips">
-              <span class="chip">VAO Régional GL30</span>
-              <span class="chip">Zéro Stall glGetError</span>
-              <span class="chip">Lazy Terrain BFS</span>
-              <span class="chip">LOD Reflet 32x</span>
-              <span class="chip">Shader UI SDF Anti-Aliasé</span>
-            </div>
-          </div>
-
-          <div class="hero-actions">
-            <button class="btn-secondary" onclick="switchTab('modules')">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><line x1="4" x2="20" y1="21" y2="14"/><line x1="4" x2="20" y1="10" y2="3"/><circle cx="12" cy="12" r="3"/></svg>
-              <span>Configurer les Modules</span>
+          <div class="profile-strip" role="radiogroup" aria-label="Profil de performance">
+            <button class="prof-pill" id="prof-fps" onclick="selectProfile('fps')">
+              <span class="prof-dot"></span>
+              <span>Turbo FPS</span>
             </button>
-            <button class="btn-secondary" onclick="sendIpc({cmd:'open_mods_folder'})">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              <span>Dossier Mods (.minecraft)</span>
+            <button class="prof-pill active" id="prof-balanced" onclick="selectProfile('balanced')">
+              <span class="prof-dot"></span>
+              <span>Équilibré</span>
+            </button>
+            <button class="prof-pill" id="prof-quality" onclick="selectProfile('quality')">
+              <span class="prof-dot"></span>
+              <span>Qualité</span>
             </button>
           </div>
         </div>
+      </section>
 
-        <div class="section-head">
-          <div>
-            <div class="section-title">Profils d'Optimisation Instantanés</div>
-            <div class="section-sub">Synchronisés en temps réel avec purefps.properties et le menu RSHIFT en jeu</div>
+      <!-- VUE 2 : OPTIMISATIONS MOTEUR -->
+      <section class="stage-view" id="view-engine">
+        <div class="glass-sheet">
+          <div class="sheet-header">
+            <div>
+              <h2 class="sheet-title">Moteur Graphique &amp; Entités</h2>
+              <p class="sheet-desc">Réglages synchronisés avec <code style="font-family:var(--font-mono);color:var(--gold-bright)">purefps.properties</code> et débridage automatique VBO / VSync.</p>
+            </div>
+            <div class="telemetry-readout" id="engine-profile-badge">PROFIL ÉQUILIBRÉ</div>
           </div>
-        </div>
+          <div class="sheet-scroll">
+            <div class="settings-grid" id="engine-grid"></div>
 
-        <div class="profiles-grid" id="profiles-grid">
-          <button class="profile-card" id="prof-fps" onclick="sendIpc({cmd:'set_profile', profile:'fps'})">
-            <div class="prof-top">
-              <div class="prof-icon" style="color:#34d399">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <div class="sliders-band">
+              <div class="slider-box">
+                <div class="slider-top">
+                  <span>Portée maximale des Entités</span>
+                  <span class="slider-val" id="lbl-ent-dist">64 blocs</span>
+                </div>
+                <input type="range" id="rng-ent-dist" min="24" max="160" step="8" value="64" oninput="onEngineSlider('max_entity_render_distance', this.value, 'lbl-ent-dist', ' blocs')">
               </div>
-              <span class="prof-state-tag" id="tag-fps">Disponible</span>
-            </div>
-            <div class="prof-name">Turbo FPS</div>
-            <div class="prof-desc">Priorité absolue aux FPS en BedWars, SkyWars et Duels. Coupe le reflet d'armure &gt;18m et plafonne les particules.</div>
-            <div class="prof-metrics tabular-nums">
-              <span>Entités 48m</span>
-              <span>250 part./c</span>
-              <span>Skylight Skip</span>
-            </div>
-          </button>
 
-          <button class="profile-card" id="prof-balanced" onclick="sendIpc({cmd:'set_profile', profile:'balanced'})">
-            <div class="prof-top">
-              <div class="prof-icon" style="color:#818cf8">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <div class="slider-box">
+                <div class="slider-top">
+                  <span>Portée des Item Frames</span>
+                  <span class="slider-val" id="lbl-if-dist">48 blocs</span>
+                </div>
+                <input type="range" id="rng-if-dist" min="24" max="128" step="8" value="48" oninput="onEngineSlider('max_item_frame_distance', this.value, 'lbl-if-dist', ' blocs')">
               </div>
-              <span class="prof-state-tag" id="tag-balanced">Recommandé</span>
-            </div>
-            <div class="prof-name">Équilibré</div>
-            <div class="prof-desc">Visuel net avec feuilles détaillées, éclairage adouci et toutes les accélérations VAO + MultiDraw + Lazy BFS actives.</div>
-            <div class="prof-metrics tabular-nums">
-              <span>Entités 64m</span>
-              <span>1 000 part./c</span>
-              <span>Glint 32m</span>
-            </div>
-          </button>
 
-          <button class="profile-card" id="prof-quality" onclick="sendIpc({cmd:'set_profile', profile:'quality'})">
-            <div class="prof-top">
-              <div class="prof-icon" style="color:#fbbf24">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              <div class="slider-box">
+                <div class="slider-top">
+                  <span>Portée des Coffres &amp; TileEntities</span>
+                  <span class="slider-val" id="lbl-te-dist">48 blocs</span>
+                </div>
+                <input type="range" id="rng-te-dist" min="24" max="128" step="8" value="48" oninput="onEngineSlider('max_tile_entity_render_distance', this.value, 'lbl-te-dist', ' blocs')">
               </div>
-              <span class="prof-state-tag" id="tag-quality">Fidélité</span>
-            </div>
-            <div class="prof-name">Qualité</div>
-            <div class="prof-desc">Rendu 100% fidèle à longue distance tout en conservant le moteur GPU VAO MultiDraw sans aucune perte visuelle.</div>
-            <div class="prof-metrics tabular-nums">
-              <span>Entités 128m</span>
-              <span>4 000 part./c</span>
-              <span>100% Lossless</span>
-            </div>
-          </button>
-        </div>
 
-        <div class="telemetry-grid">
-          <div class="stat-card">
-            <span class="stat-label">Allocation Mémoire JVM</span>
-            <span class="stat-val tabular-nums" id="home-ram-val">3 072 MiB</span>
-            <span class="stat-sub">G1GC Temps-Réel (Pause cible &le; 25 ms)</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">Archive Moteur Déployée</span>
-            <span class="stat-val mono">purefps-3.5.0.jar</span>
-            <span class="stat-sub">RSHIFT en jeu pour ouvrir le tableau de bord</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">Authentification Active</span>
-            <span class="stat-val" id="home-auth-val">Pont PrismLauncher</span>
-            <span class="stat-sub" id="home-auth-sub">Prêt à lancer sur Hypixel</span>
+              <div class="slider-box">
+                <div class="slider-top">
+                  <span>Plafond de Particules par couche</span>
+                  <span class="slider-val" id="lbl-part-cap">1000 / couche</span>
+                </div>
+                <input type="range" id="rng-part-cap" min="150" max="4000" step="50" value="1000" oninput="onEngineSlider('max_particles_per_layer', this.value, 'lbl-part-cap', ' / couche')">
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- TAB 2: MODULES & HUD -->
-      <section class="view-panel" id="view-modules">
-        <div class="toolbar-row">
-          <div>
-            <div class="section-title">Modules PvP &amp; Interface PureClient</div>
-            <div class="section-sub">Typographie TrueType lissée et cartes SDF anti-aliasées en jeu</div>
-          </div>
-          <div class="search-box">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg>
-            <input type="text" class="search-input" id="mod-search" placeholder="Rechercher un module..." oninput="renderModules()">
-          </div>
-        </div>
-
-        <div class="bento-grid" id="modules-bento"></div>
-      </section>
-
-      <!-- TAB 3: GPU & CPU ENGINE -->
-      <section class="view-panel" id="view-engine">
-        <div class="section-head">
-          <div>
-            <div class="section-title">Accélérateurs Bas-Niveau OpenGL &amp; CPU (v3.5)</div>
-            <div class="section-sub">Optimisations chirurgicales du pipeline 1.8.9 pour RTX 4060 &amp; Ryzen 5 5500</div>
-          </div>
-        </div>
-
-        <div class="bento-grid" id="engine-bento"></div>
-
-        <div class="section-head">
-          <div>
-            <div class="section-title">Distances de Culling &amp; Budgets par Couche</div>
-            <div class="section-sub">Ajustement granulaire des rayons d'affichage</div>
-          </div>
-        </div>
-
-        <div class="sliders-card">
-          <div class="slider-group">
-            <div class="slider-top">
-              <span class="slider-label">Portée maximale des Entités</span>
-              <span class="slider-val tabular-nums" id="lbl-ent-dist">64 blocs</span>
+      <!-- VUE 3 : MODULES HUD & PVP -->
+      <section class="stage-view" id="view-modules">
+        <div class="glass-sheet">
+          <div class="sheet-header">
+            <div>
+              <h2 class="sheet-title">Modules PvP &amp; Interface HUD</h2>
+              <p class="sheet-desc">100 % conformes aux anti-cheats serveurs (aucune altération réseau ni physique joueur).</p>
             </div>
-            <input type="range" min="24" max="128" step="8" id="rng-ent-dist" oninput="onEngineSlider('max_entity_render_distance', this.value, 'lbl-ent-dist', ' blocs')">
+            <input type="search" class="search-field" id="mod-search" placeholder="Rechercher un module..." oninput="renderModules()">
           </div>
-
-          <div class="slider-group">
-            <div class="slider-top">
-              <span class="slider-label">Portée des Coffres &amp; Pancartes (TE)</span>
-              <span class="slider-val tabular-nums" id="lbl-te-dist">48 blocs</span>
-            </div>
-            <input type="range" min="24" max="128" step="8" id="rng-te-dist" oninput="onEngineSlider('max_tile_entity_render_distance', this.value, 'lbl-te-dist', ' blocs')">
-          </div>
-
-          <div class="slider-group">
-            <div class="slider-top">
-              <span class="slider-label">Plafond de Particules par couche</span>
-              <span class="slider-val tabular-nums" id="lbl-part-cap">1000 / couche</span>
-            </div>
-            <input type="range" min="150" max="4000" step="50" id="rng-part-cap" oninput="onEngineSlider('max_particles_per_layer', this.value, 'lbl-part-cap', ' / couche')">
-          </div>
-
-          <div class="slider-group">
-            <div class="slider-top">
-              <span class="slider-label">Limite FPS fenêtre en arrière-plan</span>
-              <span class="slider-val tabular-nums" id="lbl-bg-fps">15 FPS</span>
-            </div>
-            <input type="range" min="5" max="60" step="5" id="rng-bg-fps" oninput="onEngineSlider('unfocused_fps_limit', this.value, 'lbl-bg-fps', ' FPS')">
+          <div class="sheet-scroll">
+            <div class="settings-grid" id="modules-grid"></div>
           </div>
         </div>
       </section>
 
-      <!-- TAB 4: SYSTEM & LOGS -->
-      <section class="view-panel" id="view-system">
-        <div class="sys-grid">
-          <div class="surface-panel">
-            <div class="section-title">Mémoire JVM &amp; Paramètres G1GC</div>
-            <div class="slider-group">
-              <div class="slider-top">
-                <span class="slider-label">Allocation RAM dédiée (Xms = Xmx)</span>
-                <span class="slider-val tabular-nums" id="lbl-ram">3072 MiB</span>
+      <!-- VUE 4 : SYSTÈME, AUTO-UPDATER, MÉMOIRE & JOURNAUX -->
+      <section class="stage-view" id="view-system">
+        <div class="glass-sheet">
+          <div class="sheet-header">
+            <div>
+              <h2 class="sheet-title">Auto-Updater, JVM &amp; Environnement</h2>
+              <p class="sheet-desc">Mises à jour automatiques GitHub Releases (dépôt privé Read-Only), mémoire G1GC et journaux temps-réel.</p>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn-outline" onclick="sendIpc({cmd:'open_mods_folder'})">Dossier Mods</button>
+              <button class="btn-outline" onclick="clearLogs()">Vider le journal</button>
+            </div>
+          </div>
+          <div class="sheet-scroll">
+            <div class="updater-card">
+              <div class="updater-top">
+                <div class="updater-title-group">
+                  <span class="updater-title">Auto-Updater GitHub Releases</span>
+                  <span class="updater-badge ok" id="upd-token-badge">Jeton Read-Only actif</span>
+                  <span class="updater-badge" id="upd-status-badge">Launcher v3.5.0</span>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <button class="btn-outline" id="btn-upd-check" onclick="triggerManualUpdateCheck()">Vérifier maintenant</button>
+                  <button class="btn-gold" id="btn-upd-action" style="display:none;height:32px;padding:0 14px;flex:none;" onclick="triggerInstallOrRestart()">Installer</button>
+                </div>
               </div>
-              <input type="range" min="2048" max="8192" step="512" id="rng-ram" oninput="onRamInput(this.value)">
-            </div>
-            <p class="section-sub">
-              Recommandé en 1.8.9 : <strong class="tabular-nums" style="color:#eceff6">3072 à 4096 MiB</strong> avec AlwaysPreTouch pour éliminer tout micro-freeze du ramasse-miettes.
-            </p>
-            <div class="field-row">
-              <label class="field-label">Pseudo pour le mode Hors-Ligne / Test FPS</label>
-              <input type="text" class="text-input" id="inp-offline-name" maxlength="16" onchange="sendIpc({cmd:'set_offline_name', name:this.value})">
-            </div>
-          </div>
 
-          <div class="surface-panel">
-            <div class="section-title">Environnement Détecté</div>
-            <div class="field-row">
-              <span class="field-label">Runtime Java 8 64-bit</span>
-              <input type="text" class="text-input mono" id="inp-java-path" readonly>
+              <div style="font-size:12px;color:var(--text-secondary);" id="upd-message">
+                Prêt à vérifier les mises à jour sur MyMasha/ProjectFPS.
+              </div>
+
+              <div class="updater-progress-track" id="upd-progress-wrap">
+                <div class="updater-progress-bar" id="upd-progress-bar"></div>
+              </div>
+
+              <div class="updater-grid">
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;">
+                    <div>
+                      <div class="sys-label" style="margin-bottom:4px;">Dépôt GitHub cible</div>
+                      <input type="text" class="sys-input" id="inp-gh-repo" value="MyMasha/ProjectFPS" onchange="onRepoChange(this.value)">
+                    </div>
+                    <div class="setting-row is-on" id="row-auto-upd" style="height:34px;margin-top:19px;padding:0 12px;" onclick="toggleAutoUpdateCheck()">
+                      <span style="font-size:11.5px;font-weight:500;color:var(--text-primary);white-space:nowrap;">Vérif. au lancement</span>
+                      <div class="toggle-pill"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <div class="sys-label">Rotation du jeton Fine-Grained Read-Only (optionnel — jeton déjà intégré)</div>
+                  <div style="display:flex;gap:8px;">
+                    <input type="password" class="sys-input" id="inp-gh-token" placeholder="github_pat_•••• (laisser vide pour garder le jeton intégré)" autocomplete="off">
+                    <button class="btn-outline" style="height:34px;flex-shrink:0;" onclick="saveCustomToken()">Appliquer</button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="field-row">
-              <span class="field-label">Répertoire .minecraft cible</span>
-              <input type="text" class="text-input mono" id="inp-game-dir" readonly>
+
+            <div class="sys-columns">
+              <div class="sys-card">
+                <div class="slider-top" style="margin-bottom:2px;">
+                  <span>Mémoire vive dédiée (JVM G1GC)</span>
+                  <span class="slider-val" id="lbl-ram">3 072 MiB</span>
+                </div>
+                <input type="range" id="rng-ram" min="2048" max="12288" step="512" value="3072" oninput="onRamInput(this.value)">
+                <div class="sys-label">Pseudo local (utilisé uniquement en mode Hors-Ligne)</div>
+                <input type="text" class="sys-input" id="inp-offline-name" maxlength="16" value="PurePlayer" onchange="sendIpc({cmd:'set_offline_name', name:this.value})">
+              </div>
+
+              <div class="sys-card">
+                <div class="sys-label">Exécutable Java 8 détecté</div>
+                <input type="text" class="sys-input" id="inp-java-path" readonly>
+                <div class="sys-label">Instance Minecraft cible</div>
+                <input type="text" class="sys-input" id="inp-game-dir" readonly>
+              </div>
             </div>
+
+            <div class="sys-label" style="margin-bottom:7px;">Journal d'exécution temps-réel</div>
+            <pre class="log-terminal" id="log-console">[Singularity 3.5] Prêt. Cliquez sur JOUER pour plonger dans l'horizon des événements et ouvrir Minecraft sans transition de fenêtre.</pre>
           </div>
         </div>
-
-        <div class="section-head">
-          <div class="section-title">Journal d'Exécution JVM &amp; Launcher</div>
-          <button class="btn-mini" onclick="clearLogs()">Effacer la console</button>
-        </div>
-        <pre class="log-console" id="log-console">[PureClient 3.5] Prêt. Sélectionnez votre mode de lancement ci-dessous.</pre>
       </section>
     </main>
-  </div>
 
-  <!-- Persistent Bottom Launch Dock -->
-  <footer class="launch-dock">
-    <div class="dock-left">
-      <div class="segmented" id="launch-mode-seg">
-        <button class="seg-btn" data-mode="DirectMicrosoft" onclick="sendIpc({cmd:'set_launch_mode', mode:'DirectMicrosoft'})">Compte Microsoft</button>
-        <button class="seg-btn" data-mode="PrismBridge" onclick="sendIpc({cmd:'set_launch_mode', mode:'PrismBridge'})">Pont Prism</button>
-        <button class="seg-btn" data-mode="DirectOffline" onclick="sendIpc({cmd:'set_launch_mode', mode:'DirectOffline'})">Hors-Ligne</button>
-      </div>
-
-      <button class="hypixel-chip" id="btn-quick-hypixel" onclick="sendIpc({cmd:'toggle_quick_hypixel'})">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" x2="22" y1="12" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-        <span>Connexion directe Hypixel</span>
-      </button>
-    </div>
-
-    <button class="launch-btn" id="btn-launch" onclick="sendIpc({cmd:'launch_game'})">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
-      <span id="launch-btn-text">LANCER PURECLIENT 3.5</span>
-    </button>
-  </footer>
-
-  <!-- Microsoft Device Code OAuth2 Modal -->
-  <div class="modal-backdrop" id="ms-modal">
-    <div class="modal-box">
-      <div class="modal-head">
-        <div class="modal-title">
-          <svg width="18" height="18" viewBox="0 0 21 21">
-            <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-            <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-            <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-            <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-          </svg>
-          <span>Connexion Compte Microsoft</span>
+    <!-- Dock inférieur de commande -->
+    <footer class="bottom-dock">
+      <div class="dock-meta">
+        <div class="mode-selector" id="launch-mode-seg">
+          <button class="mode-btn" data-mode="DirectMicrosoft" onclick="sendIpc({cmd:'set_launch_mode', mode:'DirectMicrosoft'})">Microsoft</button>
+          <button class="mode-btn active" data-mode="PrismBridge" onclick="sendIpc({cmd:'set_launch_mode', mode:'PrismBridge'})">Pont Prism</button>
+          <button class="mode-btn" data-mode="DirectOffline" onclick="sendIpc({cmd:'set_launch_mode', mode:'DirectOffline'})">Hors-Ligne</button>
         </div>
-        <button class="btn-mini" onclick="sendIpc({cmd:'cancel_ms_login'})">Annuler</button>
-      </div>
 
-      <p class="section-sub">
-        Entrez ce code à 8 caractères sur la page officielle Microsoft ouverte dans votre navigateur. Votre profil Minecraft sera lié automatiquement dès validation.
-      </p>
-
-      <div class="code-display">
-        <div class="code-chars" id="ms-user-code">--------</div>
-        <div class="copied-pill" id="ms-copied-note">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>Code copié automatiquement dans le presse-papiers</span>
-        </div>
-      </div>
-
-      <div class="poll-bar">
-        <div class="spinner"></div>
-        <span id="ms-poll-status">En attente de validation sur microsoft.com/link...</span>
-      </div>
-
-      <div class="modal-actions">
-        <button class="ms-btn" onclick="sendIpc({cmd:'open_ms_link'})">
-          <span>Ouvrir microsoft.com/link</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" x2="21" y1="14" y2="3"/></svg>
+        <button class="quick-chip" id="btn-quick-hypixel" onclick="toggleHypixelChip()">
+          <span>Connexion directe Hypixel</span>
         </button>
-        <button class="btn-secondary" onclick="copyCurrentDeviceCode()">Copier</button>
+
+        <span class="telemetry-readout" id="dock-summary">3 072 MiB G1GC  &bull;  Transition Plein Écran Sans Couture</span>
       </div>
+
+      <button class="play-cta" id="btn-launch" onclick="triggerPlaySequence()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 20 12 5 21 5 3"/></svg>
+        <span id="launch-btn-text">JOUER</span>
+      </button>
+    </footer>
+  </div>
+
+  <!-- Modale Compte Microsoft / OAuth2 Device Code -->
+  <div class="modal-backdrop" id="account-modal">
+    <div class="modal-card" id="account-modal-body"></div>
+  </div>
+
+  <!-- Rideau Noir Absolu (#000000) une fois la caméra aspirée dans le Trou Noir -->
+  <div id="horizon-blackout">
+    <div class="horizon-telemetry" id="horizon-status">SYNCHRONISATION OPENGL 1.8.9...</div>
+  </div>
+
+  <!-- Aperçu interactif du menu Minecraft Singularity (uniquement hors-JVM pour démonstration fluide) -->
+  <div id="mc-menu-preview">
+    <div class="mc-topbar">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="online-dot"></span>
+        <span id="mc-prev-user" style="color:#eaecef;">PurePlayer  &bull;  Profil Équilibré</span>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-outline" style="height:24px;font-size:11px;" onclick="exitBrowserDemo()">Retour au Launcher</button>
+      </div>
+    </div>
+
+    <div class="mc-center-wrap">
+      <div class="mc-halo"></div>
+      <div class="mc-card">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
+          <span style="font-size:19px;font-weight:700;letter-spacing:0.14em;color:#f7f4ec;">PURECLIENT</span>
+          <span class="brand-edition">v3.5</span>
+        </div>
+        <div style="font-size:11px;color:#8a91a2;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.09);">
+          Singularity VAO + Triangles  &bull;  RSHIFT en jeu
+        </div>
+        <button class="mc-btn primary">Rejoindre Hypixel</button>
+        <button class="mc-btn">Multijoueur</button>
+        <button class="mc-btn">Mode Solo</button>
+        <button class="mc-btn accent">Tableau de Bord PureClient</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <button class="mc-btn" style="height:30px;font-size:11.5px;color:#949cb0;">Options MC</button>
+          <button class="mc-btn" style="height:30px;font-size:11.5px;color:#949cb0;">Mods Forge</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:10px 16px;display:flex;justify-content:space-between;font-size:11px;color:#697082;">
+      <span>OpenGL 3.0 Hardware VAO  &bull;  Java 1.8.0</span>
+      <span>PureClient 3.5.0  &bull;  Forge 1.8.9</span>
     </div>
   </div>
 
-  <!-- Toast Notification -->
   <div class="toast" id="toast"></div>
 
 <script>
-  const MODULE_DEFS = [
-    { key: "hud_enabled", title: "HUD PureClient Global", desc: "Active l'affichage des pilules anti-aliasées en jeu", safe: true, icon: "layout" },
-    { key: "hud_fps_cps", title: "Pilule FPS & CPS", desc: "Compteur temps-réel sans allocation mémoire", safe: true, icon: "activity" },
-    { key: "hud_keystrokes", title: "Keystrokes PvP", desc: "Touches ZQSD/WASD + clics souris animés", safe: true, icon: "grid" },
-    { key: "hud_ping", title: "Indicateur de Latence", desc: "Ping serveur en millisecondes avec statut couleur", safe: true, icon: "wifi" },
-    { key: "hud_armor", title: "Barre d'Armure Active", desc: "Affiche l'équipement au-dessus de l'inventaire", safe: true, icon: "shield" },
-    { key: "toggle_sprint", title: "ToggleSprint Compétitif", desc: "Pilote l'entrée clavier Vanilla sans paquet custom", safe: true, icon: "zap" },
-    { key: "zoom_enabled", title: "Zoom Optique (Touche C)", desc: "Zoom fluide ajustable à la molette sans OptiFine", safe: true, icon: "search" },
-    { key: "fullbright", title: "Fullbright Lossless", desc: "Luminosité maximale sans altérer options.txt", safe: true, icon: "sun" },
-    { key: "low_fire", title: "Feu Bas (Low Fire)", desc: "Abaisse les flammes à l'écran pendant les duels", safe: true, icon: "flame" },
-    { key: "no_hurt_cam", title: "No HurtCam", desc: "Supprime la secousse d'écran lors des dégâts", safe: true, icon: "eye" },
-    { key: "static_fov", title: "FOV Statique PvP", desc: "Verrouille le champ de vision sous Speed II", safe: true, icon: "crosshair" },
-    { key: "smooth_client_font", title: "Police TrueType HD", desc: "Typographie Segoe UI lissée sur le HUD", safe: true, icon: "type" },
-    { key: "custom_main_menu", title: "Menu Principal 120 FPS", desc: "Remplace le panorama flou énergivore au démarrage", safe: true, icon: "monitor" }
-  ];
-
   const ENGINE_DEFS = [
-    { key: "disable_gl_error_checks", title: "Zéro glGetError JNI", desc: "Supprime les 2 synchronisations bloquantes CPU/GPU par frame (+40 à +90 FPS)", icon: "zap" },
-    { key: "hardware_region_vao", title: "VAO Matériel OpenGL 3.0", desc: "Pré-enregistre le format bloc 28 octets en 1 seul appel glBindVertexArray", icon: "cpu" },
-    { key: "region_multi_draw", title: "Region MultiDraw VBO", desc: "Fusionne ~600 sections de chunks en 4 à 8 appels GL14.glMultiDrawArrays", icon: "layers" },
-    { key: "lazy_terrain_setup", title: "Lazy Terrain BFS", desc: "Conserve le graphe de visibilité sur les micro-mouvements caméra (< 0.65°)", icon: "compass" },
-    { key: "limit_distant_glint", title: "LOD Reflet Enchantement", desc: "Coupe la double passe matricielle d'armure enchantée au loin", icon: "sparkles" },
-    { key: "fast_item_render", title: "Items 32x Zéro-Allocation", desc: "Élimine le clonage EnumFacing.values() sur chaque rendu d'item", icon: "box" },
-    { key: "skip_void_fog_loop", title: "Skip VoidFog Tick Loop", desc: "Coupe la boucle aléatoire de 1 000 lookups Barrière hors Créatif", icon: "wind" },
-    { key: "fast_fbo_blit", title: "Blit FBO Matériel GL30", desc: "Copie directe du framebuffer sans quad plein écran", icon: "monitor" },
-    { key: "fast_frustum_pvertex", title: "Frustum P-Vertex 8x", desc: "Test de boîte englobante en 1 sommet positif au lieu de 8", icon: "crosshair" },
-    { key: "multi_threaded_chunk_build", title: "Chunks Multi-Cœurs", desc: "Compilation géométrique parallèle adaptée au Ryzen 5 5500", icon: "activity" },
-    { key: "entity_occlusion_culling", title: "Occlusion Entités 3D", desc: "Masque les joueurs et entités cachés derrière les murs", icon: "eye" },
-    { key: "async_skin_upload_pacing", title: "Anti-Freeze Skins", desc: "Étale le téléversement des textures de skins dans les lobbies", icon: "shield" },
-    { key: "smart_animations", title: "Smart Animations", desc: "Met à jour uniquement les sprites animés visibles à l'écran", icon: "sun" },
-    { key: "fast_scoreboard", title: "Scoreboard 1-Draw", desc: "Regroupe tous les fonds du tableau de score Hypixel en 1 appel", icon: "layout" }
+    { key: "disable_gl_error_checks", title: "Zéro glGetError JNI", desc: "Supprime les 2 attentes bloquantes CPU/GPU par frame dans la boucle de rendu" },
+    { key: "hardware_region_vao", title: "VAO Matériel OpenGL 3.0", desc: "Pré-enregistre les pointeurs 28 octets par section de chunk en 1 appel GL" },
+    { key: "region_multi_draw", title: "Pipeline GL_TRIANGLES + EBO", desc: "Convertit les GL_QUADS en triangles matériels 16-bit sans stall glGetFloat" },
+    { key: "fast_baked_item_models", title: "Modèles d'Items Compilés GPU", desc: "Compile les épées 32x/64x et passes d'enchantement en Display Lists" },
+    { key: "fast_item_frames", title: "Item Frames Turbo", desc: "Cadres compilés en 1 glCallList, zéro allocation EntityItem ni glPushAttrib" },
+    { key: "fast_player_rendering", title: "Joueurs Distants LOD", desc: "Table O(1) des armures, LOD sur-couches >20m et capes >32m" },
+    { key: "fast_sign_text", title: "Panneaux Zéro-Allocation", desc: "Cache le texte formaté par panneau et coupe le texte illisible au loin" },
+    { key: "lazy_terrain_setup", title: "Lazy Terrain BFS Précis", desc: "Coordonnées interpolées partialTicks sans disparition des chunks latéraux" },
+    { key: "fast_fbo_blit", title: "Blit FBO DMA Matériel", desc: "Masque RGBA complet activant la copie matérielle directe glBlitFramebuffer" },
+    { key: "fast_frustum_pvertex", title: "Frustum P-Vertex 8x", desc: "Test de visibilité AABB en 1 sommet positif au lieu de 8 par plan" },
+    { key: "multi_threaded_chunk_build", title: "Compilation Chunks Parallèle", desc: "Workers géométriques multi-cœurs avec budget d'upload 32 sections/frame" },
+    { key: "entity_occlusion_culling", title: "Occlusion Entités 3D", desc: "Écarte les entités masquées derrière les parois opaques" },
+    { key: "limit_distant_glint", title: "LOD Reflet Enchanté", desc: "Coupe la double passe matricielle d'armure enchantée éloignée" },
+    { key: "fast_item_render", title: "Items Zéro-Clonage", desc: "Élimine le clonage EnumFacing.values() sur chaque rendu d'item" },
+    { key: "skip_void_fog_loop", title: "Suppression Boucle VoidFog", desc: "Coupe les 1 000 recherches aléatoires de particules Barrière par tick" },
+    { key: "async_skin_upload_pacing", title: "Lissage Upload Skins", desc: "Étale le téléversement des textures de skins dans les lobbies denses" },
+    { key: "smart_animations", title: "Animations Intelligentes", desc: "Anime uniquement les textures de blocs réellement visibles à l'écran" },
+    { key: "fast_scoreboard", title: "Scoreboard Unifié", desc: "Fusionne l'arrière-plan du tableau de score en 1 seul appel GPU" }
   ];
 
-  const ICONS = {
-    layout: '<rect width="18" height="18" x="3" y="3" rx="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="9" x2="9" y1="21" y2="9"/>',
-    activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
-    grid: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
-    wifi: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" x2="12.01" y1="20" y2="20"/>',
-    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
-    zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
-    search: '<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/>',
-    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
-    flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
-    eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
-    crosshair: '<circle cx="12" cy="12" r="10"/><line x1="22" x2="18" y1="12" y2="12"/><line x1="6" x2="2" y1="12" y2="12"/><line x1="12" x2="12" y1="6" y2="2"/><line x1="12" x2="12" y1="22" y2="18"/>',
-    type: '<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/>',
-    monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
-    cpu: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M20 9h3"/><path d="M20 14h3"/><path d="M1 9h3"/><path d="M1 14h3"/>',
-    layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
-    compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
-    sparkles: '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>',
-    box: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
-    wind: '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/>'
-  };
+  const MODULE_DEFS = [
+    { key: "hud_enabled", title: "HUD PureClient", desc: "Active la surimpression vectorielle en 1 seul lot shader par frame" },
+    { key: "hud_fps_cps", title: "Compteur FPS & CPS", desc: "Cadence d'images et clics par seconde sans allocation mémoire" },
+    { key: "hud_keystrokes", title: "Keystrokes Compétitif", desc: "Visualisation ZQSD/WASD et boutons souris en temps réel" },
+    { key: "hud_ping", title: "Latence Serveur", desc: "Mesure du ping réseau échantillonnée sans surcharge CPU" },
+    { key: "hud_armor", title: "État d'Équipement", desc: "Affiche l'armure portée au-dessus de la barre d'action" },
+    { key: "toggle_sprint", title: "ToggleSprint", desc: "Maintien fluide de la touche Sprint Vanilla sans écriture disque" },
+    { key: "zoom_enabled", title: "Zoom Optique (C)", desc: "Zoom progressif contrôlable à la molette de souris" },
+    { key: "fullbright", title: "Fullbright Sans Perte", desc: "Visibilité maximale dans l'obscurité sans modifier options.txt" },
+    { key: "low_fire", title: "Feu Abaissé", desc: "Dégage le champ de vision lors des combats enflammés" },
+    { key: "no_hurt_cam", title: "Stabilité Dégâts (No HurtCam)", desc: "Désactive l'inclinaison de caméra lors des impacts" },
+    { key: "static_fov", title: "Champ de Vision Fixe", desc: "Maintient un FOV constant sous effets de vitesse" },
+    { key: "smooth_client_font", title: "Typographie Lissée HD", desc: "Atlas de police anti-aliasé fusionné ombre + texte en 1 passe" },
+    { key: "custom_main_menu", title: "Menu Singularity 120 FPS", desc: "Émergence directe depuis le noir du Launcher sans écran blanc" }
+  ];
 
   let state = {
     settings: {
@@ -1714,6 +1567,7 @@
       lazy_terrain_setup: true,
       limit_distant_glint: true,
       fast_item_render: true,
+      fast_baked_item_models: true,
       skip_void_fog_loop: true,
       fast_fbo_blit: true,
       fast_frustum_pvertex: true,
@@ -1721,6 +1575,10 @@
       fast_scoreboard: true,
       fast_nametags: true,
       fast_armor_stands: true,
+      fast_item_frames: true,
+      max_item_frame_distance: 48,
+      fast_player_rendering: true,
+      fast_sign_text: true,
       multi_threaded_chunk_build: true,
       entity_occlusion_culling: true,
       smart_animations: true,
@@ -1736,147 +1594,356 @@
       quick_join_hypixel: false,
       launch_mode: "PrismBridge",
       java_path: "C:\\Program Files\\Eclipse Adoptium\\jre-8.0.504.1-hotspot\\bin\\javaw.exe",
-      game_dir: "%APPDATA%\\PrismLauncher\\instances\\1.8.9 gemini fps\\minecraft"
+      game_dir: "%APPDATA%\\PrismLauncher\\instances\\1.8.9 gemini fps\\minecraft",
+      github_repo: "MyMasha/ProjectFPS",
+      auto_update_check: true
     },
     account: null,
     game_running: false,
-    device_code: null
+    device_code: null,
+    has_github_token: true,
+    update: {
+      status: "idle",
+      current_version: "3.5.0",
+      installed_jar_version: "3.5.0",
+      latest_version: null,
+      release_notes: null,
+      download_percent: 0,
+      message: "Connecté à MyMasha/ProjectFPS (Fine-Grained Read-Only).",
+      has_exe_update: false,
+      has_jar_update: false
+    }
   };
 
+  let activeTab = "play";
   let toastTimer = null;
+  let accountModalManualOpen = false;
+
+  // État cinématique du Trou Noir et de l'aspiration caméra
+  let plungeActive = false;
+  let plungeStartMs = 0;
+  let plungeProgress = 0.0; // 0.0 = orbite calme, 1.0 = franchissement de l'Horizon des Événements (#000000)
+  let darknessSignaled = false;
+  const PLUNGE_DURATION_MS = 2350.0;
+
+  let mouseTargetX = 0.0;
+  let mouseTargetY = 0.0;
+  let mouseSmoothX = 0.0;
+  let mouseSmoothY = 0.0;
+  let lensOffsetCurrentX = 0.15;
+  let fixedDemoTimeSec = null;
+
+  function hasNativeIpc() {
+    return !!(window.ipc && typeof window.ipc.postMessage === "function");
+  }
 
   function sendIpc(payload) {
-    if (window.ipc && typeof window.ipc.postMessage === "function") {
+    if (hasNativeIpc()) {
       window.ipc.postMessage(JSON.stringify(payload));
     }
   }
 
-  // Titlebar drag & double-click maximize
-  const titlebar = document.getElementById("titlebar");
-  titlebar.addEventListener("mousedown", (e) => {
-    if (e.button === 0 && !e.target.closest("button")) {
+  // Déplacement fenêtre sans bordure + touche Échap de sécurité pendant le rideau noir
+  document.getElementById("titlebar").addEventListener("mousedown", (e) => {
+    if (e.button === 0 && !e.target.closest("button") && !e.target.closest("nav")) {
       sendIpc({ cmd: "drag_window" });
     }
   });
-  titlebar.addEventListener("dblclick", (e) => {
-    if (!e.target.closest("button")) {
+  document.getElementById("titlebar").addEventListener("dblclick", (e) => {
+    if (!e.target.closest("button") && !e.target.closest("nav")) {
       sendIpc({ cmd: "toggle_maximize" });
     }
   });
 
+  window.addEventListener("mousemove", (e) => {
+    mouseTargetX = (e.clientX / Math.max(1, window.innerWidth)) * 2.0 - 1.0;
+    mouseTargetY = (e.clientY / Math.max(1, window.innerHeight)) * 2.0 - 1.0;
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (plungeActive) {
+        resetPlungeSequence();
+        sendIpc({ cmd: "abort_launch_curtain" });
+      } else if (accountModalManualOpen || state.device_code) {
+        closeAccountModal();
+      }
+    }
+  });
+
   function switchTab(tab) {
-    document.querySelectorAll(".nav-btn").forEach((b) => {
+    activeTab = tab;
+    document.querySelectorAll(".nav-tab").forEach((b) => {
       b.classList.toggle("active", b.dataset.tab === tab);
     });
-    document.querySelectorAll(".view-panel").forEach((p) => {
-      p.classList.toggle("active", p.id === "view-" + tab);
+    document.querySelectorAll(".stage-view").forEach((v) => {
+      v.classList.toggle("active", v.id === "view-" + tab);
     });
   }
 
-  function svgIcon(name) {
-    const body = ICONS[name] || ICONS.cpu;
-    return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+  function selectProfile(prof) {
+    state.settings.active_profile = prof;
+    if (prof === "fps") {
+      state.settings.max_entity_render_distance = 48;
+      state.settings.max_item_frame_distance = 36;
+      state.settings.max_tile_entity_render_distance = 32;
+      state.settings.max_particles_per_layer = 250;
+    } else if (prof === "balanced") {
+      state.settings.max_entity_render_distance = 64;
+      state.settings.max_item_frame_distance = 48;
+      state.settings.max_tile_entity_render_distance = 48;
+      state.settings.max_particles_per_layer = 1000;
+    } else if (prof === "quality") {
+      state.settings.max_entity_render_distance = 128;
+      state.settings.max_item_frame_distance = 96;
+      state.settings.max_tile_entity_render_distance = 128;
+      state.settings.max_particles_per_layer = 4000;
+    }
+    renderAll();
+    sendIpc({ cmd: "set_profile", profile: prof });
   }
 
-  function renderAccountCard() {
-    const el = document.getElementById("account-card");
+  function toggleHypixelChip() {
+    state.prefs.quick_join_hypixel = !state.prefs.quick_join_hypixel;
+    renderDockAndHeader();
+    sendIpc({ cmd: "toggle_quick_hypixel" });
+  }
+
+  function triggerPlaySequence() {
+    if (state.game_running || plungeActive) return;
+    if (hasNativeIpc()) {
+      // Le moteur Rust valide les chemins/identifiants, passe en plein écran sans bordure et déclenche startPlungeAnimation()
+      sendIpc({ cmd: "launch_game" });
+    } else {
+      // Mode démonstration autonome dans le navigateur : joue l'aspiration complète puis dévoile le menu Minecraft
+      startPlungeAnimation(true);
+    }
+  }
+
+  function startPlungeAnimation(browserDemoHandoff) {
+    plungeActive = true;
+    plungeStartMs = performance.now();
+    plungeProgress = 0.0;
+    darknessSignaled = false;
+    accountModalManualOpen = false;
+    document.getElementById("account-modal").classList.remove("open");
+    document.body.classList.add("plunging");
+
+    if (browserDemoHandoff && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }
+
+  function resetPlungeSequence() {
+    plungeActive = false;
+    plungeProgress = 0.0;
+    darknessSignaled = false;
+    document.body.classList.remove("plunging");
+    document.getElementById("horizon-blackout").classList.remove("active");
+    document.getElementById("mc-menu-preview").classList.remove("visible");
+  }
+
+  function exitBrowserDemo() {
+    resetPlungeSequence();
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+
+  function openAccountModal() {
+    accountModalManualOpen = true;
+    renderAccountModal();
+    document.getElementById("account-modal").classList.add("open");
+  }
+
+  function closeAccountModal() {
+    accountModalManualOpen = false;
+    if (state.device_code) {
+      state.device_code = null;
+      sendIpc({ cmd: "cancel_ms_login" });
+    }
+    document.getElementById("account-modal").classList.remove("open");
+  }
+
+  function startMicrosoftDeviceFlow() {
+    if (!hasNativeIpc()) {
+      state.device_code = { user_code: "8K9P-M4TX", verification_uri: "https://www.microsoft.com/link" };
+      renderAccountModal();
+      return;
+    }
+    sendIpc({ cmd: "start_ms_login" });
+  }
+
+  function renderAccountModal() {
+    const modal = document.getElementById("account-modal");
+    const box = document.getElementById("account-modal-body");
+
+    if (state.device_code) {
+      modal.classList.add("open");
+      box.innerHTML = `
+        <div class="modal-head">
+          <div class="modal-title">Authentification Microsoft</div>
+          <button class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Annuler</button>
+        </div>
+        <p style="font-size:12.5px;color:var(--text-secondary);">
+          Saisissez ce code unique sur la page officielle Microsoft ouverte dans votre navigateur. La liaison Xbox Live / Minecraft s'effectue automatiquement.
+        </p>
+        <div class="device-code-box">
+          <div class="device-code-digits">${escapeHtml(state.device_code.user_code)}</div>
+          <div class="device-code-hint">Copié dans le presse-papiers &bull; En attente de validation...</div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-gold" onclick="sendIpc({cmd:'open_ms_link'})">Ouvrir microsoft.com/link</button>
+          <button class="btn-outline" style="height:36px;" onclick="copyCurrentDeviceCode()">Copier</button>
+        </div>
+      `;
+      return;
+    }
+
+    if (!accountModalManualOpen) {
+      modal.classList.remove("open");
+      return;
+    }
+
     if (state.account) {
       const cleanUuid = state.account.uuid.replace(/-/g, "");
-      const avatarUrl = `https://mc-heads.net/avatar/${encodeURIComponent(cleanUuid)}/64`;
-      el.innerHTML = `
-        <div class="acc-row">
-          <div class="acc-avatar">
-            <img src="${avatarUrl}" alt="" onerror="this.style.display='none'">
-          </div>
-          <div class="acc-meta">
-            <div class="acc-name">${escapeHtml(state.account.username)}</div>
-            <div class="acc-sub">
-              <span class="status-dot"></span>
-              <span>Microsoft Vérifié</span>
-            </div>
+      box.innerHTML = `
+        <div class="modal-head">
+          <div class="modal-title">Session Microsoft Active</div>
+          <button class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Fermer</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border-hairline);">
+          <img src="https://mc-heads.net/avatar/${encodeURIComponent(cleanUuid)}/48" width="40" height="40" style="border-radius:8px;image-rendering:pixelated;" alt="">
+          <div>
+            <div style="font-weight:600;font-size:14px;">${escapeHtml(state.account.username)}</div>
+            <div style="font-size:11.5px;color:var(--status-ok);">Jeton OAuth2 Minecraft vérifié</div>
           </div>
         </div>
-        <div class="acc-actions">
-          <button class="btn-mini" onclick="sendIpc({cmd:'refresh_ms'})">Rafraîchir</button>
-          <button class="btn-mini danger" onclick="sendIpc({cmd:'logout_ms'})">Déconnecter</button>
+        <div class="modal-actions">
+          <button class="btn-outline" style="flex:1;height:34px;" onclick="sendIpc({cmd:'refresh_ms'})">Rafraîchir</button>
+          <button class="btn-outline" style="flex:1;height:34px;color:#fca5a5;" onclick="sendIpc({cmd:'logout_ms'});closeAccountModal();">Déconnecter</button>
         </div>
       `;
     } else {
-      el.innerHTML = `
-        <div class="acc-row">
-          <div class="acc-avatar">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#949cb0" stroke-width="1.9"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          </div>
-          <div class="acc-meta">
-            <div class="acc-name">Compte Microsoft</div>
-            <div class="acc-sub">Connexion officielle 1-clic</div>
-          </div>
+      box.innerHTML = `
+        <div class="modal-head">
+          <div class="modal-title">Compte Microsoft Officiel</div>
+          <button class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Fermer</button>
         </div>
-        <button class="ms-btn" onclick="sendIpc({cmd:'start_ms_login'})">
-          <svg width="14" height="14" viewBox="0 0 21 21">
-            <rect x="1" y="1" width="9" height="9" fill="#ffffff" fill-opacity="0.95"/>
-            <rect x="11" y="1" width="9" height="9" fill="#ffffff" fill-opacity="0.75"/>
-            <rect x="1" y="11" width="9" height="9" fill="#ffffff" fill-opacity="0.75"/>
-            <rect x="11" y="11" width="9" height="9" fill="#ffffff" fill-opacity="0.55"/>
-          </svg>
-          <span>Connexion Microsoft</span>
-        </button>
+        <p style="font-size:12.5px;color:var(--text-secondary);">
+          Connectez votre compte Microsoft en 1 clic via le protocole officiel OAuth2 Device Code pour rejoindre Hypixel et les serveurs Premium directement.
+        </p>
+        <div class="modal-actions">
+          <button class="btn-gold" onclick="startMicrosoftDeviceFlow()">Générer un code de connexion</button>
+        </div>
       `;
     }
   }
 
-  function renderProfilesAndHome() {
-    const p = state.settings.active_profile;
-    document.getElementById("prof-fps").className = "profile-card" + (p === "fps" ? " active-fps" : "");
-    document.getElementById("prof-balanced").className = "profile-card" + (p === "balanced" ? " active-balanced" : "");
-    document.getElementById("prof-quality").className = "profile-card" + (p === "quality" ? " active-quality" : "");
+  function renderDockAndHeader() {
+    const p = state.settings.active_profile || "balanced";
+    document.getElementById("prof-fps").classList.toggle("active", p === "fps");
+    document.getElementById("prof-balanced").classList.toggle("active", p === "balanced");
+    document.getElementById("prof-quality").classList.toggle("active", p === "quality");
 
-    document.getElementById("tag-fps").textContent = p === "fps" ? "Actif" : "Compétitif";
-    document.getElementById("tag-balanced").textContent = p === "balanced" ? "Actif" : "Recommandé";
-    document.getElementById("tag-quality").textContent = p === "quality" ? "Actif" : "Fidélité";
+    const profNames = { fps: "PROFIL TURBO FPS", balanced: "PROFIL ÉQUILIBRÉ", quality: "PROFIL QUALITÉ", custom: "PROFIL PERSONNALISÉ" };
+    document.getElementById("engine-profile-badge").textContent = profNames[p] || "PROFIL PERSONNALISÉ";
 
-    document.getElementById("home-ram-val").textContent = state.prefs.ram_mb.toLocaleString("fr-FR") + " MiB";
-
-    const mode = state.prefs.launch_mode;
-    const authVal = document.getElementById("home-auth-val");
-    const authSub = document.getElementById("home-auth-sub");
-    if (mode === "DirectMicrosoft") {
-      authVal.textContent = state.account ? state.account.username : "Microsoft Direct";
-      authSub.textContent = state.account ? "Session OAuth2 Xbox Live prête" : "Cliquez sur Se connecter à gauche";
-    } else if (mode === "PrismBridge") {
-      authVal.textContent = "Pont PrismLauncher";
-      authSub.textContent = "Utilise votre session Prism existante";
+    // Pilule de mise à jour dorée en haut à droite (affichée uniquement lorsqu'une action ou téléchargement est actif)
+    const upd = state.update || {};
+    const updPill = document.getElementById("btn-update-pill");
+    const updLbl = document.getElementById("top-update-label");
+    const updFill = document.getElementById("top-update-fill");
+    if (upd.status === "available") {
+      updPill.className = "update-pill visible";
+      updFill.style.width = "0%";
+      updLbl.textContent = `↻ Mise à jour v${upd.latest_version || ""}`;
+    } else if (upd.status === "downloading") {
+      updPill.className = "update-pill visible";
+      updFill.style.width = `${upd.download_percent || 0}%`;
+      updLbl.textContent = `Téléchargement ${upd.download_percent || 0}%`;
+    } else if (upd.status === "ready_restart") {
+      updPill.className = "update-pill visible ready";
+      updFill.style.width = "0%";
+      updLbl.textContent = `Relancer PureClient v${upd.latest_version || ""}`;
     } else {
-      authVal.textContent = "Mode Hors-Ligne";
-      authSub.textContent = "Joueur local : " + state.prefs.offline_username;
+      updPill.className = "update-pill";
+      updFill.style.width = "0%";
     }
+
+    const topLabel = document.getElementById("top-account-label");
+    const topAvatar = document.getElementById("top-avatar-box");
+    if (state.account) {
+      const cleanUuid = state.account.uuid.replace(/-/g, "");
+      topLabel.textContent = state.account.username;
+      topAvatar.innerHTML = `<img src="https://mc-heads.net/avatar/${encodeURIComponent(cleanUuid)}/32" alt="">`;
+    } else {
+      topLabel.textContent = "Connexion Microsoft";
+      topAvatar.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M5 20c1.5-3.5 12.5-3.5 14 0"/></svg>`;
+    }
+
+    document.querySelectorAll("#launch-mode-seg .mode-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.mode === state.prefs.launch_mode);
+    });
+
+    document.getElementById("btn-quick-hypixel").classList.toggle("active", !!state.prefs.quick_join_hypixel);
+    document.getElementById("dock-summary").innerHTML =
+      `${state.prefs.ram_mb.toLocaleString("fr-FR")} MiB G1GC  &bull;  Transition Plein Écran Sans Couture`;
+
+    const launchBtn = document.getElementById("btn-launch");
+    const launchTxt = document.getElementById("launch-btn-text");
+    launchBtn.classList.toggle("running", !!state.game_running);
+    launchTxt.textContent = state.game_running ? "EN COURS" : "JOUER";
+
+    const uname = state.account ? state.account.username : (state.prefs.offline_username || "PurePlayer");
+    const pDisp = p === "fps" ? "Turbo FPS" : (p === "quality" ? "Qualité" : "Équilibré");
+    document.getElementById("mc-prev-user").textContent = `${uname}  •  Profil ${pDisp}`;
+  }
+
+  function renderEngine() {
+    const grid = document.getElementById("engine-grid");
+    let activeCount = 0;
+    let html = "";
+    for (const item of ENGINE_DEFS) {
+      const on = !!state.settings[item.key];
+      if (on) activeCount++;
+      html += `
+        <div class="setting-row ${on ? "is-on" : ""}" onclick="toggleSetting('${item.key}')">
+          <div class="setting-meta">
+            <div class="setting-name">${escapeHtml(item.title)}</div>
+            <div class="setting-sub">${escapeHtml(item.desc)}</div>
+          </div>
+          <div class="toggle-pill"></div>
+        </div>
+      `;
+    }
+    grid.innerHTML = html;
+    document.getElementById("nav-engine-count").textContent = `${activeCount}/${ENGINE_DEFS.length}`;
+
+    setSlider("rng-ent-dist", "lbl-ent-dist", state.settings.max_entity_render_distance, " blocs");
+    setSlider("rng-if-dist", "lbl-if-dist", state.settings.max_item_frame_distance || 48, " blocs");
+    setSlider("rng-te-dist", "lbl-te-dist", state.settings.max_tile_entity_render_distance, " blocs");
+    setSlider("rng-part-cap", "lbl-part-cap", state.settings.max_particles_per_layer, " / couche");
   }
 
   function renderModules() {
-    const query = (document.getElementById("mod-search").value || "").trim().toLowerCase();
-    const grid = document.getElementById("modules-bento");
+    const q = (document.getElementById("mod-search").value || "").trim().toLowerCase();
+    const grid = document.getElementById("modules-grid");
     let activeCount = 0;
     let html = "";
-
     for (const m of MODULE_DEFS) {
       const on = !!state.settings[m.key];
       if (on) activeCount++;
-      if (query && !m.title.toLowerCase().includes(query) && !m.desc.toLowerCase().includes(query)) {
+      if (q && !m.title.toLowerCase().includes(q) && !m.desc.toLowerCase().includes(q)) {
         continue;
       }
       html += `
-        <div class="mod-card ${on ? "is-on" : ""}" onclick="toggleSetting('${m.key}')">
-          <div class="mod-left">
-            <div class="mod-icon">${svgIcon(m.icon)}</div>
-            <div>
-              <div class="mod-title-row">
-                <span class="mod-title">${escapeHtml(m.title)}</span>
-                ${m.safe ? '<span class="tag-safe">SAFE AC</span>' : ''}
-              </div>
-              <div class="mod-desc">${escapeHtml(m.desc)}</div>
-            </div>
+        <div class="setting-row ${on ? "is-on" : ""}" onclick="toggleSetting('${m.key}')">
+          <div class="setting-meta">
+            <div class="setting-name">${escapeHtml(m.title)}</div>
+            <div class="setting-sub">${escapeHtml(m.desc)}</div>
           </div>
-          <div class="switch"></div>
+          <div class="toggle-pill"></div>
         </div>
       `;
     }
@@ -1884,76 +1951,183 @@
     document.getElementById("nav-mod-count").textContent = `${activeCount}/${MODULE_DEFS.length}`;
   }
 
-  function renderEngine() {
-    const grid = document.getElementById("engine-bento");
-    let html = "";
-    for (const e of ENGINE_DEFS) {
-      const on = !!state.settings[e.key];
-      html += `
-        <div class="mod-card ${on ? "is-on" : ""}" onclick="toggleSetting('${e.key}')">
-          <div class="mod-left">
-            <div class="mod-icon">${svgIcon(e.icon || "cpu")}</div>
-            <div>
-              <div class="mod-title-row">
-                <span class="mod-title">${escapeHtml(e.title)}</span>
-              </div>
-              <div class="mod-desc">${escapeHtml(e.desc)}</div>
-            </div>
-          </div>
-          <div class="switch"></div>
-        </div>
-      `;
-    }
-    grid.innerHTML = html;
-
-    setSlider("rng-ent-dist", "lbl-ent-dist", state.settings.max_entity_render_distance, " blocs");
-    setSlider("rng-te-dist", "lbl-te-dist", state.settings.max_tile_entity_render_distance, " blocs");
-    setSlider("rng-part-cap", "lbl-part-cap", state.settings.max_particles_per_layer, " / couche");
-    setSlider("rng-bg-fps", "lbl-bg-fps", state.settings.unfocused_fps_limit, " FPS");
-  }
-
-  function renderSystemAndDock() {
-    setSlider("rng-ram", "lbl-ram", state.prefs.ram_mb, " MiB");
+  function renderSystem() {
+    setSlider("rng-ram", "lbl-ram", state.prefs.ram_mb.toLocaleString("fr-FR"), " MiB", state.prefs.ram_mb);
     document.getElementById("inp-offline-name").value = state.prefs.offline_username || "PurePlayer";
     document.getElementById("inp-java-path").value = state.prefs.java_path || "";
     document.getElementById("inp-game-dir").value = state.prefs.game_dir || "";
 
-    document.querySelectorAll("#launch-mode-seg .seg-btn").forEach((b) => {
-      b.classList.toggle("active", b.dataset.mode === state.prefs.launch_mode);
-    });
+    const repoInput = document.getElementById("inp-gh-repo");
+    if (repoInput && document.activeElement !== repoInput) {
+      repoInput.value = state.prefs.github_repo || "MyMasha/ProjectFPS";
+    }
+    const autoRow = document.getElementById("row-auto-upd");
+    if (autoRow) {
+      autoRow.classList.toggle("is-on", state.prefs.auto_update_check !== false);
+    }
 
-    const hypBtn = document.getElementById("btn-quick-hypixel");
-    hypBtn.classList.toggle("active", !!state.prefs.quick_join_hypixel);
+    const tokBadge = document.getElementById("upd-token-badge");
+    if (tokBadge) {
+      if (state.has_github_token !== false) {
+        tokBadge.className = "updater-badge ok";
+        tokBadge.textContent = "Jeton Read-Only actif";
+      } else {
+        tokBadge.className = "updater-badge";
+        tokBadge.textContent = "Sans jeton (Public)";
+      }
+    }
 
-    const launchBtn = document.getElementById("btn-launch");
-    const launchTxt = document.getElementById("launch-btn-text");
-    launchBtn.classList.toggle("running", !!state.game_running);
-    const profLabel = (state.settings.active_profile || "balanced").toUpperCase();
-    launchTxt.textContent = state.game_running
-      ? "MINECRAFT 1.8.9 EN COURS"
-      : `LANCER PURECLIENT 3.5 (${profLabel})`;
+    const upd = state.update || {};
+    const stBadge = document.getElementById("upd-status-badge");
+    const msgEl = document.getElementById("upd-message");
+    const progWrap = document.getElementById("upd-progress-wrap");
+    const progBar = document.getElementById("upd-progress-bar");
+    const checkBtn = document.getElementById("btn-upd-check");
+    const actBtn = document.getElementById("btn-upd-action");
 
-    const modal = document.getElementById("ms-modal");
-    if (state.device_code) {
-      modal.classList.add("open");
-      document.getElementById("ms-user-code").textContent = state.device_code.user_code;
-    } else {
-      modal.classList.remove("open");
+    const curVer = upd.current_version || "3.5.0";
+    const modVer = upd.installed_jar_version ? ` • Mod v${upd.installed_jar_version}` : "";
+    if (msgEl) msgEl.textContent = upd.message || `Launcher v${curVer}${modVer}`;
+
+    if (stBadge) {
+      if (upd.status === "available") {
+        stBadge.className = "updater-badge gold";
+        stBadge.textContent = `v${upd.latest_version} disponible`;
+      } else if (upd.status === "downloading") {
+        stBadge.className = "updater-badge gold";
+        stBadge.textContent = `Téléchargement ${upd.download_percent || 0}%`;
+      } else if (upd.status === "ready_restart") {
+        stBadge.className = "updater-badge ok";
+        stBadge.textContent = `v${upd.latest_version || curVer} prête`;
+      } else if (upd.status === "up_to_date") {
+        stBadge.className = "updater-badge ok";
+        stBadge.textContent = `À jour • v${curVer}`;
+      } else if (upd.status === "no_release") {
+        stBadge.className = "updater-badge ok";
+        stBadge.textContent = `v${curVer} • Dépôt lié`;
+      } else if (upd.status === "checking") {
+        stBadge.className = "updater-badge";
+        stBadge.textContent = "Vérification...";
+      } else if (upd.status === "error") {
+        stBadge.className = "updater-badge err";
+        stBadge.textContent = "Erreur API";
+      } else {
+        stBadge.className = "updater-badge";
+        stBadge.textContent = `Launcher v${curVer}${modVer}`;
+      }
+    }
+
+    if (progWrap && progBar) {
+      const showProg = upd.status === "downloading" || upd.status === "ready_restart";
+      progWrap.classList.toggle("active", showProg);
+      progBar.style.width = `${upd.download_percent || 0}%`;
+    }
+
+    if (checkBtn) {
+      checkBtn.disabled = upd.status === "checking" || upd.status === "downloading";
+      checkBtn.style.opacity = checkBtn.disabled ? "0.5" : "1";
+    }
+
+    if (actBtn) {
+      if (upd.status === "available") {
+        actBtn.style.display = "inline-flex";
+        actBtn.style.alignItems = "center";
+        actBtn.textContent = `Installer v${upd.latest_version || ""}`;
+      } else if (upd.status === "ready_restart") {
+        actBtn.style.display = "inline-flex";
+        actBtn.style.alignItems = "center";
+        actBtn.textContent = "Relancer PureClient";
+      } else {
+        actBtn.style.display = "none";
+      }
     }
   }
 
-  function setSlider(inputId, labelId, val, suffix) {
-    const el = document.getElementById(inputId);
-    if (el) el.value = val;
-    const lbl = document.getElementById(labelId);
-    if (lbl) lbl.textContent = val + suffix;
+  function triggerManualUpdateCheck() {
+    if (!hasNativeIpc()) {
+      state.update.status = "available";
+      state.update.latest_version = "3.6.0";
+      state.update.has_jar_update = true;
+      state.update.has_exe_update = true;
+      state.update.message = "Nouvelle version v3.6.0 détectée sur MyMasha/ProjectFPS (purefps-3.6.0.jar + pureclient-launcher.exe).";
+      renderAll();
+      showToast("Mise à jour PureClient v3.6.0 disponible !", false);
+      return;
+    }
+    sendIpc({ cmd: "check_updates", manual: true });
+  }
+
+  function triggerInstallOrRestart() {
+    const upd = state.update || {};
+    if (!hasNativeIpc()) {
+      if (upd.status === "ready_restart") {
+        showToast("Relance du nouvel exécutable PureClient...", false);
+        return;
+      }
+      state.update.status = "downloading";
+      state.update.download_percent = 68;
+      state.update.message = "Téléchargement de purefps-3.6.0.jar (68%)...";
+      renderAll();
+      setTimeout(() => {
+        state.update.status = "ready_restart";
+        state.update.download_percent = 100;
+        state.update.message = "Mise à jour v3.6.0 installée — cliquez sur Relancer PureClient.";
+        renderAll();
+      }, 900);
+      return;
+    }
+    if (upd.status === "ready_restart") {
+      sendIpc({ cmd: "restart_launcher" });
+    } else if (upd.status === "available") {
+      sendIpc({ cmd: "install_update" });
+    }
+  }
+
+  function triggerUpdatePillAction() {
+    const upd = state.update || {};
+    if (upd.status === "available" || upd.status === "ready_restart") {
+      triggerInstallOrRestart();
+    } else {
+      switchTab("system");
+    }
+  }
+
+  function toggleAutoUpdateCheck() {
+    const next = state.prefs.auto_update_check === false;
+    state.prefs.auto_update_check = next;
+    renderSystem();
+    sendIpc({ cmd: "set_auto_update", enabled: next });
+  }
+
+  function onRepoChange(val) {
+    const clean = (val || "").trim();
+    if (!clean) return;
+    state.prefs.github_repo = clean;
+    sendIpc({ cmd: "set_github_repo", repo: clean });
+  }
+
+  function saveCustomToken() {
+    const inp = document.getElementById("inp-gh-token");
+    const raw = inp ? inp.value.trim() : "";
+    if (inp) inp.value = "";
+    sendIpc({ cmd: "save_github_token", token: raw });
+    if (!hasNativeIpc()) {
+      showToast(raw ? "Jeton GitHub Read-Only enregistré." : "Utilisation du jeton Read-Only embarqué.", false);
+    }
+  }
+
+  function setSlider(id, lblId, displayVal, suffix, rawVal) {
+    const el = document.getElementById(id);
+    if (el) el.value = rawVal !== undefined ? rawVal : displayVal;
+    const lbl = document.getElementById(lblId);
+    if (lbl) lbl.textContent = displayVal + suffix;
   }
 
   function toggleSetting(key) {
     const next = !state.settings[key];
     state.settings[key] = next;
-    renderModules();
     renderEngine();
+    renderModules();
     sendIpc({ cmd: "set_setting", key, value: next });
   }
 
@@ -1967,20 +2141,20 @@
   function onRamInput(rawVal) {
     const v = parseInt(rawVal, 10);
     state.prefs.ram_mb = v;
-    document.getElementById("lbl-ram").textContent = v + " MiB";
-    document.getElementById("home-ram-val").textContent = v.toLocaleString("fr-FR") + " MiB";
+    document.getElementById("lbl-ram").textContent = v.toLocaleString("fr-FR") + " MiB";
+    renderDockAndHeader();
     sendIpc({ cmd: "set_ram", ram_mb: v });
   }
 
   function copyCurrentDeviceCode() {
     if (state.device_code && state.device_code.user_code) {
       sendIpc({ cmd: "copy_code", code: state.device_code.user_code });
-      showToast("Code " + state.device_code.user_code + " copié dans le presse-papiers.", false);
+      showToast("Code " + state.device_code.user_code + " copié.", false);
     }
   }
 
   function clearLogs() {
-    document.getElementById("log-console").textContent = "[PureClient 3.5] Journal effacé.\n";
+    document.getElementById("log-console").textContent = "[Singularity 3.5] Journal effacé.\n";
   }
 
   function appendLog(line) {
@@ -1997,11 +2171,11 @@
     t.textContent = msg;
     t.className = "toast show" + (isError ? " error" : "");
     if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.className = "toast"; }, 4200);
+    toastTimer = setTimeout(() => { t.className = "toast"; }, 4000);
   }
 
-  function escapeHtml(str) {
-    return String(str)
+  function escapeHtml(s) {
+    return String(s)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
@@ -2009,19 +2183,25 @@
   }
 
   function renderAll() {
-    renderAccountCard();
-    renderProfilesAndHome();
-    renderModules();
+    renderDockAndHeader();
     renderEngine();
-    renderSystemAndDock();
+    renderModules();
+    renderSystem();
+    renderAccountModal();
   }
 
-  // Point d'entrée appelé par le moteur Rust (wry evaluate_script)
+  // Réception des messages Rust -> WebView
   window.__purePush = function(msg) {
     if (!msg || !msg.kind) return;
     if (msg.kind === "state") {
       state = msg.data;
       renderAll();
+    } else if (msg.kind === "plunge") {
+      if (msg.action === "start") {
+        startPlungeAnimation(false);
+      } else if (msg.action === "reset") {
+        resetPlungeSequence();
+      }
     } else if (msg.kind === "log") {
       appendLog(msg.line);
     } else if (msg.kind === "toast") {
@@ -2029,17 +2209,482 @@
     }
   };
 
-  // Support d'aperçu visuel automatisé via query string (?tab=modules|engine|msmodal)
-  (function init() {
+  /* ============================================================================
+   * MOTEUR WEBGL2 DE LENTILLE GRAVITATIONNELLE DE SCHWARZSCHILD (GARGANTUA)
+   * Intégration géodésique nulle : d²x/dλ² = -1.5 * rs * |x × v|² / |x|⁵ * x
+   * ============================================================================ */
+  function initBlackHoleRenderer() {
+    const canvas = document.getElementById("singularity-canvas");
+    const ctxOpts = {
+      antialias: false,
+      depth: false,
+      stencil: false,
+      alpha: false,
+      preserveDrawingBuffer: fixedDemoTimeSec !== null
+    };
+    const gl = canvas.getContext("webgl2", ctxOpts) || canvas.getContext("webgl", ctxOpts);
+
+    if (!gl) {
+      initCanvas2DFallback(canvas);
+      return;
+    }
+
+    const vsSource = `
+      attribute vec2 a_pos;
+      void main() {
+        gl_Position = vec4(a_pos, 0.0, 1.0);
+      }
+    `;
+
+    const fsSource = `
+      precision highp float;
+      uniform vec2 u_res;
+      uniform float u_time;
+      uniform float u_plunge;
+      uniform vec2 u_mouse;
+      uniform float u_offsetX;
+
+      float hash21(vec2 p) {
+        p = fract(p * vec2(234.34, 435.345));
+        p += dot(p, p + 34.23);
+        return fract(p.x * p.y);
+      }
+
+      vec3 hash33(vec3 p) {
+        p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+        p += dot(p, p.yxz + 33.33);
+        return fract((p.xxy + p.yxx) * p.zyx);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        float a = hash21(i);
+        float b = hash21(i + vec2(1.0, 0.0));
+        float c = hash21(i + vec2(0.0, 1.0));
+        float d = hash21(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+      }
+
+      float fbm(vec2 p) {
+        float v = 0.0;
+        float amp = 0.52;
+        mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+        for (int i = 0; i < 5; i++) {
+          v += amp * noise(p);
+          p = rot * p * 2.03 + vec2(17.1, 31.7);
+          amp *= 0.5;
+        }
+        return v;
+      }
+
+      // Champ stellaire 3D isotrope sans couture (étoiles ponctuelles nettes lentillées par la gravité)
+      vec3 sampleStarfield(vec3 dir, float warpBoost) {
+        vec3 d = normalize(dir);
+        vec3 stars = vec3(0.0);
+
+        // Couche 1 : étoiles brillantes nettes en cellules 3D
+        vec3 sc1 = d * 78.0;
+        vec3 id1 = floor(sc1);
+        vec3 f1 = fract(sc1) - 0.5;
+        vec3 rnd1 = hash33(id1);
+        if (rnd1.x > 0.945) {
+          vec3 jitter = (rnd1 - 0.5) * 0.58;
+          float dist = length(f1 - jitter);
+          float core = smoothstep(0.14 + warpBoost * 0.06, 0.0, dist);
+          vec3 tint = mix(vec3(1.0, 0.88, 0.70), vec3(0.76, 0.87, 1.0), rnd1.y);
+          stars += tint * pow(core, 1.6) * (1.8 + warpBoost * 2.6) * (0.5 + rnd1.z);
+        }
+
+        // Couche 2 : champ profond de fines étoiles lointaines
+        vec3 sc2 = d * 155.0 + vec3(19.3, 7.1, 41.9);
+        vec3 id2 = floor(sc2);
+        vec3 f2 = fract(sc2) - 0.5;
+        vec3 rnd2 = hash33(id2);
+        if (rnd2.x > 0.955) {
+          float dist2 = length(f2 - (rnd2 - 0.5) * 0.5);
+          float core2 = smoothstep(0.12, 0.0, dist2);
+          stars += vec3(0.90, 0.89, 0.87) * pow(core2, 1.5) * (0.75 + warpBoost * 1.2);
+        }
+
+        // Poussière galactique chaude très subtile
+        float dust = fbm(d.xz * 3.5 + vec2(d.y * 2.2, -1.1));
+        float galPlane = exp(-abs(d.y + 0.14 * d.x) * 4.8);
+        stars += vec3(0.048, 0.032, 0.020) * dust * galPlane;
+        return stars;
+      }
+
+      // Disque d'accrétion képlérien sans aucune couture angulaire (coordonnées cartésiennes spiralées)
+      vec4 evaluateAccretionDisk(vec3 hit, vec3 rayDir, float spinTime, float plungeBoost) {
+        float r = length(hit.xz);
+        float rIn = 1.82;
+        float rOut = 9.60;
+        if (r < rIn || r > rOut) {
+          return vec4(0.0);
+        }
+
+        float radialNorm = clamp((r - rIn) / (rOut - rIn), 0.0, 1.0);
+        float innerEdge = smoothstep(rIn, rIn + 0.34, r);
+        float outerEdge = 1.0 - smoothstep(rOut - 3.6, rOut, r);
+        float profile = innerEdge * outerEdge * exp(-radialNorm * 1.38);
+
+        // Rotation différentielle képlérienne continue sans coupure ±π !
+        vec2 unitXZ = hit.xz / max(r, 1e-4);
+        float keplerPhase = spinTime * (2.75 / pow(max(r, 1.35), 1.26)) + 3.8 / (r + 0.40);
+        float cs = cos(keplerPhase);
+        float sn = sin(keplerPhase);
+        vec2 spunDir = vec2(unitXZ.x * cs - unitXZ.y * sn, unitXZ.x * sn + unitXZ.y * cs);
+
+        float phase2 = -spinTime * 0.65 + 6.4 / (r + 0.55);
+        float cs2 = cos(phase2);
+        float sn2 = sin(phase2);
+        vec2 spunDir2 = vec2(unitXZ.x * cs2 - unitXZ.y * sn2, unitXZ.x * sn2 + unitXZ.y * cs2);
+
+        // Turbulence magnétohydrodynamique multi-échelle étirée tangentiellement
+        float turbCoarse = fbm(spunDir * 2.6 + unitXZ * (r * 0.42));
+        float turbFine   = fbm(spunDir2 * 5.8 + vec2(r * 1.85, -r * 1.35));
+        float ringMod    = fbm(vec2(r * 4.4 - spinTime * 0.18, turbCoarse * 2.4));
+        float shear      = 0.55 * turbCoarse + 0.45 * turbFine;
+        float filaments  = smoothstep(0.18, 0.84, shear) * (0.62 + 0.58 * ringMod);
+
+        float density = profile * (0.34 + 1.12 * filaments);
+
+        // Effet Doppler relativiste (asymétrie lumineuse d'approche / fuite façon Gargantua)
+        vec3 tangentVel = normalize(vec3(-hit.z, 0.0, hit.x));
+        float beta = clamp(0.54 / sqrt(max(r - 0.85, 0.35)), 0.0, 0.65);
+        float cosTheta = dot(tangentVel, -rayDir);
+        float doppler = 1.0 / (1.0 - beta * cosTheta);
+        float beaming = mix(0.46, 3.45, pow(clamp((doppler - 0.60) / 1.36, 0.0, 1.0), 1.25));
+
+        // Gradient thermique : blanc-ivoire incandescent près de l'ISCO -> or solaire -> cuivre ambré
+        vec3 hotIsco    = vec3(1.52, 1.32, 0.98);
+        vec3 warmGold   = vec3(1.10, 0.66, 0.22);
+        vec3 deepCopper = vec3(0.64, 0.19, 0.042);
+
+        vec3 thermal = mix(hotIsco, warmGold, smoothstep(0.0, 0.32, radialNorm));
+        thermal = mix(thermal, deepCopper, smoothstep(0.28, 0.92, radialNorm));
+
+        float blueShift = clamp((doppler - 0.86) * 0.95, 0.0, 1.0);
+        vec3 color = mix(thermal * vec3(1.05, 0.72, 0.44), thermal * vec3(1.06, 1.04, 1.05), blueShift);
+
+        float hdrRadiance = density * beaming * (2.55 + plungeBoost * 1.45);
+        float alpha = clamp(density * 1.45, 0.0, 0.96);
+        return vec4(color * hdrRadiance, alpha);
+      }
+
+      void main() {
+        vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / min(u_res.x, u_res.y);
+
+        // Progression de l'aspiration vers l'Horizon des Événements (u_plunge : 0 -> 1)
+        float p = clamp(u_plunge, 0.0, 1.0);
+        float pSmooth = p * p * (3.0 - 2.0 * p);
+        float pDive = pow(p, 1.82);
+
+        // Cadrage architectural respirant sur l'accueil -> centrage pur lors du plongeon
+        uv.x -= u_offsetX * (1.0 - pSmooth);
+        uv.y += 0.018 * (1.0 - pSmooth);
+
+        // Distance caméra : r = 16.6 (les 2 arches de Gargantua entières à l'écran !) -> r = 0.82 (sous l'horizon)
+        float camDist = mix(16.6, 0.82, pDive);
+
+        // Inclinaison de 10.2° au-dessus du plan équatorial + parallaxe souris fluide
+        float elev = mix(0.178 + u_mouse.y * 0.04, 0.052, pSmooth);
+        float azim = u_time * 0.068 + u_mouse.x * 0.08 + pDive * 2.45;
+
+        vec3 ro = vec3(
+          camDist * cos(elev) * sin(azim),
+          camDist * sin(elev),
+          camDist * cos(elev) * cos(azim)
+        );
+
+        vec3 forward = normalize(-ro);
+        float rollAngle = mix(-0.165, -0.62, pSmooth);
+        vec3 worldUp = vec3(sin(rollAngle), cos(rollAngle), 0.0);
+        vec3 right = normalize(cross(forward, worldUp));
+        vec3 up = cross(right, forward);
+
+        // Dilatation grand-angle relativiste pendant l'aspiration dans le puits gravitationnel
+        float focal = mix(1.56, 0.64, sin(min(p * 1.25, 1.0) * 3.14159265 * 0.5));
+        vec3 rd = normalize(forward * focal + right * uv.x + up * uv.y);
+
+        vec3 hVec = cross(ro, rd);
+        float h2 = dot(hVec, hVec);
+
+        vec3 pos = ro;
+        vec3 vel = rd;
+        vec3 diskAccum = vec3(0.0);
+        vec3 haloAccum = vec3(0.0);
+        float transmittance = 1.0;
+        bool swallowed = false;
+        float minR = 100.0;
+
+        float spinClock = u_time * 0.78 + pDive * 5.4;
+
+        // Intégrateur géodésique RK2 (124 pas) :
+        // Courbe les rayons autour de la sphère de photons tout en gardant l'ombre centrale #000000 pure !
+        for (int i = 0; i < 124; i++) {
+          float r = length(pos);
+          minR = min(minR, r);
+
+          if (r <= 1.015) {
+            swallowed = true;
+            break;
+          }
+          if (r > 28.0 && i > 16) {
+            break;
+          }
+
+          float dt = clamp(0.102 * (r - 0.86), 0.038, 0.62);
+          vec3 prevPos = pos;
+
+          float r2 = r * r;
+          vec3 a1 = -1.5 * h2 * pos / (r2 * r2 * r);
+          vec3 midVel = normalize(vel + a1 * (0.5 * dt));
+          vec3 midPos = pos + midVel * (0.5 * dt);
+          float mr = max(length(midPos), 1.001);
+          float mr2 = mr * mr;
+          vec3 a2 = -1.5 * h2 * midPos / (mr2 * mr2 * mr);
+
+          vel = normalize(vel + a2 * dt);
+          pos = prevPos + midVel * dt;
+
+          // Traversée analytique exacte du disque équatorial (devant OU derrière le trou noir par lentille !)
+          if (prevPos.y * pos.y <= 0.0) {
+            float denom = prevPos.y - pos.y;
+            float frac = abs(denom) > 1e-6 ? clamp(prevPos.y / denom, 0.0, 1.0) : 0.5;
+            vec3 hit = mix(prevPos, pos, frac);
+            vec4 diskSample = evaluateAccretionDisk(hit, vel, spinClock, pSmooth);
+            diskAccum += transmittance * diskSample.rgb;
+            transmittance *= (1.0 - diskSample.a);
+            if (transmittance < 0.02) {
+              break;
+            }
+          }
+
+          // Diffusion coronale accumulée séparément pour que l'Horizon des Événements reste d'un noir #000000 absolu
+          float photonShell = exp(-abs(r - 1.54) * 4.2) * dt * 0.095;
+          haloAccum += transmittance * vec3(1.0, 0.76, 0.42) * photonShell;
+        }
+
+        vec3 accumColor = diskAccum;
+        if (!swallowed) {
+          float einsteinRing = exp(-abs(minR - 1.505) * 24.0);
+          float outerBloom = exp(-max(minR - 1.50, 0.0) * 1.85) * 0.14;
+          accumColor += haloAccum;
+          accumColor += transmittance * (vec3(1.45, 1.22, 0.88) * einsteinRing * 1.55 + vec3(0.92, 0.54, 0.18) * outerBloom);
+          accumColor += transmittance * sampleStarfield(vel, pSmooth);
+        }
+
+        // Mappage tonal ACES Filmic
+        vec3 x = max(vec3(0.0), accumColor);
+        vec3 mapped = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
+        mapped = pow(clamp(mapped, 0.0, 1.0), vec3(0.90));
+
+        // Franchissement final de l'Horizon des Événements -> noir absolu #000000 garanti
+        float horizonBlackout = 1.0 - smoothstep(0.80, 0.97, p);
+        mapped *= horizonBlackout;
+
+        gl_FragColor = vec4(mapped, 1.0);
+      }
+    `;
+
+    function compileShader(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(s));
+        gl.deleteShader(s);
+        return null;
+      }
+      return s;
+    }
+
+    const vs = compileShader(gl.VERTEX_SHADER, vsSource);
+    const fs = compileShader(gl.FRAGMENT_SHADER, fsSource);
+    if (!vs || !fs) {
+      initCanvas2DFallback(canvas);
+      return;
+    }
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      initCanvas2DFallback(canvas);
+      return;
+    }
+
+    const quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+
+    const aPos = gl.getAttribLocation(prog, "a_pos");
+    const uRes = gl.getUniformLocation(prog, "u_res");
+    const uTime = gl.getUniformLocation(prog, "u_time");
+    const uPlunge = gl.getUniformLocation(prog, "u_plunge");
+    const uMouse = gl.getUniformLocation(prog, "u_mouse");
+    const uOffsetX = gl.getUniformLocation(prog, "u_offsetX");
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.65);
+      const w = Math.max(1, Math.floor(window.innerWidth * dpr));
+      const h = Math.max(1, Math.floor(window.innerHeight * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    const bootMs = performance.now();
+    let demoFramesRendered = 0;
+
+    function frame(nowMs) {
+      resize();
+
+      if (plungeActive && fixedDemoTimeSec === null) {
+        const elapsed = nowMs - plungeStartMs;
+        plungeProgress = Math.min(1.0, elapsed / PLUNGE_DURATION_MS);
+
+        if (plungeProgress >= 0.94) {
+          document.getElementById("horizon-blackout").classList.add("active");
+        }
+        if (plungeProgress >= 1.0 && !darknessSignaled) {
+          darknessSignaled = true;
+          if (hasNativeIpc()) {
+            sendIpc({ cmd: "plunge_darkness_reached" });
+          } else {
+            // Simulation hors-JVM : dévoile le menu Minecraft Singularity depuis le noir sans coupure
+            setTimeout(() => {
+              document.getElementById("horizon-status").style.opacity = "0";
+              document.getElementById("mc-menu-preview").classList.add("visible");
+            }, 420);
+          }
+        }
+      }
+
+      mouseSmoothX += (mouseTargetX - mouseSmoothX) * 0.05;
+      mouseSmoothY += (mouseTargetY - mouseSmoothY) * 0.05;
+      if (fixedDemoTimeSec === null) {
+        const targetOffsetX = activeTab === "play" ? 0.15 : 0.0;
+        lensOffsetCurrentX += (targetOffsetX - lensOffsetCurrentX) * 0.07;
+      }
+
+      const tSec = fixedDemoTimeSec !== null ? fixedDemoTimeSec : (nowMs - bootMs) * 0.001;
+
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.useProgram(prog);
+      gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform1f(uTime, tSec);
+      gl.uniform1f(uPlunge, plungeProgress);
+      gl.uniform2f(uMouse, mouseSmoothX, mouseSmoothY);
+      gl.uniform1f(uOffsetX, lensOffsetCurrentX);
+
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      if (fixedDemoTimeSec !== null) {
+        gl.finish();
+        try {
+          document.body.style.backgroundImage = "url(" + canvas.toDataURL("image/png") + ")";
+          document.body.style.backgroundSize = "100% 100%";
+          document.body.style.backgroundRepeat = "no-repeat";
+          canvas.style.opacity = "0";
+        } catch (_) {}
+      } else {
+        requestAnimationFrame(frame);
+      }
+    }
+
+    frame(bootMs);
+  }
+
+  function initCanvas2DFallback(canvas) {
+    const ctx = canvas.getContext("2d");
+    function draw(now) {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width * 0.56;
+      const cy = canvas.height * 0.5;
+      const g = ctx.createRadialGradient(cx, cy, 48, cx, cy, 260);
+      g.addColorStop(0.0, "#000000");
+      g.addColorStop(0.22, "#000000");
+      g.addColorStop(0.26, "#ffdf9e");
+      g.addColorStop(0.48, "rgba(229, 146, 52, 0.42)");
+      g.addColorStop(1.0, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  }
+
+  // Initialisation & modes de capture d'aperçus automatisés (?demo=home|plunge|engine|modules|system|update|msmodal|mcmenu)
+  (function boot() {
     renderAll();
     const params = new URLSearchParams(window.location.search);
-    const demoTab = params.get("tab");
-    if (demoTab === "modules" || demoTab === "engine" || demoTab === "system") {
-      switchTab(demoTab);
-    } else if (demoTab === "msmodal") {
-      state.device_code = { user_code: "6PSLH5SY", verification_uri: "https://www.microsoft.com/link" };
-      renderSystemAndDock();
+    const demo = params.get("demo") || params.get("tab");
+
+    if (demo === "engine" || demo === "modules" || demo === "system") {
+      fixedDemoTimeSec = 14.2;
+      lensOffsetCurrentX = 0.0;
+      switchTab(demo);
+    } else if (demo === "update") {
+      fixedDemoTimeSec = 14.2;
+      lensOffsetCurrentX = 0.0;
+      state.has_github_token = true;
+      state.update = {
+        status: "available",
+        current_version: "3.5.0",
+        installed_jar_version: "3.5.0",
+        latest_version: "3.6.0",
+        release_notes: "Optimisations GPU + Auto-Updater GitHub Releases",
+        download_percent: 0,
+        message: "Nouvelle Release privée détectée sur MyMasha/ProjectFPS : purefps-3.6.0.jar + pureclient-launcher.exe prêts à installer.",
+        has_exe_update: true,
+        has_jar_update: true
+      };
+      appendLog("[Auto-Updater] Authentifié via Fine-Grained PAT Read-Only sur MyMasha/ProjectFPS.");
+      appendLog("[Auto-Updater] Nouvelle Release détectée : v3.6.0 (purefps-3.6.0.jar + pureclient-launcher.exe).");
+      renderAll();
+      switchTab("system");
+    } else if (demo === "plunge") {
+      fixedDemoTimeSec = 18.6;
+      lensOffsetCurrentX = 0.0;
+      plungeProgress = 0.66;
+      const shell = document.getElementById("launcher-shell");
+      shell.style.transition = "none";
+      shell.style.opacity = "0.14";
+      shell.style.transform = "scale(1.06)";
+      shell.style.filter = "blur(5px)";
+      document.querySelector(".cinema-vignette").style.opacity = "0";
+    } else if (demo === "horizon") {
+      fixedDemoTimeSec = 20.0;
+      document.body.classList.add("plunging");
+      plungeProgress = 1.0;
+      document.getElementById("horizon-blackout").classList.add("active");
+    } else if (demo === "mcmenu") {
+      fixedDemoTimeSec = 20.0;
+      document.body.classList.add("plunging");
+      plungeProgress = 1.0;
+      document.getElementById("mc-menu-preview").classList.add("visible");
+    } else if (demo === "msmodal") {
+      fixedDemoTimeSec = 12.5;
+      state.device_code = { user_code: "6PSL-H5SY", verification_uri: "https://www.microsoft.com/link" };
+      renderAccountModal();
+    } else if (params.has("demo")) {
+      fixedDemoTimeSec = 12.5;
     }
+
+    initBlackHoleRenderer();
     sendIpc({ cmd: "ui_ready" });
   })();
 </script>

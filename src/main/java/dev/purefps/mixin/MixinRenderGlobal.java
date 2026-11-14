@@ -23,10 +23,11 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Optimisation majeure de RenderGlobal.setupTerrain (PureClient 3.5) :
- * - Lazy Terrain BFS : évite de reconstruire le graphe BFS de ~1 200 chunks et d'allouer ~2 400 objets
- *   sur chaque micro-mouvement de souris (< 0.65°) ou déplacement sous-bloc (< 0.20 bloc) tant qu'aucun chunk n'est sale.
- * - Réutilise une file LinkedList unique sur le thread client au lieu d'allouer Lists.newLinkedList() à chaque reconstruction.
+ * Optimisation de RenderGlobal.setupTerrain sans disparition de chunks en bord d'écran (PureClient 3.5) :
+ * - Calcule désormais l'ancre sur la position INTERPOLÉE exacte de la caméra (lastTickPos + (pos - lastTickPos) * partialTicks)
+ *   avec des seuils sous-pixel stricts (0.04 bloc = distSq < 0.0016 et rotation < 0.12°) afin que tout mouvement
+ *   de caméra rafraîchisse immédiatement le frustum sans jamais laisser de chunks non affichés sur les côtés !
+ * - Réutilise une file LinkedList unique sur le thread client au lieu d'allouer Lists.newLinkedList() à chaque BFS.
  */
 @Mixin(RenderGlobal.class)
 public class MixinRenderGlobal {
@@ -96,40 +97,45 @@ public class MixinRenderGlobal {
             return;
         }
 
+        double camX = viewEntity.lastTickPosX + (viewEntity.posX - viewEntity.lastTickPosX) * partialTicks;
+        double camY = viewEntity.lastTickPosY + (viewEntity.posY - viewEntity.lastTickPosY) * partialTicks;
+        double camZ = viewEntity.lastTickPosZ + (viewEntity.posZ - viewEntity.lastTickPosZ) * partialTicks;
+        float camYaw = viewEntity.prevRotationYaw + (viewEntity.rotationYaw - viewEntity.prevRotationYaw) * (float) partialTicks;
+        float camPitch = viewEntity.prevRotationPitch + (viewEntity.rotationPitch - viewEntity.prevRotationPitch) * (float) partialTicks;
+
         if (this.displayListEntitiesDirty
                 || this.chunksToUpdate == null
                 || !this.chunksToUpdate.isEmpty()
                 || this.renderInfos == null
                 || this.renderInfos.isEmpty()
                 || Double.isNaN(this.purefps$anchorX)) {
-            this.purefps$anchorX = viewEntity.posX;
-            this.purefps$anchorY = viewEntity.posY;
-            this.purefps$anchorZ = viewEntity.posZ;
-            this.purefps$anchorYaw = viewEntity.rotationYaw;
-            this.purefps$anchorPitch = viewEntity.rotationPitch;
+            this.purefps$anchorX = camX;
+            this.purefps$anchorY = camY;
+            this.purefps$anchorZ = camZ;
+            this.purefps$anchorYaw = camYaw;
+            this.purefps$anchorPitch = camPitch;
             return;
         }
 
-        double dx = viewEntity.posX - this.purefps$anchorX;
-        double dy = viewEntity.posY - this.purefps$anchorY;
-        double dz = viewEntity.posZ - this.purefps$anchorZ;
+        double dx = camX - this.purefps$anchorX;
+        double dy = camY - this.purefps$anchorY;
+        double dz = camZ - this.purefps$anchorZ;
         double distSq = dx * dx + dy * dy + dz * dz;
-        float dYaw = Math.abs(viewEntity.rotationYaw - this.purefps$anchorYaw);
-        float dPitch = Math.abs(viewEntity.rotationPitch - this.purefps$anchorPitch);
+        float dYaw = Math.abs(camYaw - this.purefps$anchorYaw);
+        float dPitch = Math.abs(camPitch - this.purefps$anchorPitch);
 
-        if (distSq < 0.04D && dYaw < 0.65F && dPitch < 0.65F) {
-            // Synchronise les coordonnées précédentes pour conserver renderInfos intact sur ce micro-mouvement
+        if (distSq < 0.0016D && dYaw < 0.12F && dPitch < 0.12F) {
             this.lastViewEntityX = viewEntity.posX;
             this.lastViewEntityY = viewEntity.posY;
             this.lastViewEntityZ = viewEntity.posZ;
             this.lastViewEntityPitch = (double) viewEntity.rotationPitch;
             this.lastViewEntityYaw = (double) viewEntity.rotationYaw;
         } else {
-            this.purefps$anchorX = viewEntity.posX;
-            this.purefps$anchorY = viewEntity.posY;
-            this.purefps$anchorZ = viewEntity.posZ;
-            this.purefps$anchorYaw = viewEntity.rotationYaw;
-            this.purefps$anchorPitch = viewEntity.rotationPitch;
+            this.purefps$anchorX = camX;
+            this.purefps$anchorY = camY;
+            this.purefps$anchorZ = camZ;
+            this.purefps$anchorYaw = camYaw;
+            this.purefps$anchorPitch = camPitch;
             this.displayListEntitiesDirty = true;
         }
     }

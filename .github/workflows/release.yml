@@ -1,0 +1,112 @@
+name: PureClient Release (Mod 1.8.9 + Singularity Launcher)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de version à publier (ex: v3.5.0 ou v3.6.0)"
+        required: true
+        default: "v3.5.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-mod-jar:
+    name: Build PureClient Mod 1.8.9 (.jar)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Temurin JDK 8 & JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            17
+
+      - name: Extract semantic version
+        id: ver
+        shell: bash
+        run: |
+          RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          CLEAN_VER="${RAW_TAG#v}"
+          echo "tag=${RAW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Compile & Test PureClient Forge 1.8.9 Mod
+        shell: bash
+        run: |
+          sed -i '/^org\.gradle\.java\./d' gradle.properties
+          echo "org.gradle.java.home=${JAVA_HOME_17_X64}" >> gradle.properties
+          echo "org.gradle.java.installations.auto-detect=false" >> gradle.properties
+          echo "org.gradle.java.installations.paths=${JAVA_HOME_8_X64},${JAVA_HOME_17_X64}" >> gradle.properties
+          sed -i "s/^version=.*/version=${{ steps.ver.outputs.version }}/" gradle.properties
+          chmod +x ./gradlew
+          ./gradlew test remapJar --no-daemon
+
+      - name: Upload Mod JAR Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: purefps-jar
+          path: build/libs/purefps-${{ steps.ver.outputs.version }}.jar
+          if-no-files-found: error
+
+  build-windows-launcher:
+    name: Build Singularity Launcher (.exe)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Sync Launcher Cargo.toml version with Tag
+        shell: pwsh
+        run: |
+          $rawTag = if ("${{ github.event.inputs.tag }}" -ne "") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
+          $cleanVer = $rawTag.TrimStart('v')
+          $cargoPath = "launcher/Cargo.toml"
+          $content = Get-Content $cargoPath -Raw
+          $updated = [regex]::Replace($content, '(?m)^version\s*=\s*"[^"]+"', "version = `"$cleanVer`"", 1)
+          Set-Content -Path $cargoPath -Value $updated -NoNewline
+
+      - name: Build PureClient Singularity Launcher (.exe)
+        working-directory: launcher
+        env:
+          PURECLIENT_GITHUB_TOKEN: ${{ secrets.PURECLIENT_UPDATER_TOKEN }}
+        run: cargo build --release
+
+      - name: Upload Windows Launcher Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pureclient-launcher-exe
+          path: launcher/target/release/pureclient-launcher.exe
+          if-no-files-found: error
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: [build-mod-jar, build-windows-launcher]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Built Assets
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: PureClient Singularity ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/purefps-*.jar
+            dist/pureclient-launcher.exe

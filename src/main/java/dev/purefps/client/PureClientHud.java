@@ -15,9 +15,10 @@ import org.lwjgl.input.Mouse;
 
 /**
  * HUD PureClient 3.5 (Lunar / OneClient / Feather Grade) :
- * - Pilules arrondies anti-aliasées par shader SDF GLSL 120 (NanoUiRenderer) avec bordure spéculaire 1px.
- * - Typographie TrueType lissée Segoe UI (SmoothFontRenderer) sans escalier de pixels.
- * - Zéro allocation par frame (chaînes mises en cache et recalculées uniquement quand la valeur change).
+ * - Regroupe désormais TOUTES les cartes SDF arrondies en UNE SEULE session shader NanoUiRenderer.beginBatch()/endBatch()
+ *   (supprime les 12 à 44 commutations glUseProgram par frame qui bridaient les FPS dans le vide !).
+ * - Regroupe tous les textes SmoothFontRenderer par fonte en 1 à 2 Tessellator.draw() au total.
+ * - Échantillonne le ping réseau toutes les 250 ms au lieu d'interroger la table UUID à chaque frame.
  */
 public final class PureClientHud {
 
@@ -43,6 +44,8 @@ public final class PureClientHud {
     private static String cachedCpsText = "0  |  0 CPS";
 
     private static int lastPingVal = -2;
+    private static int cachedRawPing = -1;
+    private static long lastPingCheckMs = 0L;
     private static String cachedPingText = "-- ms";
 
     private PureClientHud() {
@@ -61,111 +64,203 @@ public final class PureClientHud {
             }
         }
 
+        boolean showFps = PureFPSConfig.hudFpsCps;
+        boolean showPing = PureFPSConfig.hudPing;
+        boolean showSprint = PureFPSConfig.hudSprintStatus && (PureFPSConfig.toggleSprint || editorPreview);
+        boolean showKeys = PureFPSConfig.hudKeystrokes;
+        boolean showArmor = PureFPSConfig.hudArmor && mc.thePlayer != null && !mc.thePlayer.capabilities.isCreativeMode;
+
+        if (!showFps && !showPing && !showSprint && !showKeys && !showArmor) {
+            return;
+        }
+
         NanoUiRenderer.setScaleFactor(sr.getScaleFactor());
         boolean smooth = PureFPSConfig.smoothClientFont;
         FontRenderer vanillaFr = mc.fontRendererObj;
 
         long nowMs = System.currentTimeMillis();
 
-        int fps = Minecraft.getDebugFPS();
-        if (fps != lastFpsVal) {
-            lastFpsVal = fps;
-            cachedFpsText = fps + " FPS";
-        }
-
-        int lCps = CpsTracker.getLeftCps(nowMs);
-        int rCps = CpsTracker.getRightCps(nowMs);
-        if (lCps != lastLeftCps || rCps != lastRightCps) {
-            lastLeftCps = lCps;
-            lastRightCps = rCps;
-            cachedCpsText = lCps + "  \u2022  " + rCps + " CPS";
-        }
-
-        int ping = resolvePing(mc);
-        if (ping != lastPingVal) {
-            lastPingVal = ping;
-            cachedPingText = ping >= 0 ? (ping + " ms") : "Mode Solo";
-        }
-
-        boolean showFps = PureFPSConfig.hudFpsCps;
-        boolean showPing = PureFPSConfig.hudPing;
-        boolean showSprint = PureFPSConfig.hudSprintStatus && (PureFPSConfig.toggleSprint || editorPreview);
-        boolean showKeys = PureFPSConfig.hudKeystrokes;
-
-        boolean keyW = mc.gameSettings.keyBindForward.isKeyDown();
-        boolean keyA = mc.gameSettings.keyBindLeft.isKeyDown();
-        boolean keyS = mc.gameSettings.keyBindBack.isKeyDown();
-        boolean keyD = mc.gameSettings.keyBindRight.isKeyDown();
-        boolean keyJump = mc.gameSettings.keyBindJump.isKeyDown();
-        boolean mouseL = Mouse.isCreated() && Mouse.isButtonDown(0);
-        boolean mouseR = Mouse.isCreated() && Mouse.isButtonDown(1);
-
         if (showFps) {
-            float fx = PureFPSConfig.hudFpsX;
-            float fy = PureFPSConfig.hudFpsY;
-            NanoUiRenderer.drawRoundedRect(fx, fy, FPS_CARD_W, FPS_CARD_H, 6.0F, CARD_BG, CARD_BORDER, 1.0F);
-            NanoUiRenderer.drawCircle(fx + 8.5F, fy + 9.0F, 2.2F, 0xFF34D399);
-            drawTextCentered(smooth, vanillaFr, true, cachedFpsText, fx + FPS_CARD_W * 0.5F + 3.0F, fy + 4.5F, 0xFFECEFF6);
-            drawTextCentered(smooth, vanillaFr, false, cachedCpsText, fx + FPS_CARD_W * 0.5F, fy + 17.5F, 0xFF949CB0);
+            int fps = Minecraft.getDebugFPS();
+            if (fps != lastFpsVal) {
+                lastFpsVal = fps;
+                cachedFpsText = fps + " FPS";
+            }
+
+            int lCps = CpsTracker.getLeftCps(nowMs);
+            int rCps = CpsTracker.getRightCps(nowMs);
+            if (lCps != lastLeftCps || rCps != lastRightCps) {
+                lastLeftCps = lCps;
+                lastRightCps = rCps;
+                cachedCpsText = lCps + "  \u2022  " + rCps + " CPS";
+            }
         }
 
+        int ping = cachedRawPing;
         if (showPing) {
-            float px = PureFPSConfig.hudPingX;
-            float py = PureFPSConfig.hudPingY;
-            NanoUiRenderer.drawRoundedRect(px, py, PING_CARD_W, PING_CARD_H, 5.5F, CARD_BG, CARD_BORDER, 1.0F);
-            int dotCol = (ping < 0) ? 0xFF60A5FA : (ping > 140 ? 0xFFFBBF24 : 0xFF34D399);
-            NanoUiRenderer.drawCircle(px + 8.5F, py + PING_CARD_H * 0.5F, 2.2F, dotCol);
-            int pingCol = (ping > 140) ? 0xFFFBBF24 : 0xFFECEFF6;
-            drawTextCentered(smooth, vanillaFr, false, cachedPingText, px + PING_CARD_W * 0.5F + 3.0F, py + 5.0F, pingCol);
+            if (nowMs - lastPingCheckMs >= 250L || lastPingVal == -2) {
+                lastPingCheckMs = nowMs;
+                ping = resolvePing(mc);
+                cachedRawPing = ping;
+            }
+            if (ping != lastPingVal) {
+                lastPingVal = ping;
+                cachedPingText = ping >= 0 ? (ping + " ms") : "Mode Solo";
+            }
         }
 
-        if (showSprint) {
-            float sx = PureFPSConfig.hudSprintX;
-            float sy = PureFPSConfig.hudSprintY;
-            boolean on = PureFPSConfig.sprintToggledActive;
-            int border = on ? CARD_BORDER_ACCENT : CARD_BORDER;
-            NanoUiRenderer.drawRoundedRect(sx, sy, SPRINT_CARD_W, SPRINT_CARD_H, 5.5F, CARD_BG, border, 1.0F);
-            NanoUiRenderer.drawCircle(sx + 8.5F, sy + SPRINT_CARD_H * 0.5F, 2.2F, on ? 0xFF5E6AD2 : 0xFF5E667A);
-            String label = on ? "Sprint  \u2022  Actif" : "Sprint  \u2022  Manuel";
-            drawTextCentered(smooth, vanillaFr, false, label, sx + SPRINT_CARD_W * 0.5F + 3.0F, sy + 5.0F, on ? 0xFFECEFF6 : 0xFF949CB0);
+        boolean keyW = showKeys && mc.gameSettings.keyBindForward.isKeyDown();
+        boolean keyA = showKeys && mc.gameSettings.keyBindLeft.isKeyDown();
+        boolean keyS = showKeys && mc.gameSettings.keyBindBack.isKeyDown();
+        boolean keyD = showKeys && mc.gameSettings.keyBindRight.isKeyDown();
+        boolean keyJump = showKeys && mc.gameSettings.keyBindJump.isKeyDown();
+        boolean mouseL = showKeys && Mouse.isCreated() && Mouse.isButtonDown(0);
+        boolean mouseR = showKeys && Mouse.isCreated() && Mouse.isButtonDown(1);
+
+        // Passe 1 : Toutes les formes SDF (cartes + pastilles) en UNE SEULE activation du shader GLSL
+        if (showFps || showPing || showSprint || showKeys) {
+            NanoUiRenderer.beginBatch();
+
+            if (showFps) {
+                float fx = PureFPSConfig.hudFpsX;
+                float fy = PureFPSConfig.hudFpsY;
+                NanoUiRenderer.drawRoundedRect(fx, fy, FPS_CARD_W, FPS_CARD_H, 6.0F, CARD_BG, CARD_BORDER, 1.0F);
+                NanoUiRenderer.drawCircle(fx + 8.5F, fy + 9.0F, 2.2F, 0xFF34D399);
+            }
+
+            if (showPing) {
+                float px = PureFPSConfig.hudPingX;
+                float py = PureFPSConfig.hudPingY;
+                NanoUiRenderer.drawRoundedRect(px, py, PING_CARD_W, PING_CARD_H, 5.5F, CARD_BG, CARD_BORDER, 1.0F);
+                int dotCol = (ping < 0) ? 0xFF60A5FA : (ping > 140 ? 0xFFFBBF24 : 0xFF34D399);
+                NanoUiRenderer.drawCircle(px + 8.5F, py + PING_CARD_H * 0.5F, 2.2F, dotCol);
+            }
+
+            if (showSprint) {
+                float sx = PureFPSConfig.hudSprintX;
+                float sy = PureFPSConfig.hudSprintY;
+                boolean on = PureFPSConfig.sprintToggledActive;
+                int border = on ? CARD_BORDER_ACCENT : CARD_BORDER;
+                NanoUiRenderer.drawRoundedRect(sx, sy, SPRINT_CARD_W, SPRINT_CARD_H, 5.5F, CARD_BG, border, 1.0F);
+                NanoUiRenderer.drawCircle(sx + 8.5F, sy + SPRINT_CARD_H * 0.5F, 2.2F, on ? 0xFF5E6AD2 : 0xFF5E667A);
+            }
+
+            if (showKeys) {
+                float kx = PureFPSConfig.hudKeystrokesX;
+                float ky = PureFPSConfig.hudKeystrokesY;
+                drawKeyCapBackground(kx + 27.0F, ky, 24.0F, 22.0F, keyW);
+                drawKeyCapBackground(kx, ky + 24.0F, 25.0F, 22.0F, keyA);
+                drawKeyCapBackground(kx + 27.0F, ky + 24.0F, 24.0F, 22.0F, keyS);
+                drawKeyCapBackground(kx + 53.0F, ky + 24.0F, 25.0F, 22.0F, keyD);
+                drawKeyCapBackground(kx, ky + 48.0F, 38.0F, 18.0F, mouseL);
+                drawKeyCapBackground(kx + 40.0F, ky + 48.0F, 38.0F, 18.0F, mouseR);
+                NanoUiRenderer.drawRoundedRect(kx, ky + 68.0F, 78.0F, 15.0F, 4.5F, keyJump ? CARD_BG_ACTIVE : CARD_BG, CARD_BORDER, 1.0F);
+                NanoUiRenderer.drawRoundedRect(kx + 20.0F, ky + 74.5F, 38.0F, 2.0F, 1.0F, keyJump ? 0xFFFFFFFF : 0xBBECEFF6, 0, 0.0F);
+            }
+
+            NanoUiRenderer.endBatch();
         }
 
-        if (showKeys) {
-            float kx = PureFPSConfig.hudKeystrokesX;
-            float ky = PureFPSConfig.hudKeystrokesY;
-            drawKeyCap(smooth, vanillaFr, kx + 27.0F, ky, 24.0F, 22.0F, "W", keyW);
-            drawKeyCap(smooth, vanillaFr, kx, ky + 24.0F, 25.0F, 22.0F, "A", keyA);
-            drawKeyCap(smooth, vanillaFr, kx + 27.0F, ky + 24.0F, 24.0F, 22.0F, "S", keyS);
-            drawKeyCap(smooth, vanillaFr, kx + 53.0F, ky + 24.0F, 25.0F, 22.0F, "D", keyD);
-            drawKeyCap(smooth, vanillaFr, kx, ky + 48.0F, 38.0F, 18.0F, "LMB", mouseL);
-            drawKeyCap(smooth, vanillaFr, kx + 40.0F, ky + 48.0F, 38.0F, 18.0F, "RMB", mouseR);
+        // Passe 2 : Textes regroupés par atlas (1 draw pour body + 1 draw pour small)
+        if (smooth) {
+            if (showFps) {
+                float fx = PureFPSConfig.hudFpsX;
+                float fy = PureFPSConfig.hudFpsY;
+                SmoothFontRenderer bodyF = SmoothFontRenderer.body();
+                bodyF.beginBatch();
+                bodyF.drawCentered(cachedFpsText, fx + FPS_CARD_W * 0.5F + 3.0F, fy + 4.5F, 0xFFECEFF6, true);
+                bodyF.endBatch();
+            }
 
-            NanoUiRenderer.drawRoundedRect(kx, ky + 68.0F, 78.0F, 15.0F, 4.5F, keyJump ? CARD_BG_ACTIVE : CARD_BG, CARD_BORDER, 1.0F);
-            NanoUiRenderer.drawRoundedRect(kx + 20.0F, ky + 74.5F, 38.0F, 2.0F, 1.0F, keyJump ? 0xFFFFFFFF : 0xBBECEFF6, 0, 0.0F);
+            if (showFps || showPing || showSprint || showKeys) {
+                SmoothFontRenderer smallF = SmoothFontRenderer.small();
+                smallF.beginBatch();
+                if (showFps) {
+                    float fx = PureFPSConfig.hudFpsX;
+                    float fy = PureFPSConfig.hudFpsY;
+                    smallF.drawCentered(cachedCpsText, fx + FPS_CARD_W * 0.5F, fy + 18.0F, 0xFF949CB0, true);
+                }
+                if (showPing) {
+                    float px = PureFPSConfig.hudPingX;
+                    float py = PureFPSConfig.hudPingY;
+                    int pingCol = (ping > 140) ? 0xFFFBBF24 : 0xFFECEFF6;
+                    smallF.drawCentered(cachedPingText, px + PING_CARD_W * 0.5F + 3.0F, py + 5.5F, pingCol, true);
+                }
+                if (showSprint) {
+                    float sx = PureFPSConfig.hudSprintX;
+                    float sy = PureFPSConfig.hudSprintY;
+                    boolean on = PureFPSConfig.sprintToggledActive;
+                    String label = on ? "Sprint  \u2022  Actif" : "Sprint  \u2022  Manuel";
+                    smallF.drawCentered(label, sx + SPRINT_CARD_W * 0.5F + 3.0F, sy + 5.5F, on ? 0xFFECEFF6 : 0xFF949CB0, true);
+                }
+                if (showKeys) {
+                    float kx = PureFPSConfig.hudKeystrokesX;
+                    float ky = PureFPSConfig.hudKeystrokesY;
+                    drawKeyCapLabelSmooth(smallF, kx + 27.0F, ky, 24.0F, 22.0F, "W", keyW);
+                    drawKeyCapLabelSmooth(smallF, kx, ky + 24.0F, 25.0F, 22.0F, "A", keyA);
+                    drawKeyCapLabelSmooth(smallF, kx + 27.0F, ky + 24.0F, 24.0F, 22.0F, "S", keyS);
+                    drawKeyCapLabelSmooth(smallF, kx + 53.0F, ky + 24.0F, 25.0F, 22.0F, "D", keyD);
+                    drawKeyCapLabelSmooth(smallF, kx, ky + 48.0F, 38.0F, 18.0F, "LMB", mouseL);
+                    drawKeyCapLabelSmooth(smallF, kx + 40.0F, ky + 48.0F, 38.0F, 18.0F, "RMB", mouseR);
+                }
+                smallF.endBatch();
+            }
+        } else {
+            if (showFps) {
+                float fx = PureFPSConfig.hudFpsX;
+                float fy = PureFPSConfig.hudFpsY;
+                drawVanillaCentered(vanillaFr, cachedFpsText, fx + FPS_CARD_W * 0.5F + 3.0F, fy + 4.5F, 0xFFECEFF6);
+                drawVanillaCentered(vanillaFr, cachedCpsText, fx + FPS_CARD_W * 0.5F, fy + 17.5F, 0xFF949CB0);
+            }
+            if (showPing) {
+                float px = PureFPSConfig.hudPingX;
+                float py = PureFPSConfig.hudPingY;
+                int pingCol = (ping > 140) ? 0xFFFBBF24 : 0xFFECEFF6;
+                drawVanillaCentered(vanillaFr, cachedPingText, px + PING_CARD_W * 0.5F + 3.0F, py + 5.0F, pingCol);
+            }
+            if (showSprint) {
+                float sx = PureFPSConfig.hudSprintX;
+                float sy = PureFPSConfig.hudSprintY;
+                boolean on = PureFPSConfig.sprintToggledActive;
+                String label = on ? "Sprint  \u2022  Actif" : "Sprint  \u2022  Manuel";
+                drawVanillaCentered(vanillaFr, label, sx + SPRINT_CARD_W * 0.5F + 3.0F, sy + 5.0F, on ? 0xFFECEFF6 : 0xFF949CB0);
+            }
+            if (showKeys) {
+                float kx = PureFPSConfig.hudKeystrokesX;
+                float ky = PureFPSConfig.hudKeystrokesY;
+                drawKeyCapLabelVanilla(vanillaFr, kx + 27.0F, ky, 24.0F, 22.0F, "W", keyW);
+                drawKeyCapLabelVanilla(vanillaFr, kx, ky + 24.0F, 25.0F, 22.0F, "A", keyA);
+                drawKeyCapLabelVanilla(vanillaFr, kx + 27.0F, ky + 24.0F, 24.0F, 22.0F, "S", keyS);
+                drawKeyCapLabelVanilla(vanillaFr, kx + 53.0F, ky + 24.0F, 25.0F, 22.0F, "D", keyD);
+                drawKeyCapLabelVanilla(vanillaFr, kx, ky + 48.0F, 38.0F, 18.0F, "LMB", mouseL);
+                drawKeyCapLabelVanilla(vanillaFr, kx + 40.0F, ky + 48.0F, 38.0F, 18.0F, "RMB", mouseR);
+            }
         }
 
-        if (PureFPSConfig.hudArmor && mc.thePlayer != null && !mc.thePlayer.capabilities.isCreativeMode) {
+        if (showArmor) {
             renderArmorStrip(mc, sr);
         }
 
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
     }
 
-    private static void drawKeyCap(boolean smooth, FontRenderer vanillaFr, float x, float y, float w, float h, String text, boolean down) {
+    private static void drawKeyCapBackground(float x, float y, float w, float h, boolean down) {
         int bg = down ? CARD_BG_ACTIVE : CARD_BG;
         int border = down ? 0x55FFFFFF : CARD_BORDER;
         NanoUiRenderer.drawRoundedRect(x, y, w, h, 5.0F, bg, border, 1.0F);
-        drawTextCentered(smooth, vanillaFr, false, text, x + w * 0.5F, y + (h - 9.0F) * 0.5F, down ? 0xFFFFFFFF : 0xFFECEFF6);
     }
 
-    private static void drawTextCentered(boolean smooth, FontRenderer vanillaFr, boolean bold, String text, float cx, float y, int argb) {
-        if (smooth) {
-            SmoothFontRenderer sf = bold ? SmoothFontRenderer.body() : SmoothFontRenderer.small();
-            sf.drawCentered(text, cx, y + (bold ? 0.0F : 0.5F), argb, true);
-        } else {
-            int w = vanillaFr.getStringWidth(text);
-            vanillaFr.drawStringWithShadow(text, cx - (w * 0.5F), y + 0.5F, argb & 0xFFFFFF);
-        }
+    private static void drawKeyCapLabelSmooth(SmoothFontRenderer smallF, float x, float y, float w, float h, String text, boolean down) {
+        smallF.drawCentered(text, x + w * 0.5F, y + (h - 9.0F) * 0.5F + 0.5F, down ? 0xFFFFFFFF : 0xFFECEFF6, true);
+    }
+
+    private static void drawKeyCapLabelVanilla(FontRenderer vanillaFr, float x, float y, float w, float h, String text, boolean down) {
+        drawVanillaCentered(vanillaFr, text, x + w * 0.5F, y + (h - 9.0F) * 0.5F, down ? 0xFFFFFFFF : 0xFFECEFF6);
+    }
+
+    private static void drawVanillaCentered(FontRenderer vanillaFr, String text, float cx, float y, int argb) {
+        int w = vanillaFr.getStringWidth(text);
+        vanillaFr.drawStringWithShadow(text, cx - (w * 0.5F), y + 0.5F, argb & 0xFFFFFF);
     }
 
     private static void renderArmorStrip(Minecraft mc, ScaledResolution sr) {
