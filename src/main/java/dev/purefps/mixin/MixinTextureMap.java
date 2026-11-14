@@ -34,6 +34,7 @@ public class MixinTextureMap {
             PureFPSConfig.totalAnimationsCount = this.listAnimatedSprites.size();
             PureFPSConfig.skippedAnimationsLastTick = 0;
             if (PureFPSConfig.enabled && PureFPSConfig.smartAnimations) {
+                SmartAnimations.syncAnimatedSprites(this.listAnimatedSprites);
                 SmartAnimations.beginTick();
             }
         }

@@ -15,9 +15,8 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Élimine la boucle inutile de 1 000 itérations aléatoires (BlockPos + getBlockState + randomDisplayTick)
- * exécutée chaque tick dans WorldClient.doVoidFogParticles lorsque le joueur n'est pas en mode Créatif
- * avec un bloc Barrière en main.
+ * Élimine dans TOUS les profils (FPS, Équilibré, Personnalisé) la boucle inutile de 1 000 itérations aléatoires
+ * exécutée chaque tick dans WorldClient.doVoidFogParticles lorsque le joueur ne tient pas un bloc Barrière en Créatif.
  */
 @Mixin(WorldClient.class)
 public class MixinWorldClient {
@@ -36,18 +35,12 @@ public class MixinWorldClient {
             return;
         }
         if (this.mc.playerController.getCurrentGameType() != WorldSettings.GameType.CREATIVE) {
-            // En Survie/Aventure (99.9% de Hypixel PvP), seules les randomDisplayTick de torches/lave proches ont un sens :
-            // en profil FPS, on coupe totalement la boucle de 1000 lookups aléatoires.
-            if (PureFPSConfig.activeProfile == dev.purefps.config.PureFPSProfile.FPS) {
-                ci.cancel();
-            }
+            ci.cancel();
             return;
         }
         ItemStack held = this.mc.thePlayer.getHeldItem();
         if (held == null || held.getItem() != Item.getItemFromBlock(Blocks.barrier)) {
-            if (PureFPSConfig.activeProfile == dev.purefps.config.PureFPSProfile.FPS) {
-                ci.cancel();
-            }
+            ci.cancel();
         }
     }
 }

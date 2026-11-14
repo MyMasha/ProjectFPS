@@ -72,7 +72,11 @@ public abstract class MixinFontRenderer {
         if (text == null) {
             return 0;
         }
-        final boolean useCache = PureFPSConfig.enabled && PureFPSConfig.fastFontRenderer;
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        final boolean useCache = PureFPSConfig.enabled
+                && PureFPSConfig.fastFontRenderer
+                && mc != null
+                && mc.isCallingFromMinecraftThread();
         if (useCache) {
             int cached = this.purefps$widthCache.get(text);
             if (cached >= 0) {

@@ -213,7 +213,7 @@ impl Default for LauncherPrefs {
 
         Self {
             ram_mb: 3072,
-            offline_username: "PurePlayer".to_owned(),
+            offline_username: "MashPlayer".to_owned(),
             quick_join_hypixel: false,
             launch_mode: LaunchMode::PrismBridge,
             java_path,
@@ -257,8 +257,10 @@ pub struct PureClientSettings {
     pub active_profile: PureProfile,
     pub enabled: bool,
 
-    // Modules Client 3.5
+    // Modules MashClient 4.0
     pub custom_main_menu: bool,
+    #[serde(default = "default_true")]
+    pub borderless_fullscreen: bool,
     pub smooth_client_font: bool,
     pub hud_enabled: bool,
     pub hud_fps_cps: bool,
@@ -276,7 +278,7 @@ pub struct PureClientSettings {
     pub static_fov: bool,
     pub transparent_chat: bool,
 
-    // Moteur GPU & CPU v3.5
+    // Moteur GPU & CPU v4.0
     pub disable_gl_error_checks: bool,
     pub hardware_region_vao: bool,
     pub region_multi_draw: bool,
@@ -314,6 +316,7 @@ impl Default for PureClientSettings {
             active_profile: PureProfile::Balanced,
             enabled: true,
             custom_main_menu: true,
+            borderless_fullscreen: true,
             smooth_client_font: true,
             hud_enabled: true,
             hud_fps_cps: true,
@@ -439,6 +442,7 @@ impl PureClientSettings {
         match key {
             "enabled" => { self.enabled = as_bool; engine_edited = true; }
             "custom_main_menu" => self.custom_main_menu = as_bool,
+            "borderless_fullscreen" => self.borderless_fullscreen = as_bool,
             "smooth_client_font" => self.smooth_client_font = as_bool,
             "hud_enabled" => self.hud_enabled = as_bool,
             "hud_fps_cps" => self.hud_fps_cps = as_bool,
@@ -538,6 +542,7 @@ impl PureClientSettings {
         }
         s.enabled = b(&map, "enabled", s.enabled);
         s.custom_main_menu = b(&map, "customMainMenu", s.custom_main_menu);
+        s.borderless_fullscreen = b(&map, "borderlessFullscreen", s.borderless_fullscreen);
         s.smooth_client_font = b(&map, "smoothClientFont", s.smooth_client_font);
         s.hud_enabled = b(&map, "hudEnabled", s.hud_enabled);
         s.hud_fps_cps = b(&map, "hudFpsCps", s.hud_fps_cps);
@@ -597,6 +602,7 @@ impl PureClientSettings {
         map.insert("activeProfile".into(), self.active_profile.id().into());
         map.insert("enabled".into(), self.enabled.to_string());
         map.insert("customMainMenu".into(), self.custom_main_menu.to_string());
+        map.insert("borderlessFullscreen".into(), self.borderless_fullscreen.to_string());
         map.insert("smoothClientFont".into(), self.smooth_client_font.to_string());
         map.insert("hudEnabled".into(), self.hud_enabled.to_string());
         map.insert("hudFpsCps".into(), self.hud_fps_cps.to_string());
@@ -647,7 +653,7 @@ impl PureClientSettings {
         );
         map.insert("unfocusedFpsLimit".into(), self.unfocused_fps_limit.to_string());
 
-        let mut out = String::from("# PureClient 3.5.0 Configuration\n");
+        let mut out = String::from("# MashClient 4.0.0 Configuration\n");
         for (k, v) in &map {
             out.push_str(k);
             out.push('=');
@@ -663,7 +669,8 @@ impl PureClientSettings {
     }
 
     /// Débride automatiquement les réglages bloquants de Minecraft Vanilla (`options.txt`) :
-    /// `useVbo:true`, `enableVsync:false` et `maxFps:260` (Illimité en 1.8.9, au lieu du plafond Vanilla 120 FPS).
+    /// `useVbo:true`, `enableVsync:false`, `maxFps:260` et désactive le plein écran exclusif
+    /// lorsque `borderless_fullscreen` est actif pour éviter tout flash d'écran au démarrage.
     pub fn sync_vanilla_options_txt(&self, game_dir: &str) {
         let options_path = Path::new(game_dir).join("options.txt");
         let Ok(existing) = std::fs::read_to_string(&options_path) else {
@@ -674,6 +681,7 @@ impl PureClientSettings {
         let mut saw_vbo = false;
         let mut saw_vsync = false;
         let mut saw_max_fps = false;
+        let mut saw_fullscreen = false;
         let mut changed = false;
 
         for line in existing.lines() {
@@ -702,6 +710,14 @@ impl PureClientSettings {
                 } else {
                     updated_lines.push(line.to_owned());
                 }
+            } else if self.borderless_fullscreen && line.starts_with("fullscreen:") {
+                saw_fullscreen = true;
+                if line.trim() != "fullscreen:false" {
+                    updated_lines.push("fullscreen:false".to_owned());
+                    changed = true;
+                } else {
+                    updated_lines.push(line.to_owned());
+                }
             } else {
                 updated_lines.push(line.to_owned());
             }
@@ -719,6 +735,10 @@ impl PureClientSettings {
             updated_lines.push("maxFps:260".to_owned());
             changed = true;
         }
+        if self.borderless_fullscreen && !saw_fullscreen {
+            updated_lines.push("fullscreen:false".to_owned());
+            changed = true;
+        }
 
         if changed {
             let _ = std::fs::write(&options_path, updated_lines.join("\n") + "\n");
@@ -727,8 +747,23 @@ impl PureClientSettings {
 }
 
 pub fn app_storage_dir() -> PathBuf {
+    static MIGRATE_ONCE: std::sync::Once = std::sync::Once::new();
     let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_owned());
-    Path::new(&base).join("PureClient")
+    let mash_dir = Path::new(&base).join("MashClient");
+    MIGRATE_ONCE.call_once(|| {
+        let legacy_dir = Path::new(&base).join("PureClient");
+        if legacy_dir.is_dir() {
+            let _ = std::fs::create_dir_all(&mash_dir);
+            for fname in ["launcher.json", "account.json", "updater_token.txt"] {
+                let src = legacy_dir.join(fname);
+                let dst = mash_dir.join(fname);
+                if src.is_file() && !dst.exists() {
+                    let _ = std::fs::copy(&src, &dst);
+                }
+            }
+        }
+    });
+    mash_dir
 }
 
 pub fn load_launcher_prefs() -> LauncherPrefs {
@@ -814,7 +849,7 @@ pub fn save_custom_github_token(raw_token: &str) -> Result<(), String> {
 }
 
 /// Résout le jeton GitHub Read-Only dans l'ordre de priorité :
-/// 1. Jeton personnalisé enregistré dans `%APPDATA%\PureClient\updater_token.txt`
+/// 1. Jeton personnalisé enregistré dans `%APPDATA%\MashClient\updater_token.txt`
 /// 2. Variable d'environnement `PURECLIENT_GITHUB_TOKEN`
 /// 3. Jeton embarqué à la compilation depuis `launcher/.github_token` (ignoré par Git) via `build.rs`
 pub fn effective_github_token() -> Option<String> {
@@ -839,9 +874,9 @@ pub fn effective_github_token() -> Option<String> {
     None
 }
 
-/// Prépare les fichiers de synchronisation sans couture entre le Launcher (rideau noir Trou Noir)
-/// et Minecraft 1.8.9 : désactive l'écran blanc de chargement Forge (`splash.properties`) et dépose
-/// le jeton `.purefps_handoff` lu par `SeamlessLaunchTransition` avant `Display.create()`.
+/// Prépare les fichiers de synchronisation sans couture entre MashClient (rideau noir Trou Noir)
+/// et Minecraft 1.8.9 : active le thread dédié Forge `SplashProgress$3` sur fond noir (`#000000`)
+/// pour que `MixinSplashProgressThread` anime l'émergence du Trou Noir à 100 FPS constants sans aucun freeze !
 pub fn prepare_seamless_launch_files(game_dir: &str) {
     let cfg_dir = Path::new(game_dir).join("config");
     let _ = std::fs::create_dir_all(&cfg_dir);
@@ -854,8 +889,8 @@ pub fn prepare_seamless_launch_files(game_dir: &str) {
 
     let splash_path = cfg_dir.join("splash.properties");
     let splash_black = "\
-# PureClient Singularity Seamless Black Curtain\n\
-enabled=false\n\
+# MashClient 4.0 — 100 FPS SharedGL Black Hole Emergence\n\
+enabled=true\n\
 background=0x000000\n\
 font=0x000000\n\
 barBackground=0x000000\n\
@@ -871,12 +906,16 @@ mod tests {
 
     #[test]
     fn test_profile_roundtrip_and_options_txt_unlock() {
-        let tmp = std::env::temp_dir().join("pureclient_cfg_test");
+        let tmp = std::env::temp_dir().join("mashclient_cfg_test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
         let opts_path = tmp.join("options.txt");
-        std::fs::write(&opts_path, "fov:0.5\nmaxFps:120\nenableVsync:true\nuseVbo:false\n").unwrap();
+        std::fs::write(
+            &opts_path,
+            "fov:0.5\nmaxFps:120\nenableVsync:true\nuseVbo:false\nfullscreen:true\n",
+        )
+        .unwrap();
 
         let mut cfg = PureClientSettings::default();
         cfg.apply_profile(PureProfile::Fps);
@@ -884,6 +923,7 @@ mod tests {
 
         let reloaded = PureClientSettings::load_from_game_dir(&tmp.to_string_lossy());
         assert_eq!(reloaded.active_profile, PureProfile::Fps);
+        assert!(reloaded.borderless_fullscreen);
         assert!(reloaded.fast_baked_item_models);
         assert!(reloaded.fast_item_frames);
         assert_eq!(reloaded.max_item_frame_distance, 36);
@@ -894,6 +934,12 @@ mod tests {
         assert!(patched_opts.contains("useVbo:true"));
         assert!(patched_opts.contains("enableVsync:false"));
         assert!(patched_opts.contains("maxFps:260"));
+        assert!(patched_opts.contains("fullscreen:false"));
+
+        prepare_seamless_launch_files(&tmp.to_string_lossy());
+        let splash = std::fs::read_to_string(tmp.join("config").join("splash.properties")).unwrap();
+        assert!(splash.contains("enabled=true"));
+        assert!(splash.contains("background=0x000000"));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

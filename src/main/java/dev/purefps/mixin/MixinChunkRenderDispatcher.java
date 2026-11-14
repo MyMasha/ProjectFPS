@@ -131,7 +131,7 @@ public abstract class MixinChunkRenderDispatcher {
         int uploadsCount = 0;
         long effectiveDeadline = finishTimeNano;
         if (finishTimeNano != 0L && PureFPSConfig.enabled) {
-            long capped = System.nanoTime() + 2_000_000L;
+            long capped = System.nanoTime() + 900_000L;
             if (capped < effectiveDeadline) {
                 effectiveDeadline = capped;
             }
@@ -151,7 +151,7 @@ public abstract class MixinChunkRenderDispatcher {
             uploadsCount++;
 
             if (effectiveDeadline != 0L) {
-                if (PureFPSConfig.enabled && uploadsCount >= 32) {
+                if (PureFPSConfig.enabled && uploadsCount >= 12) {
                     break;
                 }
                 if (effectiveDeadline - System.nanoTime() < 0L) {

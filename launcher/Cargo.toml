@@ -1,8 +1,8 @@
 [package]
-name = "pureclient-launcher"
-version = "3.6.0"
+name = "MashClient"
+version = "4.0.0"
 edition = "2021"
-description = "PureClient 3.6 Native Desktop Launcher (WebView2 + OAuth2 Device Code + JVM 1.8.9)"
+description = "MashClient 4.0 — Singularity Edition Native Desktop Launcher (WebView2 + OAuth2 Device Code + JVM 1.8.9)"
 
 [dependencies]
 tao = "0.37"

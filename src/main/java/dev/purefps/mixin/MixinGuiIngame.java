@@ -2,6 +2,7 @@ package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.FastScoreboardRenderer;
+import dev.purefps.module.MashFlags;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiIngame;
@@ -15,10 +16,12 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * 1. Économise une passe plein-écran alpha-blendée (vignette.png) à chaque frame tout en gardant l'alerte WorldBorder.
- * 2. Fusionne les 17 draw calls OpenGL du Scoreboard Hypixel en un seul lot de 2 quads sans allocations Guava/StringBuilder.
+ * 1. Masque le réticule inversé Vanilla lorsque le Curseur Personnalisé MashClient est activé.
+ * 2. Économise une passe plein-écran alpha-blendée (vignette.png) à chaque frame tout en gardant l'alerte WorldBorder.
+ * 3. Fusionne les 17 draw calls OpenGL du Scoreboard Hypixel en un seul lot de 2 quads avec support Masquer/Sans-Chiffres/OffsetY.
  */
 @Mixin(GuiIngame.class)
 public abstract class MixinGuiIngame {
@@ -29,6 +32,13 @@ public abstract class MixinGuiIngame {
 
     @Shadow
     public abstract FontRenderer getFontRenderer();
+
+    @Inject(method = "showCrosshair", at = @At("HEAD"), cancellable = true)
+    private void purefps$hideVanillaCrosshairWhenCustomActive(CallbackInfoReturnable<Boolean> cir) {
+        if (PureFPSConfig.enabled && MashFlags.customCrosshair) {
+            cir.setReturnValue(false);
+        }
+    }
 
     @Inject(method = "renderVignette", at = @At("HEAD"), cancellable = true)
     private void purefps$skipVignettePass(float lightLevel, ScaledResolution scaledRes, CallbackInfo ci) {
@@ -54,7 +64,14 @@ public abstract class MixinGuiIngame {
 
     @Inject(method = "renderScoreboard", at = @At("HEAD"), cancellable = true)
     private void purefps$fastBatchedScoreboard(ScoreObjective objective, ScaledResolution scaledRes, CallbackInfo ci) {
-        if (PureFPSConfig.enabled && PureFPSConfig.fastScoreboard && objective != null) {
+        if (!PureFPSConfig.enabled) {
+            return;
+        }
+        if (MashFlags.scoreboardHidden) {
+            ci.cancel();
+            return;
+        }
+        if (PureFPSConfig.fastScoreboard && objective != null) {
             FastScoreboardRenderer.render(objective, scaledRes, this.getFontRenderer());
             ci.cancel();
         }

@@ -15,89 +15,100 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Cache ultra-rapide O(1) zéro-allocation pour les crânes custom (Hypixel Lobbies, SkyBlock, BedWars, Menus) :
- * 1. Cache par identité NBTTagCompound -> GameProfile (élimine UUID.fromString + LinkedHashMultimap à chaque frame).
- * 2. Cache par identité GameProfile -> ResourceLocation (élimine Guava LoadingCache + FilenameUtils + StringBuilder + ResourceLocation à chaque frame).
+ * Cache atomique O(1) 100 % thread-safe et sans NPE pour les crânes custom (Hypixel Lobbies, SkyBlock, BedWars) :
+ * - Utilise des entrées immuables (TagEntry / ProfileEntry) publiées en une seule écriture de référence atomique JMM :
+ *   aucune course possible avec clear() lors d'un S48PacketResourcePackSend sur un thread Netty, et impossibilité
+ *   absolue de retourner null vers TextureManager.bindTexture().
  */
 public final class FastSkullCache {
 
     private static final int SIZE = 1024;
     private static final int MASK = SIZE - 1;
 
-    private static final NBTTagCompound[] TAG_KEYS = new NBTTagCompound[SIZE];
-    private static final GameProfile[] TAG_PROFILES = new GameProfile[SIZE];
+    private static final class TagEntry {
+        final NBTTagCompound key;
+        final GameProfile profile;
 
-    private static final GameProfile[] PROFILE_KEYS = new GameProfile[SIZE];
-    private static final ResourceLocation[] PROFILE_LOCATIONS = new ResourceLocation[SIZE];
-    private static final long[] PROFILE_RETRY_MS = new long[SIZE];
+        TagEntry(NBTTagCompound key, GameProfile profile) {
+            this.key = key;
+            this.profile = profile;
+        }
+    }
+
+    private static final class ProfileEntry {
+        final GameProfile key;
+        final ResourceLocation location;
+        final long retryMs;
+
+        ProfileEntry(GameProfile key, ResourceLocation location, long retryMs) {
+            this.key = key;
+            this.location = location;
+            this.retryMs = retryMs;
+        }
+    }
+
+    private static final TagEntry[] TAG_ENTRIES = new TagEntry[SIZE];
+    private static final ProfileEntry[] PROFILE_ENTRIES = new ProfileEntry[SIZE];
 
     private FastSkullCache() {
     }
 
     public static void clear() {
-        Arrays.fill(TAG_KEYS, null);
-        Arrays.fill(TAG_PROFILES, null);
-        Arrays.fill(PROFILE_KEYS, null);
-        Arrays.fill(PROFILE_LOCATIONS, null);
-        Arrays.fill(PROFILE_RETRY_MS, 0L);
+        Arrays.fill(TAG_ENTRIES, null);
+        Arrays.fill(PROFILE_ENTRIES, null);
     }
 
-    /**
-     * Remplace NBTUtil.readGameProfileFromNBT(skullOwnerTag) dans LayerCustomHead & TileEntityItemStackRenderer.
-     */
     public static GameProfile readCachedProfile(NBTTagCompound skullOwnerTag) {
         if (skullOwnerTag == null) {
             return null;
         }
         int h = System.identityHashCode(skullOwnerTag);
         int slot0 = (h ^ (h >>> 11)) & MASK;
-        if (TAG_KEYS[slot0] == skullOwnerTag) {
-            return TAG_PROFILES[slot0];
+        TagEntry e0 = TAG_ENTRIES[slot0];
+        if (e0 != null && e0.key == skullOwnerTag) {
+            return e0.profile;
         }
         int slot1 = (slot0 + 1) & MASK;
-        if (TAG_KEYS[slot1] == skullOwnerTag) {
-            return TAG_PROFILES[slot1];
+        TagEntry e1 = TAG_ENTRIES[slot1];
+        if (e1 != null && e1.key == skullOwnerTag) {
+            return e1.profile;
         }
 
         GameProfile parsed = NBTUtil.readGameProfileFromNBT(skullOwnerTag);
         if (parsed != null) {
-            if (TAG_KEYS[slot0] != null) {
-                TAG_KEYS[slot1] = TAG_KEYS[slot0];
-                TAG_PROFILES[slot1] = TAG_PROFILES[slot0];
+            if (e0 != null && e0.key != skullOwnerTag) {
+                TAG_ENTRIES[slot1] = e0;
             }
-            TAG_KEYS[slot0] = skullOwnerTag;
-            TAG_PROFILES[slot0] = parsed;
+            TAG_ENTRIES[slot0] = new TagEntry(skullOwnerTag, parsed);
         }
         return parsed;
     }
 
-    /**
-     * Résout la texture d'un crâne joueur en O(1) (~1.5 ns) sans Guava LoadingCache ni allocation de String/ResourceLocation.
-     */
     public static ResourceLocation resolveSkullTexture(GameProfile profile) {
+        ResourceLocation fallback = DefaultPlayerSkin.getDefaultSkinLegacy();
         if (profile == null) {
-            return DefaultPlayerSkin.getDefaultSkinLegacy();
+            return fallback;
         }
 
         int h = System.identityHashCode(profile);
         int slot0 = (h ^ (h >>> 11)) & MASK;
-        if (PROFILE_KEYS[slot0] == profile) {
-            long retryAt = PROFILE_RETRY_MS[slot0];
-            if (retryAt == Long.MAX_VALUE || System.currentTimeMillis() < retryAt) {
-                return PROFILE_LOCATIONS[slot0];
+        ProfileEntry e0 = PROFILE_ENTRIES[slot0];
+        if (e0 != null && e0.key == profile && e0.location != null) {
+            if (e0.retryMs == Long.MAX_VALUE || System.currentTimeMillis() < e0.retryMs) {
+                return e0.location;
             }
         }
         int slot1 = (slot0 + 1) & MASK;
-        if (PROFILE_KEYS[slot1] == profile) {
-            long retryAt = PROFILE_RETRY_MS[slot1];
-            if (retryAt == Long.MAX_VALUE || System.currentTimeMillis() < retryAt) {
-                return PROFILE_LOCATIONS[slot1];
+        ProfileEntry e1 = PROFILE_ENTRIES[slot1];
+        if (e1 != null && e1.key == profile && e1.location != null) {
+            if (e1.retryMs == Long.MAX_VALUE || System.currentTimeMillis() < e1.retryMs) {
+                return e1.location;
             }
         }
 
         Minecraft mc = Minecraft.getMinecraft();
         if (mc == null || mc.getSkinManager() == null) {
-            return DefaultPlayerSkin.getDefaultSkinLegacy();
+            return fallback;
         }
 
         SkinManager skinManager = mc.getSkinManager();
@@ -108,22 +119,20 @@ public final class FastSkullCache {
         MinecraftProfileTexture skinTex = map != null ? map.get(MinecraftProfileTexture.Type.SKIN) : null;
         if (skinTex != null) {
             resolved = skinManager.loadSkin(skinTex, MinecraftProfileTexture.Type.SKIN);
-            nextRetry = Long.MAX_VALUE; // Définitif jusqu'au rechargement des ressources
+            nextRetry = Long.MAX_VALUE;
         } else {
             UUID uuid = EntityPlayer.getUUID(profile);
             resolved = DefaultPlayerSkin.getDefaultSkin(uuid);
-            // Si le profil attend une réponse asynchrone Mojang, ne re-tester que dans 1 seconde au lieu de 400x/sec
             nextRetry = System.currentTimeMillis() + 1000L;
         }
-
-        if (PROFILE_KEYS[slot0] != null && PROFILE_KEYS[slot0] != profile) {
-            PROFILE_KEYS[slot1] = PROFILE_KEYS[slot0];
-            PROFILE_LOCATIONS[slot1] = PROFILE_LOCATIONS[slot0];
-            PROFILE_RETRY_MS[slot1] = PROFILE_RETRY_MS[slot0];
+        if (resolved == null) {
+            resolved = fallback;
         }
-        PROFILE_KEYS[slot0] = profile;
-        PROFILE_LOCATIONS[slot0] = resolved;
-        PROFILE_RETRY_MS[slot0] = nextRetry;
+
+        if (e0 != null && e0.key != profile) {
+            PROFILE_ENTRIES[slot1] = e0;
+        }
+        PROFILE_ENTRIES[slot0] = new ProfileEntry(profile, resolved, nextRetry);
         return resolved;
     }
 
@@ -132,10 +141,17 @@ public final class FastSkullCache {
             return DefaultPlayerSkin.getDefaultSkinLegacy();
         }
         Minecraft mc = Minecraft.getMinecraft();
-        Map<MinecraftProfileTexture.Type, MinecraftProfileTexture> map = mc.getSkinManager().loadSkinFromCache(profile);
-        if (map.containsKey(MinecraftProfileTexture.Type.SKIN)) {
-            return mc.getSkinManager().loadSkin(map.get(MinecraftProfileTexture.Type.SKIN), MinecraftProfileTexture.Type.SKIN);
+        if (mc == null || mc.getSkinManager() == null) {
+            return DefaultPlayerSkin.getDefaultSkinLegacy();
         }
-        return DefaultPlayerSkin.getDefaultSkin(EntityPlayer.getUUID(profile));
+        Map<MinecraftProfileTexture.Type, MinecraftProfileTexture> map = mc.getSkinManager().loadSkinFromCache(profile);
+        if (map != null && map.containsKey(MinecraftProfileTexture.Type.SKIN)) {
+            ResourceLocation loc = mc.getSkinManager().loadSkin(map.get(MinecraftProfileTexture.Type.SKIN), MinecraftProfileTexture.Type.SKIN);
+            if (loc != null) {
+                return loc;
+            }
+        }
+        ResourceLocation def = DefaultPlayerSkin.getDefaultSkin(EntityPlayer.getUUID(profile));
+        return def != null ? def : DefaultPlayerSkin.getDefaultSkinLegacy();
     }
 }

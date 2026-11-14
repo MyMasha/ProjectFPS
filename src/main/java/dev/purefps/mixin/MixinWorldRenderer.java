@@ -1,8 +1,10 @@
 package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
+import dev.purefps.core.ChunkRegionManager;
 import dev.purefps.core.PrimitiveQuadSorter;
 import net.minecraft.client.renderer.WorldRenderer;
+import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.client.renderer.vertex.VertexFormat;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -10,15 +12,20 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
 /**
- * Remplace le tri de sommets translucides vanilla (qui alloue Integer[], BitSet, Comparator et IntBuffer.slice())
- * par un tri de primitives 100 % zéro-allocation sur ThreadLocal.
+ * 1. Tri de sommets translucides 100 % zéro-allocation sur ThreadLocal.
+ * 2. Cuisson en place du facteur anti-couture (1.000001f) directement sur les threads ChunkRenderWorker
+ *    à la fin de finishDrawing(), supprimant toute copie CPU sur le thread OpenGL principal !
  */
 @Mixin(WorldRenderer.class)
 public class MixinWorldRenderer {
+
+    @Shadow
+    private ByteBuffer byteBuffer;
 
     @Shadow
     private IntBuffer rawIntBuffer;
@@ -57,6 +64,15 @@ public class MixinWorldRenderer {
                     camZ
             );
             ci.cancel();
+        }
+    }
+
+    @Inject(method = "finishDrawing", at = @At("RETURN"))
+    private void purefps$bakeAntiSeamOffThread(CallbackInfo ci) {
+        if (PureFPSConfig.enabled && this.vertexFormat == DefaultVertexFormats.BLOCK && this.vertexCount > 0) {
+            if (!net.minecraft.client.Minecraft.getMinecraft().isCallingFromMinecraftThread()) {
+                ChunkRegionManager.bakeAntiSeamInPlace(this.rawFloatBuffer, this.byteBuffer, this.vertexCount);
+            }
         }
     }
 }

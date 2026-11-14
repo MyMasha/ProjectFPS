@@ -23,12 +23,15 @@ public final class SmoothFontRenderer {
 
     private static final int ATLAS_SIZE = 1024;
     private static final float GUI_SCALE_DIVISOR = 3.0F;
-    private static final int GLYPH_SLOTS = 264;
+    private static final int GLYPH_SLOTS = 268;
     private static final int SLOT_BULLET = 256;    // •
     private static final int SLOT_EM_DASH = 257;   // —
     private static final int SLOT_EN_DASH = 258;   // –
     private static final int SLOT_ARROW = 259;     // →
     private static final int SLOT_CHECK = 260;     // ✓
+    private static final int SLOT_STAR = 261;      // ★
+    private static final int SLOT_STAR_OUT = 262;  // ☆
+    private static final int SLOT_GEAR = 263;      // ⚙
 
     private static SmoothFontRenderer titleFont;
     private static SmoothFontRenderer subtitleFont;
@@ -38,6 +41,7 @@ public final class SmoothFontRenderer {
     private final int awtStyle;
     private final int awtPixelSize;
     private final Glyph[] glyphs = new Glyph[GLYPH_SLOTS];
+    private final dev.purefps.core.FastFontCaches.WidthCache widthCache = new dev.purefps.core.FastFontCaches.WidthCache();
     private float fontHeightGui = 9.0F;
     private int textureId = -1;
     private boolean metricsBaked = false;
@@ -176,6 +180,10 @@ public final class SmoothFontRenderer {
         if (!this.metricsBaked) {
             bakeAtlasImage();
         }
+        int cached = this.widthCache.get(text);
+        if (cached >= 0) {
+            return cached * (1.0F / 64.0F);
+        }
         float width = 0.0F;
         int len = text.length();
         for (int i = 0; i < len; i++) {
@@ -189,7 +197,35 @@ public final class SmoothFontRenderer {
                 width += g.advanceGui;
             }
         }
+        this.widthCache.put(text, Math.max(0, Math.round(width * 64.0F)));
         return width;
+    }
+
+    public String trimToWidth(String text, float maxWidthGui) {
+        if (text == null || text.isEmpty() || getStringWidth(text) <= maxWidthGui) {
+            return text != null ? text : "";
+        }
+        float ellipsisW = getStringWidth("...");
+        float limit = Math.max(0.0F, maxWidthGui - ellipsisW);
+        float w = 0.0F;
+        int len = text.length();
+        int cut = 0;
+        for (int i = 0; i < len; i++) {
+            char c = text.charAt(i);
+            if (c == '\u00a7' && i + 1 < len) {
+                i++;
+                cut = i + 1;
+                continue;
+            }
+            Glyph g = lookupGlyph(c);
+            float adv = g != null ? g.advanceGui : 0.0F;
+            if (w + adv > limit) {
+                break;
+            }
+            w += adv;
+            cut = i + 1;
+        }
+        return text.substring(0, cut) + "...";
     }
 
     public void beginBatch() {
@@ -338,6 +374,12 @@ public final class SmoothFontRenderer {
             slot = SLOT_ARROW;
         } else if (ch == '\u2713') {
             slot = SLOT_CHECK;
+        } else if (ch == '\u2605') {
+            slot = SLOT_STAR;
+        } else if (ch == '\u2606') {
+            slot = SLOT_STAR_OUT;
+        } else if (ch == '\u2699') {
+            slot = SLOT_GEAR;
         } else if (ch >= 32 && ch < 256) {
             slot = (int) ch;
         } else {
@@ -354,6 +396,9 @@ public final class SmoothFontRenderer {
             case SLOT_EN_DASH: return '\u2013';
             case SLOT_ARROW: return '\u2192';
             case SLOT_CHECK: return '\u2713';
+            case SLOT_STAR: return '\u2605';
+            case SLOT_STAR_OUT: return '\u2606';
+            case SLOT_GEAR: return '\u2699';
             default: return (char) slot;
         }
     }

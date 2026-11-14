@@ -58,6 +58,9 @@ public final class FastTrig {
         if (Double.isNaN(x) || Double.isNaN(y)) {
             return Double.NaN;
         }
+        if (Double.isInfinite(x) || Double.isInfinite(y)) {
+            return Math.atan2(y, x);
+        }
         double ay = y < 0.0 ? -y : y;
         double ax = x < 0.0 ? -x : x;
         double min = ay < ax ? ay : ax;

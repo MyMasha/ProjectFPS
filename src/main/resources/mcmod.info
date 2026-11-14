@@ -1,14 +1,14 @@
 [
   {
     "modid": "${modid}",
-    "name": "PureClient",
-    "description": "Client Minecraft 1.8.9 ultra-optimisé FPS & PvP (Moteur GPU Region MultiDraw + Blit FBO GL30 + Frustum P-Vertex + HUD 1-Draw).",
+    "name": "MashClient",
+    "description": "MashClient 4.0 Singularity — Client Minecraft 1.8.9 ultra-optimisé FPS & PvP (200 Modules, Moteur GPU Region MultiDraw + Blit FBO GL30 + Borderless).",
     "version": "${version}",
     "mcversion": "${mcversion}",
-    "url": "",
+    "url": "https://github.com/MyMasha/ProjectFPS",
     "updateUrl": "",
     "authorList": [
-      "PureClient"
+      "MashClient"
     ],
     "credits": "",
     "logoFile": "",

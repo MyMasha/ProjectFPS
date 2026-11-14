@@ -126,6 +126,9 @@ public abstract class MixinBlockModelRenderer {
                 );
                 if (!checkSides || blockIn.shouldSideBeRendered(blockAccessIn, offsetPos, facing)) {
                     int brightness = blockIn.getMixedBrightnessForBlock(blockAccessIn, offsetPos);
+                    if (PureFPSConfig.smartAnimations) {
+                        dev.purefps.core.SmartAnimations.markQuadsVisible(faceQuads);
+                    }
                     this.renderModelStandardQuads(blockAccessIn, blockIn, blockPosIn, facing, brightness, false, worldRendererIn, faceQuads, bitSet);
                     renderedAny = true;
                 }
@@ -134,6 +137,9 @@ public abstract class MixinBlockModelRenderer {
 
         List<BakedQuad> generalQuads = modelIn.getGeneralQuads();
         if (!generalQuads.isEmpty()) {
+            if (PureFPSConfig.smartAnimations) {
+                dev.purefps.core.SmartAnimations.markQuadsVisible(generalQuads);
+            }
             this.renderModelStandardQuads(blockAccessIn, blockIn, blockPosIn, null, -1, true, worldRendererIn, generalQuads, bitSet);
             renderedAny = true;
         }

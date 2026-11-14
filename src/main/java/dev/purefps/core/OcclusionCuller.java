@@ -83,7 +83,7 @@ public final class OcclusionCuller {
     }
 
     public static boolean isBeyondEntityDistance(Entity entity, double camX, double camY, double camZ, int maxDist) {
-        int effectiveDist = (entity instanceof EntityPlayer) ? Math.max(maxDist, 96) : maxDist;
+        int effectiveDist = (entity instanceof EntityPlayer) ? Math.max(maxDist, 48) : maxDist;
         double dx = entity.posX - camX;
         double dy = entity.posY - camY;
         double dz = entity.posZ - camZ;

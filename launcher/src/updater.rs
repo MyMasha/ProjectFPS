@@ -1,8 +1,8 @@
-//! Auto-Updater GitHub Releases natif pour PureClient 3.5 — Singularity Edition.
+//! Auto-Updater GitHub Releases natif pour MashClient 4.0 — Singularity Edition.
 //! - Compatible dépôts publics ET privés (`MyMasha/ProjectFPS`) via Fine-Grained PAT Read-Only (`Contents: Read`)
 //! - Téléchargement binaire en 2 étapes (`Accept: application/octet-stream` sans redirection auto -> URL signée S3/Blob sans en-tête Authorization)
-//! - Vérification d'intégrité des en-têtes binaires (`PK\x03\x04` pour le mod `.jar`, `MZ` pour le launcher `.exe`)
-//! - Auto-remplacement atomique à chaud sous Windows (`pureclient-launcher.exe` -> `.exe.old`) avec restauration automatique en cas d'erreur.
+//! - Vérification d'intégrité des en-têtes binaires (`PK\x03\x04` pour le mod `.jar`, `MZ` pour le launcher `MashClient.exe`)
+//! - Auto-remplacement atomique à chaud sous Windows (`MashClient.exe` -> `.exe.old`) avec restauration automatique en cas d'erreur.
 
 use crate::config::app_storage_dir;
 use crate::AppEvent;
@@ -16,7 +16,7 @@ use std::time::Duration;
 use tao::event_loop::EventLoopProxy;
 
 pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const USER_AGENT: &str = "PureClient-Singularity-Updater/3.5";
+const USER_AGENT: &str = "MashClient-Singularity-Updater/4.0";
 const GH_API_VERSION: &str = "2022-11-28";
 
 #[derive(Debug, Clone)]
@@ -121,6 +121,10 @@ pub fn parse_semver(raw: &str) -> Option<(u32, u32, u32)> {
     }
     let lower = s.to_ascii_lowercase();
     for prefix in [
+        "mashclient-v",
+        "mashclient-",
+        "mashfps-v",
+        "mashfps-",
         "purefps-v",
         "purefps-",
         "pureclient-launcher-v",
@@ -309,7 +313,7 @@ pub fn check_for_updates(
         .or_else(|| parse_semver(&rel.name))
         .ok_or_else(|| {
             format!(
-                "Tag de release '{}' non reconnu (utilisez ex: v3.6.0).",
+                "Tag de release '{}' non reconnu (utilisez ex: v4.0.0).",
                 rel.tag_name
             )
         })?;
@@ -323,7 +327,9 @@ pub fn check_for_updates(
             low.ends_with(".jar")
                 && !low.ends_with("-sources.jar")
                 && !low.ends_with("-dev.jar")
-                && (low.starts_with("purefps") || low.starts_with("pureclient"))
+                && (low.starts_with("purefps")
+                    || low.starts_with("mashclient")
+                    || low.starts_with("pureclient"))
         })
         .or_else(|| {
             rel.assets.iter().find(|a| {
@@ -343,7 +349,15 @@ pub fn check_for_updates(
     let exe_asset = rel
         .assets
         .iter()
-        .find(|a| a.name.to_ascii_lowercase().ends_with(".exe"))
+        .find(|a| {
+            let low = a.name.to_ascii_lowercase();
+            low.ends_with(".exe") && low.contains("mash")
+        })
+        .or_else(|| {
+            rel.assets
+                .iter()
+                .find(|a| a.name.to_ascii_lowercase().ends_with(".exe"))
+        })
         .map(|a| ReleaseAssetPlan {
             name: a.name.clone(),
             api_url: a.url.clone(),
@@ -351,7 +365,7 @@ pub fn check_for_updates(
             size: a.size,
         });
 
-    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((3, 5, 0));
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 0, 0));
     let mod_ver = installed_mod_version(game_dir);
 
     let needs_exe = exe_asset.is_some() && rel_ver > launcher_ver;
@@ -368,7 +382,7 @@ pub fn check_for_updates(
         tag_name: rel.tag_name,
         version: rel_ver_str,
         release_name: if rel.name.trim().is_empty() {
-            format!("PureClient {}", format_semver(rel_ver))
+            format!("MashClient {}", format_semver(rel_ver))
         } else {
             rel.name
         },
@@ -667,15 +681,18 @@ mod tests {
 
     #[test]
     fn test_parse_semver_variants() {
+        assert_eq!(parse_semver("v4.0.0"), Some((4, 0, 0)));
+        assert_eq!(parse_semver("mashclient-v4.0.0"), Some((4, 0, 0)));
+        assert_eq!(parse_semver("MashClient v4.1.2"), Some((4, 1, 2)));
         assert_eq!(parse_semver("v3.5.0"), Some((3, 5, 0)));
         assert_eq!(parse_semver("3.6.2"), Some((3, 6, 2)));
-        assert_eq!(parse_semver("purefps-3.7.1.jar"), Some((3, 7, 1)));
+        assert_eq!(parse_semver("purefps-4.0.0.jar"), Some((4, 0, 0)));
         assert_eq!(parse_semver("PureClient v4.0"), Some((4, 0, 0)));
         assert_eq!(
-            extract_purefps_jar_semver("purefps-3.6.0.jar"),
-            Some((3, 6, 0))
+            extract_purefps_jar_semver("purefps-4.0.0.jar"),
+            Some((4, 0, 0))
         );
-        assert_eq!(extract_purefps_jar_semver("purefps-3.6.0-sources.jar"), None);
+        assert_eq!(extract_purefps_jar_semver("purefps-4.0.0-sources.jar"), None);
     }
 
     #[test]

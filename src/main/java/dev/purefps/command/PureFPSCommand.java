@@ -2,8 +2,8 @@ package dev.purefps.command;
 
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.config.PureFPSProfile;
-import dev.purefps.gui.GuiHudEditor;
-import dev.purefps.gui.GuiPureFPSSettings;
+import dev.purefps.gui.GuiMashClientMenu;
+import dev.purefps.module.MashModules;
 import net.minecraft.client.Minecraft;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
@@ -20,17 +20,17 @@ public class PureFPSCommand extends CommandBase {
 
     @Override
     public String getCommandName() {
-        return "pureclient";
+        return "mashclient";
     }
 
     @Override
     public List<String> getCommandAliases() {
-        return Arrays.asList("purefps", "pc");
+        return Arrays.asList("mash", "pureclient", "purefps", "pc");
     }
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/pureclient [fps|balanced|quality|hud|status|toggle]";
+        return "/mashclient [fps|balanced|quality|hud|status|toggle]";
     }
 
     @Override
@@ -70,15 +70,15 @@ public class PureFPSCommand extends CommandBase {
                     Minecraft.getMinecraft().renderGlobal.loadRenderers();
                 }
                 sender.addChatMessage(new ChatComponentText(
-                        "\u00a7b[PureClient 3.5] \u00a7fClient & Optimisations: " + (PureFPSConfig.enabled ? "\u00a7aACTIVÉS" : "\u00a7cDÉSACTIVÉS")
+                        "\u00a76[MashClient 4.0] \u00a7fClient & Optimisations: " + (PureFPSConfig.enabled ? "\u00a7aACTIVÉS" : "\u00a7cDÉSACTIVÉS")
                 ));
                 return;
             }
             if ("status".equalsIgnoreCase(sub)) {
                 sender.addChatMessage(new ChatComponentText(
-                        "\u00a7b[PureClient 3.5] \u00a77Profil: " + PureFPSConfig.activeProfile.getColoredName()
-                                + " \u00a77| VAO+MultiDraw: \u00a7a" + PureFPSConfig.chunksBatchedLastFrame + "c->" + PureFPSConfig.multiDrawsLastFrame + "d"
-                                + " \u00a77| LazyBFS:\u00a7a" + (PureFPSConfig.lazyTerrainSetup ? "ON" : "OFF")
+                        "\u00a76[MashClient 4.0] \u00a77Profil: " + PureFPSConfig.activeProfile.getColoredName()
+                                + " \u00a77| Modules: \u00a7e" + MashModules.getActiveCount() + "/200"
+                                + " \u00a77| MultiDraw: \u00a7a" + PureFPSConfig.chunksBatchedLastFrame + "c->" + PureFPSConfig.multiDrawsLastFrame + "d"
                                 + " \u00a77| Culled E:\u00a7a" + PureFPSConfig.culledEntitiesLastFrame
                                 + " \u00a77TE:\u00a7a" + PureFPSConfig.culledTileEntitiesLastFrame
                                 + " \u00a77P:\u00a7a" + PureFPSConfig.culledParticlesLastFrame
@@ -90,17 +90,13 @@ public class PureFPSCommand extends CommandBase {
         openGuiNextTick(false);
     }
 
-    private static void openGuiNextTick(final boolean hudEditor) {
+    private static void openGuiNextTick(final boolean focusHudTab) {
         MinecraftForge.EVENT_BUS.register(new Object() {
             @SubscribeEvent
             public void onClientTick(TickEvent.ClientTickEvent event) {
                 if (event.phase == TickEvent.Phase.END) {
                     MinecraftForge.EVENT_BUS.unregister(this);
-                    if (hudEditor) {
-                        Minecraft.getMinecraft().displayGuiScreen(new GuiHudEditor(null));
-                    } else {
-                        Minecraft.getMinecraft().displayGuiScreen(new GuiPureFPSSettings(null));
-                    }
+                    Minecraft.getMinecraft().displayGuiScreen(new GuiMashClientMenu(null, focusHudTab));
                 }
             }
         });
@@ -108,9 +104,10 @@ public class PureFPSCommand extends CommandBase {
 
     private static void applyAndNotify(ICommandSender sender, PureFPSProfile profile) {
         PureFPSConfig.applyProfile(profile, true);
+        MashModules.syncFromPureConfig();
         PureFPSConfig.save();
         sender.addChatMessage(new ChatComponentText(
-                "\u00a7b[PureClient 3.5] \u00a77Profil appliqué : " + profile.getColoredName() + " \u00a78(\u00a77" + profile.getDescription() + "\u00a78)"
+                "\u00a76[MashClient 4.0] \u00a77Profil appliqué : " + profile.getColoredName() + " \u00a78(\u00a77" + profile.getDescription() + "\u00a78)"
         ));
     }
 

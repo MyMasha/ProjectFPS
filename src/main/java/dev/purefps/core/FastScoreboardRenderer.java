@@ -1,7 +1,7 @@
 package dev.purefps.core;
 
+import dev.purefps.module.MashFlags;
 import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.Tessellator;
@@ -17,9 +17,10 @@ import org.lwjgl.opengl.GL11;
 import java.util.Collection;
 
 /**
- * Rendu ultra-rapide du Scoreboard Hypixel (100 % identique au pixel près à Vanilla 1.8.9) :
+ * Rendu ultra-rapide du Scoreboard Hypixel (MashClient 4.0) :
  * - Supprime Iterables.filter, Predicate anonyme, double Lists.newArrayList et les 30 StringBuilder par frame.
  * - Fusionne les 17 appels Gui.drawRect (17 draw calls OpenGL + 34 bascules Texture2D) en 1 seul appel 2-quads !
+ * - Supporte nativement l'option Lunar "Masquer les chiffres rouges" et le décalage vertical Y.
  */
 public final class FastScoreboardRenderer {
 
@@ -32,13 +33,15 @@ public final class FastScoreboardRenderer {
     }
 
     public static void render(ScoreObjective objective, ScaledResolution scaledRes, FontRenderer font) {
+        if (MashFlags.scoreboardHidden) {
+            return;
+        }
         Scoreboard scoreboard = objective.getScoreboard();
         Collection<Score> sorted = scoreboard.getSortedScores(objective);
         if (sorted == null || sorted.isEmpty()) {
             return;
         }
 
-        // Passe unique sans Predicate ni ArrayList intermédiaire : conserve les 15 derniers scores valides
         Score[] ring = FILTERED_BUFFER;
         int totalValid = 0;
         for (Score score : sorted) {
@@ -58,10 +61,11 @@ public final class FastScoreboardRenderer {
             return;
         }
 
+        boolean hideNumbers = MashFlags.scoreboardHideNumbers;
         int startRingIdx = totalValid > 15 ? (totalValid % 15) : 0;
         String title = objective.getDisplayName();
         int maxWidth = font.getStringWidth(title);
-        int colonSpaceWidth = font.getStringWidth(": ");
+        int colonSpaceWidth = hideNumbers ? 0 : font.getStringWidth(": ");
 
         for (int i = 0; i < count; i++) {
             Score score = ring[(startRingIdx + i) % 15];
@@ -69,11 +73,11 @@ public final class FastScoreboardRenderer {
             String rawName = score.getPlayerName();
             ScorePlayerTeam team = scoreboard.getPlayersTeam(rawName);
             String formattedName = ScorePlayerTeam.formatPlayerName(team, rawName);
-            String pointsText = EnumChatFormatting.RED.toString() + score.getScorePoints();
+            String pointsText = hideNumbers ? "" : (EnumChatFormatting.RED.toString() + score.getScorePoints());
             DISPLAY_NAMES[i] = formattedName;
             DISPLAY_POINTS[i] = pointsText;
 
-            int lineWidth = font.getStringWidth(formattedName) + colonSpaceWidth + font.getStringWidth(pointsText);
+            int lineWidth = font.getStringWidth(formattedName) + (hideNumbers ? 2 : (colonSpaceWidth + font.getStringWidth(pointsText)));
             if (lineWidth > maxWidth) {
                 maxWidth = lineWidth;
             }
@@ -81,7 +85,7 @@ public final class FastScoreboardRenderer {
 
         int fontHeight = font.FONT_HEIGHT;
         int bodyHeight = count * fontHeight;
-        int bottomY = scaledRes.getScaledHeight() / 2 + bodyHeight / 3;
+        int bottomY = scaledRes.getScaledHeight() / 2 + bodyHeight / 3 + MashFlags.scoreboardOffsetY;
         int rightMargin = 3;
         int leftX = scaledRes.getScaledWidth() - maxWidth - rightMargin;
         int rightX = scaledRes.getScaledWidth() - rightMargin + 2;
@@ -90,20 +94,19 @@ public final class FastScoreboardRenderer {
         int headerTopY = topRowY - fontHeight - 1;
         int headerBottomY = topRowY - 1;
 
-        // 1 SEUL draw call OpenGL (2 quads colorés) au lieu de 17 appels Gui.drawRect séparés !
         drawScoreboardBackground(bgLeftX, headerTopY, headerBottomY, rightX, bottomY);
 
-        // Titre centré
         int titleX = leftX + maxWidth / 2 - font.getStringWidth(title) / 2;
         font.drawString(title, titleX, topRowY - fontHeight, 553648127);
 
-        // Lignes de bas en haut comme Vanilla (j = 1..count)
         for (int i = 0; i < count; i++) {
             int rowY = bottomY - (i + 1) * fontHeight;
             String name = DISPLAY_NAMES[i];
             String pts = DISPLAY_POINTS[i];
             font.drawString(name, leftX, rowY, 553648127);
-            font.drawString(pts, rightX - font.getStringWidth(pts), rowY, 553648127);
+            if (!hideNumbers && !pts.isEmpty()) {
+                font.drawString(pts, rightX - font.getStringWidth(pts), rowY, 553648127);
+            }
 
             DISPLAY_SCORES[i] = null;
             DISPLAY_NAMES[i] = null;
@@ -119,15 +122,12 @@ public final class FastScoreboardRenderer {
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
 
         wr.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
-        // En-tête : 1610612736 = 0x60000000 (alpha = 96, RGB = 0)
         putColoredRect(wr, left, headerTop, right, headerBottom, 0, 0, 0, 96);
-        // Séparateur 1px + corps complet : 1342177280 = 0x50000000 (alpha = 80, RGB = 0)
         putColoredRect(wr, left, headerBottom, right, bodyBottom, 0, 0, 0, 80);
         tessellator.draw();
 
         GlStateManager.enableTexture2D();
         GlStateManager.disableBlend();
-        // Maintient la compatibilité si un mod attend l'état color post-drawRect
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
     }
 

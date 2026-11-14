@@ -1,17 +1,26 @@
 package dev.purefps.client;
 
 import dev.purefps.config.PureFPSConfig;
+import dev.purefps.module.MashFlags;
 import net.minecraft.client.Minecraft;
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
 /**
- * Contrôleur de Zoom fluide (touche C + molette 2x..14x type Lunar/Badlion) sans surcharge OptiFine.
+ * Contrôleur de Zoom Optique Pro MashClient 4.0 :
+ * - Touche ou bouton souris configurable (MashFlags.zoomKeyCode)
+ * - Choix explicite d'utiliser la molette pour zoomer (MashFlags.zoomScrollEnabled = true)
+ *   OU de laisser la molette changer de slot dans la barre rapide normalement (= false) !
+ * - Facteur initial, zoom max, vitesse d'animation, caméra cinématique et sensibilité souris dédiée.
  */
 public final class ZoomController {
 
     private static boolean zooming = false;
     private static boolean savedSmoothCamera = false;
     private static boolean appliedSmoothCamera = false;
+    private static float savedMouseSensitivity = 0.5F;
+    private static boolean appliedSensitivity = false;
+
     private static float targetDivisor = 4.0F;
     private static float currentMultiplier = 1.0F;
     private static long lastNano = 0L;
@@ -23,42 +32,77 @@ public final class ZoomController {
         return zooming;
     }
 
+    public static boolean shouldCaptureMouseWheel() {
+        return zooming && MashFlags.zoomScrollEnabled;
+    }
+
     public static void onMouseScroll(int dwheel) {
-        if (!zooming || dwheel == 0) {
+        if (!zooming || !MashFlags.zoomScrollEnabled || dwheel == 0) {
             return;
         }
+        float step = Math.max(1.05F, MashFlags.zoomScrollStep);
+        float maxDiv = Math.max(2.0F, MashFlags.zoomMaxDivisor);
         if (dwheel > 0) {
-            targetDivisor = Math.min(14.0F, targetDivisor * 1.18F);
+            targetDivisor = Math.min(maxDiv, targetDivisor * step);
         } else {
-            targetDivisor = Math.max(2.0F, targetDivisor / 1.18F);
+            targetDivisor = Math.max(1.25F, targetDivisor / step);
         }
+    }
+
+    private static boolean isKeybindHeld(int keyCode) {
+        if (keyCode == 0) {
+            return false;
+        }
+        if (keyCode <= -85) {
+            int btn = keyCode + 100;
+            return btn >= 0 && btn < 16 && Mouse.isCreated() && Mouse.isButtonDown(btn);
+        }
+        return keyCode > 0 && keyCode < 256 && Keyboard.isCreated() && Keyboard.isKeyDown(keyCode);
     }
 
     public static float applyFov(Minecraft mc, float baseFov) {
         boolean holdZoom = PureFPSConfig.enabled
-                && PureFPSConfig.zoomEnabled
+                && MashFlags.zoomEnabled
                 && mc != null
                 && mc.currentScreen == null
-                && Keyboard.isCreated()
-                && Keyboard.isKeyDown(Keyboard.KEY_C);
+                && isKeybindHeld(MashFlags.zoomKeyCode);
 
         if (holdZoom && !zooming) {
             zooming = true;
-            targetDivisor = 4.0F;
-            if (mc.gameSettings != null && PureFPSConfig.zoomSmoothCamera) {
-                savedSmoothCamera = mc.gameSettings.smoothCamera;
-                mc.gameSettings.smoothCamera = true;
-                appliedSmoothCamera = true;
+            targetDivisor = Math.max(1.25F, MashFlags.zoomInitialDivisor);
+            if (mc.gameSettings != null) {
+                if (MashFlags.zoomSmoothCamera) {
+                    savedSmoothCamera = mc.gameSettings.smoothCamera;
+                    mc.gameSettings.smoothCamera = true;
+                    appliedSmoothCamera = true;
+                }
+                if (MashFlags.zoomSensitivityPct < 99.0F) {
+                    savedMouseSensitivity = mc.gameSettings.mouseSensitivity;
+                    mc.gameSettings.mouseSensitivity = savedMouseSensitivity * (MashFlags.zoomSensitivityPct * 0.01F);
+                    appliedSensitivity = true;
+                }
             }
         } else if (!holdZoom && zooming) {
             zooming = false;
-            if (appliedSmoothCamera && mc != null && mc.gameSettings != null) {
-                mc.gameSettings.smoothCamera = savedSmoothCamera;
-                appliedSmoothCamera = false;
+            if (mc != null && mc.gameSettings != null) {
+                if (appliedSmoothCamera) {
+                    mc.gameSettings.smoothCamera = savedSmoothCamera;
+                    appliedSmoothCamera = false;
+                }
+                if (appliedSensitivity) {
+                    mc.gameSettings.mouseSensitivity = savedMouseSensitivity;
+                    appliedSensitivity = false;
+                }
             }
         }
 
-        float desired = zooming ? (1.0F / targetDivisor) : 1.0F;
+        float desired = zooming ? (1.0F / Math.max(1.0F, targetDivisor)) : 1.0F;
+        if (!MashFlags.zoomSmoothTransition) {
+            currentMultiplier = desired;
+            lastNano = System.nanoTime();
+            return baseFov * currentMultiplier;
+        }
+
         long now = System.nanoTime();
         float dt = lastNano == 0L ? 0.016F : (float) (now - lastNano) * 1.0e-9F;
         lastNano = now;
@@ -67,11 +111,12 @@ public final class ZoomController {
         }
 
         float diff = desired - currentMultiplier;
-        if (Math.abs(diff) < 0.0015F) {
+        if (Math.abs(diff) < 0.0012F) {
             currentMultiplier = desired;
         } else {
-            float speed = 1.0F - (float) Math.exp(-18.0F * dt);
-            currentMultiplier += diff * speed;
+            float spd = Math.max(4.0F, MashFlags.zoomTransitionSpeed);
+            float alpha = 1.0F - (float) Math.exp(-spd * dt);
+            currentMultiplier += diff * alpha;
         }
 
         return baseFov * currentMultiplier;

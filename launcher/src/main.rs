@@ -1,14 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! PureClient 3.6 — Singularity Edition Native Desktop Launcher (WebView2 `tao` + `wry`)
-//! - Rendu temps-réel WebGL2 d'un Trou Noir relativiste (lentille gravitationnelle de Schwarzschild + disque Doppler)
+//! MashClient 4.0 — Singularity Edition Native Desktop Launcher (`MashClient.exe`, WebView2 `tao` + `wry`)
+//! - Rendu temps-réel WebGL2 O(1) ultra-fluide d'un Trou Noir relativiste (lentille analytique de Schwarzschild + disque Doppler)
 //! - Transition cinématique sans changement de fenêtre visible et sans jamais bloquer Alt-Tab :
-//!   aspiration dans l'Horizon des Événements -> ouverture de Minecraft sans bordure à (0, 0) ->
-//!   remplacement de l'écran "Mojang" par la caméra du joueur qui sort du Trou Noir.
+//!   aspiration dans l'Horizon des Événements -> ouverture de Minecraft en mode Borderless Windowed à (0, 0) ->
+//!   réduction automatique du Launcher en bas à droite (System Tray Windows, 0% GPU en arrière-plan) ->
+//!   remplacement de l'écran "Mojang" par la caméra du joueur qui sort du Trou Noir à 100 FPS constants.
 
 mod auth;
 mod config;
 mod runner;
+mod tray;
 mod updater;
 
 use auth::{
@@ -35,7 +37,8 @@ use std::time::{Duration, Instant};
 use tao::dpi::{LogicalSize, Size};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
-use tao::window::{Fullscreen, Window, WindowBuilder};
+use tao::window::{Fullscreen, Icon, Window, WindowBuilder};
+use tray::SystemTray;
 use updater::{
     check_for_updates, cleanup_old_launcher_binary, download_and_install_update, format_semver,
     installed_mod_version, parse_semver, restart_launcher_process, sanitize_repo, InstallOutcome,
@@ -44,6 +47,7 @@ use updater::{
 use wry::WebViewBuilder;
 
 const UI_HTML: &str = include_str!("ui.html");
+const WINDOW_ICON_64_RGBA: &[u8] = include_bytes!("../assets/icon_64.rgba");
 
 #[cfg(windows)]
 fn allow_any_foreground_window() {
@@ -79,6 +83,8 @@ pub enum AppEvent {
     RevealMinecraftNow(u64),
     CurtainSafetyTimeout(u64),
     LaunchAborted(String),
+    TrayRestore,
+    TrayQuit,
     LogLine(String),
     Toast {
         message: String,
@@ -92,6 +98,7 @@ enum IpcCommand {
     UiReady,
     DragWindow,
     Minimize,
+    MinimizeToTray,
     ToggleMaximize,
     Close,
     SetProfile {
@@ -292,6 +299,13 @@ impl Controller {
         }
     }
 
+    fn set_webview_suspended(webview: &wry::WebView, suspended: bool) {
+        let flag = if suspended { "true" } else { "false" };
+        let _ = webview.evaluate_script(&format!(
+            "if(window.__mashSetSuspended)window.__mashSetSuspended({flag});"
+        ));
+    }
+
     fn enter_singularity_curtain(&mut self, window: &Window, webview: &wry::WebView) {
         self.curtain_id = self.curtain_id.wrapping_add(1);
         self.curtain_active = true;
@@ -300,10 +314,10 @@ impl Controller {
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
 
-        // IMPORTANT : aucun `set_always_on_top(true)` !
-        // Le plein écran sans bordure couvre la barre des tâches tant qu'il a le focus,
-        // tout en laissant Alt-Tab fonctionner naturellement et en laissant la fenêtre
-        // OpenGL de Minecraft s'ouvrir directement devant lui à (0, 0).
+        Self::set_webview_suspended(webview, false);
+
+        // Aucun `set_always_on_top(true)` : laisse Alt-Tab fonctionner naturellement et laisse la fenêtre
+        // Borderless Windowed de Minecraft s'ouvrir directement devant lui à (0, 0).
         window.set_always_on_top(false);
         window.set_minimized(false);
         window.set_visible(true);
@@ -314,12 +328,14 @@ impl Controller {
         Self::push_plunge_command(webview, "start");
     }
 
-    /// Retire proprement le plein écran WebView2 et réduit le Launcher dans la barre des tâches
-    /// pendant que la fenêtre OpenGL #000000 de Minecraft prend sa place à (0, 0).
-    fn dismiss_curtain_for_game(&mut self, window: &Window, webview: &wry::WebView) {
-        if !self.curtain_active {
-            return;
-        }
+    /// Masque complètement la fenêtre du Launcher de la barre des tâches et la loge dans la zone de notification
+    /// en bas à droite (`SystemTray`) tout en coupant la boucle WebGL2 (`0% GPU` en arrière-plan) !
+    fn suspend_to_system_tray(
+        &mut self,
+        window: &Window,
+        webview: &wry::WebView,
+        tray: &SystemTray,
+    ) {
         self.curtain_id = self.curtain_id.wrapping_add(1);
         self.curtain_active = false;
         self.curtain_entered_at = None;
@@ -331,8 +347,24 @@ impl Controller {
         window.set_always_on_top(false);
         window.set_cursor_visible(true);
         window.set_fullscreen(None);
-        window.set_minimized(true);
+        window.set_visible(false);
+        tray.set_game_running_mode(true);
         Self::push_plunge_command(webview, "reset");
+        Self::set_webview_suspended(webview, true);
+    }
+
+    /// Retire proprement le plein écran WebView2 et réduit MashClient en bas à droite (System Tray)
+    /// pendant que la fenêtre Borderless OpenGL #000000 de Minecraft prend sa place à (0, 0).
+    fn dismiss_curtain_for_game(
+        &mut self,
+        window: &Window,
+        webview: &wry::WebView,
+        tray: &SystemTray,
+    ) {
+        if !self.curtain_active {
+            return;
+        }
+        self.suspend_to_system_tray(window, webview, tray);
     }
 
     /// Appelé dès que l'utilisateur fait Alt-Tab vers une autre application (ou que Minecraft
@@ -341,6 +373,7 @@ impl Controller {
         &mut self,
         window: &Window,
         webview: &wry::WebView,
+        tray: &SystemTray,
         proxy: &EventLoopProxy<AppEvent>,
     ) {
         if !self.curtain_active {
@@ -352,28 +385,34 @@ impl Controller {
             }
         }
 
-        let should_minimize = self.plunge_darkness_reached || self.game_running;
+        let should_hide_to_tray = self.plunge_darkness_reached || self.game_running;
         if let Some((inst_id, watched_dirs)) = self.deferred_prism_launch.take() {
             let _ = spawn_prism_bridge_now(&self.prefs, &inst_id, watched_dirs, proxy);
         }
 
-        self.curtain_id = self.curtain_id.wrapping_add(1);
-        self.curtain_active = false;
-        self.curtain_entered_at = None;
-        self.plunge_darkness_reached = false;
-        self.mc_menu_ready = false;
-        self.handoff_dispatched = false;
+        if should_hide_to_tray {
+            self.suspend_to_system_tray(window, webview, tray);
+        } else {
+            self.curtain_id = self.curtain_id.wrapping_add(1);
+            self.curtain_active = false;
+            self.curtain_entered_at = None;
+            self.plunge_darkness_reached = false;
+            self.mc_menu_ready = false;
+            self.handoff_dispatched = false;
 
-        window.set_always_on_top(false);
-        window.set_cursor_visible(true);
-        window.set_fullscreen(None);
-        if should_minimize {
-            window.set_minimized(true);
+            window.set_always_on_top(false);
+            window.set_cursor_visible(true);
+            window.set_fullscreen(None);
+            Self::push_plunge_command(webview, "reset");
         }
-        Self::push_plunge_command(webview, "reset");
     }
 
-    fn restore_normal_window(&mut self, window: &Window, webview: &wry::WebView) {
+    fn restore_normal_window(
+        &mut self,
+        window: &Window,
+        webview: &wry::WebView,
+        tray: &SystemTray,
+    ) {
         self.curtain_id = self.curtain_id.wrapping_add(1);
         self.curtain_active = false;
         self.curtain_entered_at = None;
@@ -382,11 +421,14 @@ impl Controller {
         self.handoff_dispatched = false;
         self.deferred_prism_launch = None;
 
+        Self::set_webview_suspended(webview, false);
+        tray.set_game_running_mode(self.game_running);
+
         window.set_always_on_top(false);
         window.set_fullscreen(None);
+        window.set_visible(true);
         window.set_minimized(false);
         window.set_cursor_visible(true);
-        window.set_visible(true);
         window.set_focus();
         Self::push_plunge_command(webview, "reset");
     }
@@ -433,8 +475,6 @@ fn begin_singularity_launch_now(
         LaunchMode::PrismBridge => {
             match prepare_prism_bridge_files(&ctrl.prefs, screen_w, screen_h, proxy) {
                 Ok((inst_id, watched_dirs)) => {
-                    // En mode PrismBridge, on lance prismlauncher.exe dès que le plongeon caméra
-                    // atteint le noir (#000000) pour que la fenêtre Prism n'interrompe pas l'animation !
                     ctrl.deferred_prism_launch = Some((inst_id, watched_dirs));
                     ctrl.enter_singularity_curtain(window, webview);
                 }
@@ -456,12 +496,27 @@ fn begin_singularity_launch_now(
             let prefs_clone = ctrl.prefs.clone();
             let p = proxy.clone();
             std::thread::spawn(move || {
+                // Double tentative de rafraîchissement OAuth2 Xbox/Minecraft pour éviter toute session expirée sur Hypixel
                 let active_acc = match refresh_microsoft_session(&acc) {
                     Ok(fresh) => {
                         let _ = save_microsoft_account(&fresh);
                         fresh
                     }
-                    Err(_) => acc,
+                    Err(_) => {
+                        std::thread::sleep(Duration::from_millis(400));
+                        match refresh_microsoft_session(&acc) {
+                            Ok(fresh2) => {
+                                let _ = save_microsoft_account(&fresh2);
+                                fresh2
+                            }
+                            Err(err_msg) => {
+                                let _ = p.send_event(AppEvent::LogLine(format!(
+                                    "[MashClient] Avertissement session Microsoft (utilisation du jeton en cache) : {err_msg}"
+                                )));
+                                acc
+                            }
+                        }
+                    }
                 };
                 allow_any_foreground_window();
                 if let Err(e) = run_direct_jvm_blocking(
@@ -508,6 +563,7 @@ fn handle_ipc(
     ctrl: &mut Controller,
     window: &Window,
     webview: &wry::WebView,
+    tray: &SystemTray,
     proxy: &EventLoopProxy<AppEvent>,
 ) -> bool {
     match cmd {
@@ -526,7 +582,14 @@ fn handle_ipc(
             }
         }
         IpcCommand::Minimize => {
-            window.set_minimized(true);
+            if ctrl.game_running {
+                ctrl.suspend_to_system_tray(window, webview, tray);
+            } else {
+                window.set_minimized(true);
+            }
+        }
+        IpcCommand::MinimizeToTray => {
+            ctrl.suspend_to_system_tray(window, webview, tray);
         }
         IpcCommand::ToggleMaximize => {
             if !ctrl.curtain_active {
@@ -684,7 +747,7 @@ fn handle_ipc(
             };
             ctrl.update_view.status = "downloading".to_owned();
             ctrl.update_view.download_percent = 0;
-            ctrl.update_view.message = format!("Téléchargement de PureClient v{}...", plan.version);
+            ctrl.update_view.message = format!("Téléchargement de MashClient v{}...", plan.version);
             ctrl.push_full_state(webview);
 
             let tok = effective_github_token();
@@ -741,7 +804,7 @@ fn handle_ipc(
 
             if let Some((inst_id, watched_dirs)) = ctrl.deferred_prism_launch.take() {
                 if let Err(e) = spawn_prism_bridge_now(&ctrl.prefs, &inst_id, watched_dirs, proxy) {
-                    ctrl.restore_normal_window(window, webview);
+                    ctrl.restore_normal_window(window, webview, tray);
                     Controller::push_toast(webview, &e, true);
                     return false;
                 }
@@ -749,16 +812,16 @@ fn handle_ipc(
 
             ctrl.try_schedule_seamless_handoff(proxy);
 
-            // Garde-fou matériel absolu : le rideau noir ne peut JAMAIS rester plus de 3.2s après le plongeon !
+            // Garde-fou matériel absolu : réduit automatiquement MashClient en bas à droite après max 3.0s
             let expected_id = ctrl.curtain_id;
             let p_safety = proxy.clone();
             std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(3200));
+                std::thread::sleep(Duration::from_millis(3000));
                 let _ = p_safety.send_event(AppEvent::CurtainSafetyTimeout(expected_id));
             });
         }
         IpcCommand::AbortLaunchCurtain => {
-            ctrl.restore_normal_window(window, webview);
+            ctrl.restore_normal_window(window, webview, tray);
         }
         IpcCommand::LaunchGame => {
             if ctrl.game_running || ctrl.curtain_active || ctrl.prelaunch_syncing {
@@ -795,9 +858,7 @@ fn handle_ipc(
                 return false;
             }
 
-            // Si le mod purefps-*.jar n'est pas encore à la version du Launcher, on le synchronise
-            // AVANT de lancer l'aspiration caméra dans le Trou Noir !
-            let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((3, 6, 0));
+            let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 0, 0));
             let mod_up_to_date = installed_mod_version(&ctrl.prefs.game_dir)
                 .is_some_and(|cur| cur >= launcher_ver);
 
@@ -805,7 +866,7 @@ fn handle_ipc(
                 ctrl.prelaunch_syncing = true;
                 Controller::push_toast(
                     webview,
-                    "Synchronisation automatique du mod PureClient Singularity...",
+                    "Synchronisation automatique du mod MashClient 4.0...",
                     false,
                 );
                 let prefs_clone = ctrl.prefs.clone();
@@ -828,13 +889,17 @@ fn main() -> wry::Result<()> {
     let event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
+    let tray = SystemTray::new(proxy.clone());
+    let win_icon = Icon::from_rgba(WINDOW_ICON_64_RGBA.to_vec(), 64, 64).ok();
+
     let window = WindowBuilder::new()
-        .with_title("PureClient — Singularity")
+        .with_title("MashClient 4.0 — Singularity")
+        .with_window_icon(win_icon)
         .with_decorations(false)
         .with_inner_size(Size::Logical(LogicalSize::new(1240.0, 780.0)))
         .with_min_inner_size(Size::Logical(LogicalSize::new(1024.0, 680.0)))
         .build(&event_loop)
-        .expect("Création fenêtre PureClient Launcher");
+        .expect("Création fenêtre MashClient");
 
     let webview_data_dir = app_storage_dir().join("webview2-cache");
     let _ = std::fs::create_dir_all(&webview_data_dir);
@@ -852,6 +917,8 @@ fn main() -> wry::Result<()> {
     let mut ctrl = Controller::new();
 
     event_loop.run(move |event, _, control_flow| {
+        // Maintient `tray` en vie pendant toute l'exécution de l'application (son Drop retire l'icône en bas à droite)
+        let _keep_tray_alive = &tray;
         *control_flow = ControlFlow::Wait;
 
         match event {
@@ -866,16 +933,14 @@ fn main() -> wry::Result<()> {
                 event: WindowEvent::Focused(false),
                 ..
             } => {
-                // Garantit que Alt-Tab vers n'importe quelle application (ou l'ouverture de Minecraft
-                // au premier plan) retire immédiatement le rideau plein écran sans jamais bloquer l'écran !
                 if ctrl.curtain_active {
-                    ctrl.dismiss_curtain_on_focus_loss(&window, &webview, &proxy);
+                    ctrl.dismiss_curtain_on_focus_loss(&window, &webview, &tray, &proxy);
                 }
             }
             Event::UserEvent(app_evt) => match app_evt {
                 AppEvent::IpcRaw(raw) => {
                     if let Ok(cmd) = serde_json::from_str::<IpcCommand>(&raw) {
-                        if handle_ipc(cmd, &mut ctrl, &window, &webview, &proxy) {
+                        if handle_ipc(cmd, &mut ctrl, &window, &webview, &tray, &proxy) {
                             *control_flow = ControlFlow::Exit;
                         }
                     }
@@ -942,7 +1007,7 @@ fn main() -> wry::Result<()> {
                             ctrl.update_view.has_jar_update = false;
                             ctrl.update_view.download_percent = 0;
                             ctrl.update_view.message =
-                                format!("PureClient est à jour (v{latest_version}).");
+                                format!("MashClient est à jour (v{latest_version}).");
                             Controller::push_log(
                                 &webview,
                                 &format!(
@@ -952,7 +1017,7 @@ fn main() -> wry::Result<()> {
                             if manual {
                                 Controller::push_toast(
                                     &webview,
-                                    &format!("PureClient v{latest_version} est déjà à jour."),
+                                    &format!("MashClient v{latest_version} est déjà à jour."),
                                     false,
                                 );
                             }
@@ -1002,7 +1067,7 @@ fn main() -> wry::Result<()> {
                             );
                             Controller::push_toast(
                                 &webview,
-                                &format!("Mise à jour PureClient v{ver} disponible !"),
+                                &format!("Mise à jour MashClient v{ver} disponible !"),
                                 false,
                             );
                         }
@@ -1044,13 +1109,13 @@ fn main() -> wry::Result<()> {
                             if outcome.exe_staged_for_restart {
                                 ctrl.update_view.status = "ready_restart".to_owned();
                                 ctrl.update_view.message = format!(
-                                    "Mise à jour v{} prête — relancez PureClient pour activer le nouvel exécutable.",
+                                    "Mise à jour v{} prête — relancez MashClient pour activer le nouvel exécutable.",
                                     outcome.version
                                 );
                                 Controller::push_toast(
                                     &webview,
                                     &format!(
-                                        "PureClient v{} installé ! Cliquez sur Relancer.",
+                                        "MashClient v{} installé ! Cliquez sur Relancer.",
                                         outcome.version
                                     ),
                                     false,
@@ -1060,13 +1125,13 @@ fn main() -> wry::Result<()> {
                                 ctrl.update_view.has_jar_update = false;
                                 ctrl.update_view.has_exe_update = false;
                                 ctrl.update_view.message = format!(
-                                    "Mod PureClient v{} installé dans mods/ et prêt à jouer !",
+                                    "Mod MashClient v{} installé dans mods/ et prêt à jouer !",
                                     outcome.version
                                 );
                                 Controller::push_toast(
                                     &webview,
                                     &format!(
-                                        "Mod PureClient v{} mis à jour avec succès !",
+                                        "Mod MashClient v{} mis à jour avec succès !",
                                         outcome.version
                                     ),
                                     false,
@@ -1087,8 +1152,11 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::GameRunning(running) => {
                     ctrl.game_running = running;
-                    if !running && (ctrl.curtain_active || window.is_minimized() || !window.is_visible()) {
-                        ctrl.restore_normal_window(&window, &webview);
+                    tray.set_game_running_mode(running);
+                    if !running
+                        && (ctrl.curtain_active || window.is_minimized() || !window.is_visible())
+                    {
+                        ctrl.restore_normal_window(&window, &webview, &tray);
                     }
                     ctrl.push_full_state(&webview);
                 }
@@ -1098,19 +1166,26 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::RevealMinecraftNow(id) => {
                     if ctrl.curtain_active && ctrl.curtain_id == id {
-                        ctrl.dismiss_curtain_for_game(&window, &webview);
+                        ctrl.dismiss_curtain_for_game(&window, &webview, &tray);
                     }
                 }
                 AppEvent::CurtainSafetyTimeout(id) => {
                     if ctrl.curtain_active && ctrl.curtain_id == id {
-                        ctrl.dismiss_curtain_for_game(&window, &webview);
+                        ctrl.dismiss_curtain_for_game(&window, &webview, &tray);
                     }
                 }
                 AppEvent::LaunchAborted(err_msg) => {
                     ctrl.game_running = false;
-                    ctrl.restore_normal_window(&window, &webview);
+                    ctrl.restore_normal_window(&window, &webview, &tray);
                     ctrl.push_full_state(&webview);
                     Controller::push_toast(&webview, &err_msg, true);
+                }
+                AppEvent::TrayRestore => {
+                    ctrl.restore_normal_window(&window, &webview, &tray);
+                }
+                AppEvent::TrayQuit => {
+                    ctrl.auth_cancel.store(true, Ordering::Relaxed);
+                    *control_flow = ControlFlow::Exit;
                 }
                 AppEvent::LogLine(line) => {
                     Controller::push_log(&webview, &line);

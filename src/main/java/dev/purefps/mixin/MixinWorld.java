@@ -1,6 +1,7 @@
 package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
+import dev.purefps.module.MashFlags;
 import net.minecraft.util.BlockPos;
 import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
@@ -12,8 +13,8 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Permet de désactiver optionnellement les recalculs lourds de Skylight côté client
- * (responsables des freezes majeurs quand des ponts tombent ou lors d'explosions en BedWars/SkyWars).
+ * 1. Permet de désactiver optionnellement les recalculs lourds de Skylight côté client.
+ * 2. Module Time Changer (vis_time_changer) : surcharge l'heure visuelle du ciel uniquement côté client.
  */
 @Mixin(World.class)
 public class MixinWorld {
@@ -29,6 +30,13 @@ public class MixinWorld {
                 && PureFPSConfig.skipClientSkylightUpdates
                 && lightType == EnumSkyBlock.SKY) {
             cir.setReturnValue(false);
+        }
+    }
+
+    @Inject(method = "getWorldTime", at = @At("HEAD"), cancellable = true)
+    private void purefps$applyClientTimeChanger(CallbackInfoReturnable<Long> cir) {
+        if (this.isRemote && PureFPSConfig.enabled && MashFlags.timeChangerEnabled) {
+            cir.setReturnValue(MashFlags.customWorldTime);
         }
     }
 }

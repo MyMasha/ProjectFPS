@@ -165,8 +165,12 @@ public abstract class MixinRenderItemFrame extends Render<EntityItemFrame> {
             GlStateManager.rotate((float) rot * 45.0F, 0.0F, 0.0F, 1.0F);
         }
 
-        RenderItemInFrameEvent event = new RenderItemInFrameEvent(itemFrame, (RenderItemFrame) (Object) this);
-        if (!MinecraftForge.EVENT_BUS.post(event)) {
+        boolean canceled = false;
+        if (itemFrame.ticksExisted < 2) {
+            RenderItemInFrameEvent event = new RenderItemInFrameEvent(itemFrame, (RenderItemFrame) (Object) this);
+            canceled = MinecraftForge.EVENT_BUS.post(event);
+        }
+        if (!canceled) {
             if (isMap) {
                 this.renderManager.renderEngine.bindTexture(mapBackgroundTextures);
                 GlStateManager.rotate(180.0F, 0.0F, 0.0F, 1.0F);
@@ -178,32 +182,6 @@ public abstract class MixinRenderItemFrame extends Render<EntityItemFrame> {
                     this.mc.entityRenderer.getMapItemRenderer().renderMap(mapdata, true);
                 }
             } else if (distSq <= 1296.0D) {
-                // Rend l'objet 3D dans le cadre jusqu'à 36 blocs (au-delà, l'icône fait < 2px sur le cadre)
-                TextureAtlasSprite compassSprite = null;
-                if (item == Items.compass && distSq <= 256.0D) {
-                    compassSprite = this.mc.getTextureMapBlocks().getAtlasSprite(TextureCompass.locationSprite);
-                    this.mc.getTextureManager().bindTexture(TextureMap.locationBlocksTexture);
-                    if (compassSprite instanceof TextureCompass) {
-                        TextureCompass tc = (TextureCompass) compassSprite;
-                        double prevAngle = tc.currentAngle;
-                        double prevDelta = tc.angleDelta;
-                        tc.currentAngle = 0.0D;
-                        tc.angleDelta = 0.0D;
-                        tc.updateCompass(
-                                itemFrame.worldObj,
-                                itemFrame.posX,
-                                itemFrame.posZ,
-                                MathHelper.wrapAngleTo180_float(180 + itemFrame.facingDirection.getHorizontalIndex() * 90),
-                                false,
-                                true
-                        );
-                        tc.currentAngle = prevAngle;
-                        tc.angleDelta = prevDelta;
-                    } else {
-                        compassSprite = null;
-                    }
-                }
-
                 GlStateManager.scale(0.5F, 0.5F, 0.5F);
                 if (!this.itemRenderer.shouldRenderItemIn3D(stack) || item instanceof ItemSkull) {
                     GlStateManager.rotate(180.0F, 0.0F, 1.0F, 0.0F);
@@ -219,10 +197,6 @@ public abstract class MixinRenderItemFrame extends Render<EntityItemFrame> {
                 } finally {
                     RenderHelper.disableStandardItemLighting();
                     RenderItemContext.skipGlintForCurrentItem = prevSkipGlint;
-                }
-
-                if (compassSprite != null && compassSprite.getFrameCount() > 0) {
-                    compassSprite.updateAnimation();
                 }
             }
         }

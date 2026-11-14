@@ -80,11 +80,12 @@ public final class PureFPSConfig {
     public static boolean skipClientSkylightUpdates = false;
 
     // Fenêtre & Économie GPU
+    public static boolean borderlessFullscreen = true;
     public static boolean unfocusedFpsLimiter = true;
     public static int unfocusedFpsLimit = 15;
     public static boolean showF3Stats = true;
 
-    // Modules PureClient 3.5 (Lunar / Badlion / OneClient Grade)
+    // Modules MashClient 4.0 (synchronisés avec MashModules)
     public static boolean customMainMenu = true;
     public static boolean smoothClientFont = true;
     public static boolean hudEnabled = true;
@@ -104,7 +105,7 @@ public final class PureFPSConfig {
     public static boolean staticFov = false;
     public static boolean transparentChat = false;
 
-    // Positions HUD (en pixels ScaledResolution, déplaçables via GuiHudEditor)
+    // Positions HUD héritées
     public static int hudFpsX = 8;
     public static int hudFpsY = 8;
     public static int hudPingX = 8;
@@ -133,6 +134,12 @@ public final class PureFPSConfig {
 
     private static File configFile;
     private static volatile boolean dirty = false;
+    private static final java.util.concurrent.ExecutorService SAVE_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "MashClient-ConfigIO");
+                t.setDaemon(true);
+                return t;
+            });
 
     private PureFPSConfig() {
     }
@@ -143,7 +150,8 @@ public final class PureFPSConfig {
 
     public static void saveIfDirty() {
         if (dirty) {
-            save();
+            dirty = false;
+            SAVE_EXECUTOR.execute(PureFPSConfig::save);
         }
     }
 
@@ -287,7 +295,7 @@ public final class PureFPSConfig {
             changed = true;
         }
 
-        if (activeProfile == PureFPSProfile.FPS || activeProfile == PureFPSProfile.BALANCED) {
+        if (activeProfile != PureFPSProfile.QUALITY) {
             if (gs.enableVsync) {
                 gs.enableVsync = false;
                 if (Display.isCreated()) {
@@ -330,9 +338,9 @@ public final class PureFPSConfig {
             gs.enableVsync = false;
             gs.limitFramerate = 260;
         } else if (profile == PureFPSProfile.BALANCED) {
-            gs.fancyGraphics = true;
+            gs.fancyGraphics = false;
             gs.ambientOcclusion = 1;
-            gs.clouds = 1;
+            gs.clouds = 0;
             gs.particleSetting = 1;
             gs.entityShadows = false;
             gs.enableVsync = false;
@@ -502,6 +510,7 @@ public final class PureFPSConfig {
             fastBlockBreakParticles = getBool(props, "fastBlockBreakParticles", fastBlockBreakParticles);
             skipClientSkylightUpdates = getBool(props, "skipClientSkylightUpdates", skipClientSkylightUpdates);
 
+            borderlessFullscreen = getBool(props, "borderlessFullscreen", borderlessFullscreen);
             unfocusedFpsLimiter = getBool(props, "unfocusedFpsLimiter", unfocusedFpsLimiter);
             unfocusedFpsLimit = clamp(getInt(props, "unfocusedFpsLimit", unfocusedFpsLimit), 5, 60);
             showF3Stats = getBool(props, "showF3Stats", showF3Stats);
@@ -603,6 +612,7 @@ public final class PureFPSConfig {
         props.setProperty("fastBlockBreakParticles", Boolean.toString(fastBlockBreakParticles));
         props.setProperty("skipClientSkylightUpdates", Boolean.toString(skipClientSkylightUpdates));
 
+        props.setProperty("borderlessFullscreen", Boolean.toString(borderlessFullscreen));
         props.setProperty("unfocusedFpsLimiter", Boolean.toString(unfocusedFpsLimiter));
         props.setProperty("unfocusedFpsLimit", Integer.toString(unfocusedFpsLimit));
         props.setProperty("showF3Stats", Boolean.toString(showF3Stats));
@@ -636,7 +646,7 @@ public final class PureFPSConfig {
         props.setProperty("hudKeystrokesY", Integer.toString(hudKeystrokesY));
 
         try (FileOutputStream out = new FileOutputStream(configFile)) {
-            props.store(out, "PureClient 3.5.0 Configuration");
+            props.store(out, "MashClient 4.0.0 Configuration");
         } catch (IOException ignored) {
         }
     }

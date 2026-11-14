@@ -651,38 +651,34 @@ public class PureFPSCoreTest {
         File cfgDir = new File(tmpMc, "config");
         File splash = new File(cfgDir, "splash.properties");
         try {
-            // 1. Désactivation garantie du SplashProgress blanc de Forge dès startGame HEAD
-            SeamlessLaunchTransition.ensureForgeWhiteSplashDisabled(tmpMc);
+            // 1. Configuration automatique du thread dédié Forge SplashProgress en fond noir #000000 (100 FPS sans freeze)
+            SeamlessLaunchTransition.ensureForgeSplashConfiguredDark(tmpMc);
             assertTrue(splash.isFile());
             java.util.Properties props = new java.util.Properties();
             try (java.io.FileInputStream fis = new java.io.FileInputStream(splash)) {
                 props.load(fis);
             }
-            assertEquals("false", props.getProperty("enabled"));
+            assertEquals("true", props.getProperty("enabled"));
+            assertEquals("0x000000", props.getProperty("background"));
 
-            // 2. Continuité monotone de la sortie du Trou Noir (Mojang startup -> GuiPureMainMenu 120 FPS)
-            BlackHoleEmergenceRenderer.resetTimelineForTest();
-            float s0 = BlackHoleEmergenceRenderer.computeStartupEmergence(0.0F, 0.0F);
-            float s1 = BlackHoleEmergenceRenderer.computeStartupEmergence(0.18F, 0.8F);
-            float s2 = BlackHoleEmergenceRenderer.computeStartupEmergence(0.45F, 2.5F);
-            float sCap = BlackHoleEmergenceRenderer.computeStartupEmergence(0.95F, 20.0F);
+            // 2. Continuité monotone de la sortie du Trou Noir (SplashProgress$3 -> GuiPureMainMenu 120 FPS)
+            BlackHoleEmergenceRenderer.resetForBoot();
+            float s0 = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.0F, -1L);
+            float sSplash = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.52F, -1L);
+            float mStart = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.52F, 0L);
+            float mMid = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.52F, 775L);
+            float mEnd = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.52F, 1600L);
+
             assertEquals(0.0F, s0, 1e-5F);
-            assertTrue(s1 >= 0.18F && s2 > s1);
-            assertEquals(0.58F, sCap, 1e-4F);
-
-            // Premier frame du menu : reprend sans saut puis converge vers 1.0 (orbite complète)
-            float m0 = BlackHoleEmergenceRenderer.advanceMenuEmergenceAt(10_000L);
-            assertEquals(0.18F, m0, 1e-4F);
-            assertEquals(0.0F, BlackHoleEmergenceRenderer.computeMenuUiAlpha(m0), 1e-4F);
-
-            float mMid = BlackHoleEmergenceRenderer.advanceMenuEmergenceAt(11_025L);
-            assertTrue(mMid > 0.80F && mMid < 0.99F);
-            float uiMid = BlackHoleEmergenceRenderer.computeMenuUiAlpha(mMid);
-            assertTrue(uiMid > 0.50F && uiMid < 1.0F);
-
-            float mEnd = BlackHoleEmergenceRenderer.advanceMenuEmergenceAt(12_200L);
+            assertEquals(0.52F, sSplash, 1e-5F);
+            assertEquals(sSplash, mStart, 1e-5F);
+            assertTrue(mMid > 0.85F && mMid < 1.0F);
             assertEquals(1.0F, mEnd, 1e-5F);
-            assertEquals(1.0F, BlackHoleEmergenceRenderer.computeMenuUiAlpha(mEnd), 1e-5F);
+
+            assertEquals(0.0F, BlackHoleEmergenceRenderer.computeCameraUiAlpha(0.50F), 1e-5F);
+            float uiMid = BlackHoleEmergenceRenderer.computeCameraUiAlpha(mMid);
+            assertTrue(uiMid > 0.40F && uiMid < 1.0F);
+            assertEquals(1.0F, BlackHoleEmergenceRenderer.computeCameraUiAlpha(mEnd), 1e-5F);
         } finally {
             //noinspection ResultOfMethodCallIgnored
             splash.delete();
@@ -690,7 +686,130 @@ public class PureFPSCoreTest {
             cfgDir.delete();
             //noinspection ResultOfMethodCallIgnored
             tmpMc.delete();
-            BlackHoleEmergenceRenderer.resetTimelineForTest();
+            BlackHoleEmergenceRenderer.resetForBoot();
         }
+    }
+
+    @Test
+    public void testMashModules200CountAndSettingsRoundTrip() {
+        File tmpMc = new File(System.getProperty("java.io.tmpdir"), "mashclient_mods_test_" + System.nanoTime());
+        File cfgDir = new File(tmpMc, "config");
+        File modsJson = new File(cfgDir, "mashclient_modules.json");
+        try {
+            dev.purefps.module.MashModules.init(tmpMc);
+            java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
+            java.util.List<dev.purefps.module.MashModule> huds = dev.purefps.module.MashModules.getHudModules();
+
+            assertEquals("MashClient 4.0 must expose exactly 200 modules", 200, all.size());
+            assertEquals("MashClient 4.0 must expose 65 draggable HUD widgets", 65, huds.size());
+
+            for (dev.purefps.module.MashModule mod : all) {
+                assertFalse("Every module must have right-click sub-settings: " + mod.getId(), mod.getSettings().isEmpty());
+            }
+
+            // Vérification des sous-paramètres clés demandés (Curseur, FOV PvP de base, Molette Zoom)
+            assertNotNull(dev.purefps.module.MashModules.MOD_CROSSHAIR.findSetting("shape"));
+            assertNotNull(dev.purefps.module.MashModules.MOD_CROSSHAIR.findSetting("gap"));
+            dev.purefps.module.MashSetting.NumberSetting baseFov =
+                    (dev.purefps.module.MashSetting.NumberSetting) dev.purefps.module.MashModules.MOD_PVP_FOV.findSetting("base_fov");
+            dev.purefps.module.MashSetting.BooleanSetting scrollZoom =
+                    (dev.purefps.module.MashSetting.BooleanSetting) dev.purefps.module.MashModules.MOD_ZOOM.findSetting("scroll_zoom");
+            assertNotNull(baseFov);
+            assertNotNull(scrollZoom);
+
+            dev.purefps.module.MashModule fpsHud = dev.purefps.module.MashModules.getById("hud_fps");
+            assertNotNull(fpsHud);
+            fpsHud.setHudPos(242.5F, 118.0F);
+            baseFov.set(103.0F);
+            scrollZoom.set(false);
+            dev.purefps.module.MashModules.MOD_CROSSHAIR.setEnabled(true);
+
+            dev.purefps.module.MashModules.saveNow();
+            assertTrue(modsJson.isFile());
+
+            // Mutation temporaire en mémoire puis rechargement depuis mashclient_modules.json
+            fpsHud.setHudPos(10.0F, 10.0F);
+            baseFov.set(70.0F);
+            scrollZoom.set(true);
+            dev.purefps.module.MashModules.MOD_CROSSHAIR.setEnabled(false);
+
+            dev.purefps.module.MashModules.loadNow();
+            assertEquals(242.5F, fpsHud.getHudX(), 0.01F);
+            assertEquals(118.0F, fpsHud.getHudY(), 0.01F);
+            assertEquals(103.0F, baseFov.get(), 0.01F);
+            assertFalse(scrollZoom.get());
+            assertTrue(dev.purefps.module.MashModules.MOD_CROSSHAIR.isEnabled());
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            modsJson.delete();
+            //noinspection ResultOfMethodCallIgnored
+            cfgDir.delete();
+            //noinspection ResultOfMethodCallIgnored
+            tmpMc.delete();
+        }
+    }
+
+    @Test
+    public void testHudSnapEngineMagneticGlueAndAxisLock() {
+        java.util.List<dev.purefps.module.HudSnapEngine.Box> others = java.util.Collections.singletonList(
+                new dev.purefps.module.HudSnapEngine.Box("hud_fps", 100.0F, 80.0F, 70.0F, 20.0F)
+        );
+
+        // 1. Collage direct bord-à-bord (le bord gauche à x=172.5 se colle exactement au bord droit x=170.0 de hud_fps)
+        dev.purefps.module.HudSnapEngine.SnapResult glueSnap = dev.purefps.module.HudSnapEngine.computeSnap(
+                "hud_cps",
+                171.2F,
+                81.5F,
+                64.0F,
+                20.0F,
+                150.0F,
+                60.0F,
+                false,
+                960.0F,
+                540.0F,
+                others,
+                dev.purefps.module.HudSnapEngine.DEFAULT_SNAP_RADIUS
+        );
+        assertEquals(170.0F, glueSnap.x, 0.01F);
+        assertEquals(80.0F, glueSnap.y, 0.01F);
+        assertTrue(glueSnap.hasVerticalGuide);
+        assertTrue(glueSnap.hasHorizontalGuide);
+
+        // 2. Alignement sur l'axe central de l'écran (960 / 2 = 480 -> x = 480 - 40 = 440)
+        dev.purefps.module.HudSnapEngine.SnapResult centerSnap = dev.purefps.module.HudSnapEngine.computeSnap(
+                "hud_ping",
+                442.0F,
+                200.0F,
+                80.0F,
+                20.0F,
+                300.0F,
+                200.0F,
+                false,
+                960.0F,
+                540.0F,
+                others,
+                dev.purefps.module.HudSnapEngine.DEFAULT_SNAP_RADIUS
+        );
+        assertEquals(440.0F, centerSnap.x, 0.01F);
+        assertTrue(centerSnap.hasVerticalGuide);
+        assertEquals(480.0F, centerSnap.verticalLineX, 0.01F);
+
+        // 3. Verrouillage d'axe strict avec Shift maintenu (déplacement horizontal pur -> Y figé à dragOriginY)
+        dev.purefps.module.HudSnapEngine.SnapResult shiftAxis = dev.purefps.module.HudSnapEngine.computeSnap(
+                "hud_coords",
+                310.0F,
+                148.0F,
+                90.0F,
+                22.0F,
+                220.0F,
+                135.0F,
+                true,
+                960.0F,
+                540.0F,
+                others,
+                dev.purefps.module.HudSnapEngine.DEFAULT_SNAP_RADIUS
+        );
+        assertEquals(135.0F, shiftAxis.y, 0.01F);
+        assertTrue(shiftAxis.hasHorizontalGuide);
     }
 }

@@ -1,8 +1,8 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + PureClient 3.6.0.
-//! - Synchronise automatiquement `purefps-3.6.0.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.0.0.
+//! - Synchronise automatiquement `purefps-4.0.0.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
 //! - Détecte instantanément l'ouverture de la fenêtre OpenGL (`DISPLAY_CREATED` / `.purefps_display_ready`)
-//!   pour retirer le rideau noir du Launcher à l'instant exact où Minecraft prend sa place.
+//!   pour réduire le Launcher en bas à droite (System Tray) à l'instant exact où Minecraft prend sa place.
 
 use crate::config::{
     app_storage_dir, effective_github_token, is_real_prism_instance, prepare_seamless_launch_files,
@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-3.6.0.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.0.0.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -98,7 +98,7 @@ pub fn offline_uuid_hex(username: &str) -> String {
 /// Si le mod `purefps-*.jar` est absent ou plus ancien que le Launcher, tente de le récupérer
 /// automatiquement depuis GitHub Releases avant le lancement pour garantir le Trou Noir Mojang !
 pub fn auto_fetch_mod_jar_if_needed(prefs: &LauncherPrefs, proxy: &EventLoopProxy<AppEvent>) {
-    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((3, 6, 0));
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 0, 0));
     let cur_mod = installed_mod_version(&prefs.game_dir);
     if cur_mod.is_some_and(|v| v >= launcher_ver) {
         return;
@@ -111,7 +111,7 @@ pub fn auto_fetch_mod_jar_if_needed(prefs: &LauncherPrefs, proxy: &EventLoopProx
         if plan.jar_asset.is_some() {
             plan.exe_asset = None;
             let _ = proxy.send_event(AppEvent::LogLine(format!(
-                "[PureLauncher] Téléchargement automatique du mod PureClient v{}...",
+                "[MashClient] Téléchargement automatique du mod MashClient v{}...",
                 plan.version
             )));
             let _ = download_and_install_update(&plan, tok.as_deref(), &prefs.game_dir, proxy);
@@ -404,19 +404,19 @@ pub fn run_direct_jvm_blocking(
     auto_fetch_mod_jar_if_needed(&prefs, &proxy);
 
     let jar_msg = sync_pureclient_jar(&prefs.game_dir)?;
-    let _ = proxy.send_event(AppEvent::LogLine(format!("[PureLauncher] {jar_msg}")));
+    let _ = proxy.send_event(AppEvent::LogLine(format!("[MashClient] {jar_msg}")));
 
     prepare_seamless_launch_files(&prefs.game_dir);
 
     let natives_dir = extract_natives_if_needed(&prefs.libraries_dir)?;
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[PureLauncher] Natives 64-bit prêtes : {}",
+        "[MashClient] Natives 64-bit prêtes : {}",
         natives_dir.display()
     )));
 
     let classpath = build_classpath(&prefs.libraries_dir)?;
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[PureLauncher] Démarrage Singularity JVM ({} MiB G1GC, {}x{}, joueur: {})...",
+        "[MashClient] Démarrage Singularity JVM ({} MiB G1GC, Borderless {}x{}, joueur: {})...",
         prefs.ram_mb, screen_w, screen_h, username
     )));
 
@@ -431,8 +431,8 @@ pub fn run_direct_jvm_blocking(
         .arg("-XX:MaxGCPauseMillis=25")
         .arg("-XX:G1HeapRegionSize=32M")
         .arg("-XX:+DisableExplicitGC")
-        .arg("-XX:+AlwaysPreTouch")
         .arg("-XX:+ParallelRefProcEnabled")
+        .arg("-Djava.net.preferIPv4Stack=true")
         .arg("-Dfml.ignoreInvalidMinecraftCertificates=true")
         .arg("-Dfml.ignorePatchDiscrepancies=true")
         .arg("-Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=false")

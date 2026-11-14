@@ -1,4 +1,4 @@
-name: PureClient Release (Mod 1.8.9 + Singularity Launcher)
+name: MashClient Release (Mod 1.8.9 + MashClient.exe)
 
 on:
   push:
@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag de version à publier (ex: v3.6.0)"
+        description: "Tag de version à publier (ex: v4.0.0)"
         required: true
-        default: "v3.6.0"
+        default: "v4.0.0"
 
 permissions:
   contents: write
@@ -39,7 +39,7 @@ jobs:
           echo "tag=${RAW_TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
 
-      - name: Compile & Test PureClient Forge 1.8.9 Mod
+      - name: Compile & Test MashClient Forge 1.8.9 Mod
         shell: bash
         run: |
           sed -i '/^org\.gradle\.java\./d' gradle.properties
@@ -54,24 +54,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: PureClient Singularity ${{ steps.ver.outputs.tag }}
+          name: MashClient Singularity ${{ steps.ver.outputs.tag }}
           body: |
-            ## PureClient ${{ steps.ver.outputs.version }} — Singularity Edition
+            ## MashClient ${{ steps.ver.outputs.version }} — Singularity Edition
 
-            ### Nouveautés v3.6.0 — Émergence Trou Noir & Transition Plein Écran
-            - **Remplacement de l'écran Mojang par la Caméra du Trou Noir (`GLSL 120`)** : suppression automatique du splash blanc Forge (`splash.properties`) et raymarching géodésique de Schwarzschild temps-réel dans Minecraft, faisant émerger la caméra du joueur hors de l'Horizon des Événements directement jusque sur le menu principal à 120 FPS.
-            - **Transition Plein Écran Sans Blocage & `Alt-Tab` Natif** : suppression totale de `HWND_TOPMOST` permanent, sortie instantanée du rideau sur `Alt-Tab` (`WindowEvent::Focused(false)`), délai de sécurité garanti et placement direct de la fenêtre OpenGL Minecraft sans bordure à `(0, 0)` au premier plan (`WindowsDisplay` + `User32`).
-            - **Auto-détection Instances PrismLauncher & `.minecraft`** : réparation automatique des chemins d'instances 1.8.9 et synchronisation automatique de `purefps-3.6.0.jar` avant le plongeon.
-
-            ### Moteur Graphique & Optimisations 1.8.9
-            - **Zéro blocage GPU/CPU** : suppression des attentes JNI `glGetError`, transfert FBO DMA matériel (`glBlitFramebuffer`) et débridage automatique `useVbo:true` / `enableVsync:false` / `maxFps:260`.
-            - **Pipeline VAO OpenGL 3.0 + `GL_TRIANGLES`** : conversion matérielle 16-bit sans requête `glGetFloat` bloquante et Lazy Terrain BFS précis sans disparition des chunks latéraux.
-            - **Entités & TileEntities** : **Item Frames compilés** en Display Lists (`1 glCallList`), **Joueurs distants LOD** + cache d'armures `O(1)`, **Panneaux zéro-allocation** et culling frustum P-Vertex des coffres.
+            ### Nouveautés v4.0.0 — 200 Modules, Sous-Paramètres Clic Droit, HUD Magnétique & `MashClient.exe`
+            - **Launcher renommé `MashClient.exe` + Logo `.ico` intégré + Réduction en Bas à Droite (System Tray)** : exécutable Windows `MashClient.exe` (sans `-launcher`) embarquant son logo Singularity multi-résolution (256/64/32/16 px) et se réduisant automatiquement dans la zone de notification Windows en bas à droite (`0 %` GPU/CPU en arrière-plan) dès l'ouverture de Minecraft.
+            - **200 Modules style Lunar Client + Sous-Paramètres complets au Clic Droit (`RSHIFT`)** : `65` widgets HUD + `30` PvP + `35` Visuel + `25` Hypixel + `20` Monde + `25` Moteur FPS. Clic droit sur n'importe quel module pour configurer tous ses sous-paramètres : **Curseur Personnalisé** avec aperçu direct, **Champ de Vision PvP (FOV)** avec FOV de base personnalisée + Speed/Sprint/Arc, **Zoom Optique Pro** avec choix entre zoomer à la molette ou changer normalement de slot dans la barre d'action, Viewmodel XYZ, HurtCam 0–100 %, Time/Weather Changer, etc.
+            - **Nouveau Menu `RSHIFT` Professionnel & Éditeur HUD Transparent à Aimantation Magnétique** : sélectionnez directement n'importe quel élément HUD à l'écran (rendu translucide pendant le déplacement) avec lignes guides dorées/cyan d'alignement d'axes, collage bord-à-bord entre éléments et verrouillage d'axe strict (`Shift`).
+            - **Animations Trou Noir Ultra-Fluides (O(1) 600+ FPS) & Mode Plein Écran Sans Bordure (`Borderless`)** : lentille gravitationnelle analytique sans aucune boucle coûteuse ni `-XX:+AlwaysPreTouch` côté Launcher, et émergence 100 FPS sur le thread dédié `SplashProgress$3` côté Minecraft en fenêtre **Borderless** (`WS_POPUP` à `(0, 0)`).
+            - **Stabilité Réseau Multijoueur & Haute Performance FPS** : pile IPv4 forcée (`-Djava.net.preferIPv4Stack=true`), double tentative OAuth2 Microsoft au lancement, `acceptableRemoteVersions = "*"`, sauvegardes JSON asynchrones hors-thread, batching UI 1-draw `NanoUiRenderer`, caches `O(1)` `FontRenderer` / `FastSkullCache` et zéro modification des tables trigonométriques de physique joueur.
           generate_release_notes: true
           files: build/libs/purefps-${{ steps.ver.outputs.version }}.jar
 
   build-and-attach-launcher:
-    name: Build & Attach Singularity Launcher (.exe)
+    name: Build & Attach MashClient.exe
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -92,13 +89,13 @@ jobs:
           $updated = [regex]::Replace($content, '(?m)^version\s*=\s*"[^"]+"', "version = `"$cleanVer`"", 1)
           Set-Content -Path $cargoPath -Value $updated -NoNewline
 
-      - name: Build PureClient Singularity Launcher (.exe)
+      - name: Build MashClient.exe (with embedded .ico resource)
         working-directory: launcher
         env:
           PURECLIENT_GITHUB_TOKEN: ${{ secrets.PURECLIENT_UPDATER_TOKEN }}
         run: cargo build --release
 
-      - name: Attach Windows Launcher (.exe) to GitHub Release
+      - name: Attach MashClient.exe to GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -109,4 +106,4 @@ jobs:
             if ($LASTEXITCODE -eq 0) { break }
             Start-Sleep -Seconds 5
           }
-          gh release upload $tag "launcher/target/release/pureclient-launcher.exe" --repo "${{ github.repository }}" --clobber
+          gh release upload $tag "launcher/target/release/MashClient.exe" --repo "${{ github.repository }}" --clobber

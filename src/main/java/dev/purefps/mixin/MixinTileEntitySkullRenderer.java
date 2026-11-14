@@ -82,7 +82,7 @@ public abstract class MixinTileEntitySkullRenderer extends TileEntitySpecialRend
                     ResourceLocation skin = (PureFPSConfig.enabled && PureFPSConfig.fastSkullRendering)
                             ? FastSkullCache.resolveSkullTexture(profile)
                             : FastSkullCache.resolveVanillaSkullTexture(profile);
-                    this.bindTexture(skin);
+                    this.bindTexture(skin != null ? skin : SKELETON_TEXTURES);
                     break;
                 case 4:
                     this.bindTexture(CREEPER_TEXTURES);
