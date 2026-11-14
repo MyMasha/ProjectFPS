@@ -1,5 +1,5 @@
-//! Auto-Updater GitHub Releases natif pour MashClient 4.4.
-//! - Compatible dépôts publics ET privés (`MyMasha/ProjectFPS`) via Fine-Grained PAT Read-Only (`Contents: Read`)
+//! Auto-Updater GitHub Releases natif pour MashClient.
+//! - Interroge les GitHub Releases de `MyMasha/ProjectFPS` (avec jeton Auto-Update intégré pour quota API étendu + repli public automatique)
 //! - Téléchargement binaire en 2 étapes (`Accept: application/octet-stream` sans redirection auto -> URL signée S3/Blob sans en-tête Authorization)
 //! - Vérification d'intégrité des en-têtes binaires (`PK\x03\x04` pour le mod `.jar`, `MZ` pour le launcher `MashClient.exe`)
 //! - Auto-remplacement atomique à chaud sous Windows (`MashClient.exe` -> `.exe.old`) avec restauration automatique en cas d'erreur.
@@ -259,6 +259,18 @@ pub fn check_for_updates(
     token: Option<&str>,
     game_dir: &str,
 ) -> Result<UpdateCheckOutcome, String> {
+    let has_token = token.map(str::trim).is_some_and(|t| !t.is_empty());
+    match check_for_updates_once(raw_repo, token, game_dir) {
+        Err(_) if has_token => check_for_updates_once(raw_repo, None, game_dir),
+        other => other,
+    }
+}
+
+fn check_for_updates_once(
+    raw_repo: &str,
+    token: Option<&str>,
+    game_dir: &str,
+) -> Result<UpdateCheckOutcome, String> {
     let repo = sanitize_repo(raw_repo)?;
     let (agent, _) = build_agents()?;
 
@@ -270,38 +282,25 @@ pub fn check_for_updates(
             .into_json::<GhRelease>()
             .map_err(|e| format!("Réponse GitHub Release illisible: {e}"))?,
         Err(ureq::Error::Status(404, _)) => {
-            // Distingue "0 release publiée sur un dépôt valide" de "dépôt privé sans jeton / introuvable"
             let repo_url = format!("https://api.github.com/repos/{repo}");
             let repo_check =
                 apply_gh_headers(agent.get(&repo_url), token, "application/vnd.github+json").call();
             return match repo_check {
                 Ok(_) => Ok(UpdateCheckOutcome::NoReleaseYet { repo }),
                 Err(ureq::Error::Status(401 | 403, _)) => Err(
-                    "Jeton GitHub refusé (401/403). Vérifiez la permission Read-Only sur Contents."
-                        .to_owned(),
+                    "Accès à l'API GitHub refusé (HTTP 401/403).".to_owned(),
                 ),
                 Err(ureq::Error::Status(404, _)) => {
-                    if token.map(str::trim).unwrap_or("").is_empty() {
-                        Err(format!(
-                            "Dépôt privé '{repo}' inaccessible sans jeton GitHub Read-Only."
-                        ))
-                    } else {
-                        Err(format!(
-                            "Dépôt '{repo}' introuvable ou non couvert par ce jeton Fine-Grained."
-                        ))
-                    }
+                    Err(format!("Dépôt GitHub '{repo}' introuvable ou inaccessible."))
                 }
                 Err(e) => Err(format!("Impossible de vérifier le dépôt GitHub: {e}")),
             };
         }
         Err(ureq::Error::Status(401, _)) => {
-            return Err("Jeton GitHub invalide ou expiré (HTTP 401).".to_owned());
+            return Err("Authentification GitHub refusée (HTTP 401).".to_owned());
         }
         Err(ureq::Error::Status(403, _)) => {
-            return Err(
-                "Accès GitHub refusé (HTTP 403) : permission Contents:Read manquante ou quota atteint."
-                    .to_owned(),
-            );
+            return Err("Quota ou accès API GitHub limité (HTTP 403).".to_owned());
         }
         Err(ureq::Error::Status(code, err_resp)) => {
             let detail = err_resp.into_string().unwrap_or_default();
@@ -440,10 +439,8 @@ fn open_github_asset_stream(
             }
         }
         Err(e) => {
-            // Repli pour dépôts publics sans jeton si browser_download_url est disponible
-            if token.map(str::trim).unwrap_or("").is_empty()
-                && !asset.browser_download_url.is_empty()
-            {
+            // Repli direct via browser_download_url sur le dépôt public si l'API échoue ou si le jeton a expiré
+            if !asset.browser_download_url.is_empty() {
                 standard_agent
                     .get(&asset.browser_download_url)
                     .set("User-Agent", USER_AGENT)

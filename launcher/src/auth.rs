@@ -3,7 +3,7 @@
 //! Zéro URL cassée, zéro copier-coller d'URL de redirection : code 8 caractères copié automatiquement
 //! dans le presse-papiers Windows + ouverture propre de `https://www.microsoft.com/link` + détection auto !
 
-use crate::config::MicrosoftAccount;
+use crate::config::{effective_ms_client_id, MicrosoftAccount};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::io::Write;
@@ -12,11 +12,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const MS_DEVICE_CLIENT_ID: &str = "c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb";
 const MS_SCOPE: &str = "XboxLive.signin offline_access";
 const MS_DEVICE_ENDPOINT: &str =
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
 const MS_TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+
+fn require_ms_client_id() -> Result<String, String> {
+    effective_ms_client_id().ok_or_else(|| {
+        "Client ID Microsoft OAuth2 non configuré dans cette compilation open-source (définissez MASHCLIENT_MS_CLIENT_ID ou utilisez la release officielle GitHub).".to_owned()
+    })
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceCodeChallenge {
@@ -78,8 +83,9 @@ struct McProfileResp {
 }
 
 pub fn start_device_code_flow() -> Result<DeviceCodeChallenge, String> {
+    let client_id = require_ms_client_id()?;
     let agent = http_agent()?;
-    let body = encode_form(&[("client_id", MS_DEVICE_CLIENT_ID), ("scope", MS_SCOPE)]);
+    let body = encode_form(&[("client_id", client_id.as_str()), ("scope", MS_SCOPE)]);
 
     let resp = match agent
         .post(MS_DEVICE_ENDPOINT)
@@ -103,6 +109,7 @@ pub fn poll_device_code_until_complete(
     challenge: &DeviceCodeChallenge,
     cancel_flag: &Arc<AtomicBool>,
 ) -> Result<MicrosoftAccount, String> {
+    let client_id = require_ms_client_id()?;
     let agent = http_agent()?;
     let mut poll_secs = challenge.interval.clamp(3, 15);
     let deadline = Instant::now() + Duration::from_secs(challenge.expires_in.min(900));
@@ -123,7 +130,7 @@ pub fn poll_device_code_until_complete(
 
         let form = encode_form(&[
             ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-            ("client_id", MS_DEVICE_CLIENT_ID),
+            ("client_id", client_id.as_str()),
             ("device_code", challenge.device_code.as_str()),
         ]);
 
@@ -181,9 +188,10 @@ pub fn refresh_microsoft_session(existing: &MicrosoftAccount) -> Result<Microsof
     if existing.refresh_token.trim().is_empty() {
         return Err("Aucun jeton de rafraîchissement enregistré, reconnectez-vous.".to_owned());
     }
+    let client_id = require_ms_client_id()?;
     let agent = http_agent()?;
     let form = encode_form(&[
-        ("client_id", MS_DEVICE_CLIENT_ID),
+        ("client_id", client_id.as_str()),
         ("refresh_token", existing.refresh_token.as_str()),
         ("grant_type", "refresh_token"),
         ("scope", MS_SCOPE),
@@ -402,17 +410,21 @@ mod tests {
     #[test]
     fn test_percent_encode_form() {
         let encoded = encode_form(&[
-            ("client_id", MS_DEVICE_CLIENT_ID),
+            ("client_id", "00000000-0000-0000-0000-000000000000"),
             ("scope", MS_SCOPE),
         ]);
         assert_eq!(
             encoded,
-            "client_id=c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb&scope=XboxLive.signin%20offline_access"
+            "client_id=00000000-0000-0000-0000-000000000000&scope=XboxLive.signin%20offline_access"
         );
     }
 
     #[test]
     fn test_live_microsoft_device_code_endpoint() {
+        if effective_ms_client_id().is_none() {
+            println!("Skipping live Microsoft OAuth2 test (MASHCLIENT_MS_CLIENT_ID not configured)");
+            return;
+        }
         let challenge = start_device_code_flow()
             .expect("Live HTTPS request to Microsoft OAuth2 devicecode endpoint must succeed");
         println!(

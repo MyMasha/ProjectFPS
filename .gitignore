@@ -27,14 +27,29 @@ target/
 *.pdb
 *.exe
 
-# Auth / Local Secrets (Never Commit)
+# Auth / Local Secrets & Admin-Only Build Files (Never Commit)
 account.json
+launcher.json
 launcher_prefs.json
 launcher/.github_token
 .github_token
 updater_token.txt
+launcher/.ms_client_id
+.ms_client_id
+ms_client_id.txt
+local.properties
+gradle-local.properties
+*.pem
+*.key
+*.pfx
+*.p12
+*.jks
+*.keystore
+.env
 *.env
 .env.*
+!.env.example
+!launcher/.env.example
 
 # IDEs & Editors
 .idea/

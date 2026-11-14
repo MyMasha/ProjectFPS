@@ -1379,8 +1379,7 @@
               <div class="updater-top">
                 <div class="updater-title-group">
                   <span class="updater-title">Mises à jour</span>
-                  <span class="updater-badge ok" id="upd-token-badge">Connecté</span>
-                  <span class="updater-badge" id="upd-status-badge">v4.4.0</span>
+                  <span class="updater-badge" id="upd-status-badge">v4.4.1</span>
                 </div>
                 <div style="display:flex;gap:6px;align-items:center;">
                   <button class="btn-outline" id="btn-upd-check" onclick="MashSfx.click();triggerManualUpdateCheck()">
@@ -1399,24 +1398,14 @@
                 <div class="updater-progress-bar" id="upd-progress-bar"></div>
               </div>
 
-              <div class="updater-grid">
-                <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;">
-                  <div>
-                    <div class="sys-label" style="margin-bottom:4px;">Dépôt GitHub</div>
-                    <input type="text" class="sys-input" id="inp-gh-repo" value="MyMasha/ProjectFPS" onchange="onRepoChange(this.value)">
-                  </div>
-                  <div class="setting-row is-on" id="row-auto-upd" style="height:33px;margin-top:18px;padding:0 10px;" onclick="toggleAutoUpdateCheck()">
-                    <span style="font-size:11.5px;font-weight:500;color:var(--text-primary);white-space:nowrap;">Au démarrage</span>
-                    <div class="toggle-pill"></div>
-                  </div>
+              <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;">
+                <div>
+                  <div class="sys-label" style="margin-bottom:4px;">Dépôt GitHub</div>
+                  <input type="text" class="sys-input" id="inp-gh-repo" value="MyMasha/ProjectFPS" onchange="onRepoChange(this.value)">
                 </div>
-
-                <div style="display:flex;flex-direction:column;gap:4px;">
-                  <div class="sys-label">Jeton GitHub (optionnel)</div>
-                  <div style="display:flex;gap:8px;">
-                    <input type="password" class="sys-input" id="inp-gh-token" placeholder="Par défaut" autocomplete="off">
-                    <button class="btn-outline" style="height:33px;flex-shrink:0;" onclick="MashSfx.click();saveCustomToken()">Enregistrer</button>
-                  </div>
+                <div class="setting-row is-on" id="row-auto-upd" style="height:33px;margin-top:18px;padding:0 10px;" onclick="toggleAutoUpdateCheck()">
+                  <span style="font-size:11.5px;font-weight:500;color:var(--text-primary);white-space:nowrap;">Au démarrage</span>
+                  <div class="toggle-pill"></div>
                 </div>
               </div>
             </div>
@@ -2082,19 +2071,18 @@
       offline_username: "MashPlayer",
       quick_join_hypixel: false,
       launch_mode: "PrismBridge",
-      java_path: "C:\\Program Files\\Eclipse Adoptium\\jre-8.0.504.1-hotspot\\bin\\javaw.exe",
-      game_dir: "%APPDATA%\\PrismLauncher\\instances\\1.8.9 gemini fps\\minecraft",
+      java_path: "javaw.exe",
+      game_dir: "%APPDATA%\\PrismLauncher\\instances\\1.8.9\\minecraft",
       github_repo: "MyMasha/ProjectFPS",
       auto_update_check: true
     },
     account: null,
     game_running: false,
     device_code: null,
-    has_github_token: true,
     update: {
       status: "idle",
-      current_version: "4.4.0",
-      installed_jar_version: "4.4.0",
+      current_version: "4.4.1",
+      installed_jar_version: "4.4.1",
       latest_version: null,
       release_notes: null,
       download_percent: 0,
@@ -2506,17 +2494,6 @@
       autoRow.classList.toggle("is-on", state.prefs.auto_update_check !== false);
     }
 
-    const tokBadge = document.getElementById("upd-token-badge");
-    if (tokBadge) {
-      if (state.has_github_token !== false) {
-        tokBadge.className = "updater-badge ok";
-        tokBadge.textContent = "Connecté";
-      } else {
-        tokBadge.className = "updater-badge";
-        tokBadge.textContent = "Public";
-      }
-    }
-
     const upd = state.update || {};
     const stBadge = document.getElementById("upd-status-badge");
     const msgEl = document.getElementById("upd-message");
@@ -2525,7 +2502,7 @@
     const checkBtn = document.getElementById("btn-upd-check");
     const actBtn = document.getElementById("btn-upd-action");
 
-    const curVer = upd.current_version || "4.4.0";
+    const curVer = upd.current_version || "4.4.1";
     const modVer = upd.installed_jar_version ? ` • Mod v${upd.installed_jar_version}` : "";
     if (msgEl) msgEl.textContent = upd.message || `MashClient v${curVer}${modVer}`;
 
@@ -2583,12 +2560,12 @@
   function triggerManualUpdateCheck() {
     if (!hasNativeIpc()) {
       state.update.status = "available";
-      state.update.latest_version = "4.4.0";
+      state.update.latest_version = "4.4.1";
       state.update.has_jar_update = true;
       state.update.has_exe_update = true;
-      state.update.message = "Version v4.4.0 disponible.";
+      state.update.message = "Version v4.4.1 disponible.";
       renderAll();
-      showToast("Mise à jour v4.4.0 disponible.", false);
+      showToast("Mise à jour v4.4.1 disponible.", false);
       return;
     }
     sendIpc({ cmd: "check_updates", manual: true });
@@ -2643,16 +2620,6 @@
     if (!clean) return;
     state.prefs.github_repo = clean;
     sendIpc({ cmd: "set_github_repo", repo: clean });
-  }
-
-  function saveCustomToken() {
-    const inp = document.getElementById("inp-gh-token");
-    const raw = inp ? inp.value.trim() : "";
-    if (inp) inp.value = "";
-    sendIpc({ cmd: "save_github_token", token: raw });
-    if (!hasNativeIpc()) {
-      showToast(raw ? "Jeton enregistré." : "Jeton par défaut restauré.", false);
-    }
   }
 
   function setSlider(id, lblId, displayVal, suffix, rawVal) {
@@ -3248,15 +3215,14 @@
     } else if (demo === "update") {
       fixedDemoTimeSec = 14.2;
       lensOffsetCurrentX = 0.0;
-      state.has_github_token = true;
       state.update = {
         status: "available",
-        current_version: "4.3.0",
-        installed_jar_version: "4.3.0",
-        latest_version: "4.4.0",
-        release_notes: "MashClient 4.4.0",
+        current_version: "4.4.0",
+        installed_jar_version: "4.4.0",
+        latest_version: "4.4.1",
+        release_notes: "MashClient 4.4.1",
         download_percent: 0,
-        message: "Mise à jour v4.4.0 disponible.",
+        message: "Mise à jour v4.4.1 disponible.",
         has_exe_update: true,
         has_jar_update: true
       };

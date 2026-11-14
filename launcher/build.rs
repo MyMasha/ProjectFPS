@@ -2,8 +2,10 @@ use std::path::Path;
 
 fn main() {
     println!("cargo:rerun-if-changed=.github_token");
+    println!("cargo:rerun-if-changed=.ms_client_id");
     println!("cargo:rerun-if-changed=assets/mashclient.ico");
     println!("cargo:rerun-if-env-changed=PURECLIENT_GITHUB_TOKEN");
+    println!("cargo:rerun-if-env-changed=MASHCLIENT_MS_CLIENT_ID");
 
     let env_tok = std::env::var("PURECLIENT_GITHUB_TOKEN")
         .ok()
@@ -17,6 +19,19 @@ fn main() {
 
     let resolved = env_tok.or(file_tok).unwrap_or_default();
     println!("cargo:rustc-env=PURECLIENT_EMBEDDED_GH_TOKEN={resolved}");
+
+    let env_ms_id = std::env::var("MASHCLIENT_MS_CLIENT_ID")
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+
+    let file_ms_id = std::fs::read_to_string(Path::new(".ms_client_id"))
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+
+    let resolved_ms_id = env_ms_id.or(file_ms_id).unwrap_or_default();
+    println!("cargo:rustc-env=MASHCLIENT_EMBEDDED_MS_CLIENT_ID={resolved_ms_id}");
 
     #[cfg(windows)]
     embed_windows_exe_icon();
@@ -48,6 +63,12 @@ fn embed_windows_exe_icon() {
         return;
     };
 
+    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "4.4.1".to_owned());
+    let mut parts = pkg_ver.split('.').map(|p| p.parse::<u16>().unwrap_or(0));
+    let v_maj = parts.next().unwrap_or(4);
+    let v_min = parts.next().unwrap_or(4);
+    let v_pat = parts.next().unwrap_or(1);
+
     let ico_escaped = ico_path.to_string_lossy().replace('\\', "/");
     let out_path = PathBuf::from(&out_dir);
     let rc_script_full = out_path.join("mashclient_res.rc");
@@ -57,8 +78,8 @@ fn embed_windows_exe_icon() {
         "#pragma code_page(65001)\r\n\
          1 ICON \"{ico_escaped}\"\r\n\
          1 VERSIONINFO\r\n\
-         FILEVERSION 4,4,0,0\r\n\
-         PRODUCTVERSION 4,4,0,0\r\n\
+         FILEVERSION {v_maj},{v_min},{v_pat},0\r\n\
+         PRODUCTVERSION {v_maj},{v_min},{v_pat},0\r\n\
          FILEFLAGSMASK 0x3fL\r\n\
          FILEFLAGS 0x0L\r\n\
          FILEOS 0x40004L\r\n\
@@ -71,11 +92,11 @@ fn embed_windows_exe_icon() {
              BEGIN\r\n\
                VALUE \"CompanyName\", \"MashClient\\0\"\r\n\
                VALUE \"FileDescription\", \"MashClient\\0\"\r\n\
-               VALUE \"FileVersion\", \"4.4.0\\0\"\r\n\
+               VALUE \"FileVersion\", \"{pkg_ver}\\0\"\r\n\
                VALUE \"InternalName\", \"MashClient\\0\"\r\n\
                VALUE \"OriginalFilename\", \"MashClient.exe\\0\"\r\n\
                VALUE \"ProductName\", \"MashClient\\0\"\r\n\
-               VALUE \"ProductVersion\", \"4.4.0\\0\"\r\n\
+               VALUE \"ProductVersion\", \"{pkg_ver}\\0\"\r\n\
              END\r\n\
            END\r\n\
            BLOCK \"VarFileInfo\"\r\n\

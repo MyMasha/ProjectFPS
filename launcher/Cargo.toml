@@ -1,6 +1,6 @@
 [package]
 name = "MashClient"
-version = "4.4.0"
+version = "4.4.1"
 edition = "2021"
 description = "MashClient — Launcher Minecraft 1.8.9"
 

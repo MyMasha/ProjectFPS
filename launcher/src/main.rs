@@ -19,9 +19,8 @@ use auth::{
 };
 use config::{
     app_storage_dir, clear_microsoft_account, effective_github_token, load_launcher_prefs,
-    load_microsoft_account, save_custom_github_token, save_launcher_prefs, save_microsoft_account,
-    LaunchMode, LauncherPrefs, MicrosoftAccount, PublicAccountView, PureClientSettings,
-    PureProfile,
+    load_microsoft_account, save_launcher_prefs, save_microsoft_account, LaunchMode, LauncherPrefs,
+    MicrosoftAccount, PublicAccountView, PureClientSettings, PureProfile,
 };
 use runner::{
     auto_fetch_mod_jar_if_needed, focus_visible_lwjgl_window, offline_uuid_hex,
@@ -256,9 +255,6 @@ enum IpcCommand {
     SetGithubRepo {
         repo: String,
     },
-    SaveGithubToken {
-        token: String,
-    },
     LaunchGame,
     PlungeDarknessReached,
     AbortLaunchCurtain,
@@ -277,7 +273,6 @@ struct UiStateSnapshot<'a> {
     account: Option<PublicAccountView>,
     game_running: bool,
     device_code: Option<UiDeviceCodeView>,
-    has_github_token: bool,
     update: &'a UiUpdateView,
 }
 
@@ -367,7 +362,6 @@ impl Controller {
                 user_code: c.user_code.clone(),
                 verification_uri: c.verification_uri.clone(),
             }),
-            has_github_token: effective_github_token().is_some(),
             update: &self.update_view,
         };
         let msg = json!({
@@ -899,21 +893,6 @@ fn handle_ipc(
                 Controller::push_toast(webview, &e, true);
             }
         },
-        IpcCommand::SaveGithubToken { token } => match save_custom_github_token(&token) {
-            Ok(()) => {
-                let msg = if token.trim().is_empty() {
-                    "Jeton personnalisé effacé (utilisation du jeton embarqué)."
-                } else {
-                    "Jeton GitHub Read-Only enregistré localement."
-                };
-                Controller::push_toast(webview, msg, false);
-                ctrl.push_full_state(webview);
-                ctrl.spawn_update_check(true, webview, proxy);
-            }
-            Err(e) => {
-                Controller::push_toast(webview, &format!("Erreur sauvegarde jeton: {e}"), true);
-            }
-        },
         IpcCommand::PlungeDarknessReached => {
             ctrl.plunge_darkness_reached = true;
             allow_any_foreground_window();
@@ -1163,19 +1142,19 @@ fn main() -> wry::Result<()> {
                             ctrl.update_view.has_jar_update = false;
                             ctrl.update_view.download_percent = 0;
                             ctrl.update_view.message = format!(
-                                "Dépôt privé {repo} connecté — en attente d'une première GitHub Release."
+                                "Aucune GitHub Release publiée sur {repo} pour l'instant."
                             );
                             Controller::push_log(
                                 &webview,
                                 &format!(
-                                    "[Auto-Updater] Authentifié sur {repo} (aucune Release publiée pour l'instant)."
+                                    "[Auto-Updater] Dépôt {repo} joint (aucune Release publiée pour l'instant)."
                                 ),
                             );
                             if manual {
                                 Controller::push_toast(
                                     &webview,
                                     &format!(
-                                        "Connexion GitHub vérifiée ({repo}) : aucune Release publiée pour l'instant."
+                                        "Dépôt {repo} joint : aucune Release publiée pour l'instant."
                                     ),
                                     false,
                                 );

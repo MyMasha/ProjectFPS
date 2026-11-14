@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.0.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.1.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -273,7 +273,7 @@ pub fn resolve_prism_instance_id(prefs: &LauncherPrefs) -> String {
             }
         }
     }
-    "1.8.9 gemini fps".to_owned()
+    "1.8.9".to_owned()
 }
 
 fn collect_watched_189_game_dirs(primary_game_dir: &str) -> Vec<PathBuf> {

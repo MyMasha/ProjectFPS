@@ -161,7 +161,9 @@ pub fn detect_minecraft_189_dirs(appdata: &str, local_appdata: &str) -> (String,
             if mmc_pack.contains("net.minecraftforge") {
                 score += 50;
             }
-            if inst_name.eq_ignore_ascii_case("1.8.9 gemini fps") {
+            if inst_name.to_ascii_lowercase().contains("mash")
+                || inst_name.eq_ignore_ascii_case("1.8.9")
+            {
                 score += 25;
             }
             if score >= 100 {
@@ -195,7 +197,7 @@ pub fn detect_minecraft_189_dirs(appdata: &str, local_appdata: &str) -> (String,
     }
 
     (
-        format!(r"{appdata}\PrismLauncher\instances\1.8.9 gemini fps\minecraft"),
+        format!(r"{appdata}\PrismLauncher\instances\1.8.9\minecraft"),
         format!(r"{appdata}\PrismLauncher\libraries"),
         format!(r"{appdata}\PrismLauncher\assets"),
     )
@@ -819,7 +821,7 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
     let local_appdata =
         std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
 
-    // Auto-réparation si l'ancien chemin par défaut "1.8.9 gemini fps" ne correspond pas à une vraie instance Prism
+    // Auto-réparation si le chemin d'instance Prism configuré n'existe plus sur le disque
     let game_path = Path::new(&prefs.game_dir);
     let looks_like_uncreated_prism = prefs.game_dir.contains("PrismLauncher")
         && game_path
@@ -878,22 +880,10 @@ pub fn clear_microsoft_account() {
     let _ = std::fs::remove_file(app_storage_dir().join("account.json"));
 }
 
-pub fn save_custom_github_token(raw_token: &str) -> Result<(), String> {
-    let dir = app_storage_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join("updater_token.txt");
-    let trimmed = raw_token.trim();
-    if trimmed.is_empty() {
-        let _ = std::fs::remove_file(&path);
-        return Ok(());
-    }
-    std::fs::write(&path, format!("{trimmed}\n")).map_err(|e| e.to_string())
-}
-
-/// Résout le jeton GitHub Read-Only dans l'ordre de priorité :
-/// 1. Jeton personnalisé enregistré dans `%APPDATA%\MashClient\updater_token.txt`
+/// Résout le jeton GitHub de l'Auto-Updater dans l'ordre de priorité :
+/// 1. Jeton local optionnel dans `%APPDATA%\MashClient\updater_token.txt`
 /// 2. Variable d'environnement `PURECLIENT_GITHUB_TOKEN`
-/// 3. Jeton embarqué à la compilation depuis `launcher/.github_token` (ignoré par Git) via `build.rs`
+/// 3. Secret injecté à la compilation (`PURECLIENT_UPDATER_TOKEN` via GitHub Actions ou `launcher/.github_token` ignoré par Git)
 pub fn effective_github_token() -> Option<String> {
     if let Ok(custom) = std::fs::read_to_string(app_storage_dir().join("updater_token.txt")) {
         let t = custom.trim();
@@ -908,6 +898,32 @@ pub fn effective_github_token() -> Option<String> {
         }
     }
     if let Some(embedded) = option_env!("PURECLIENT_EMBEDDED_GH_TOKEN") {
+        let t = embedded.trim();
+        if !t.is_empty() {
+            return Some(t.to_owned());
+        }
+    }
+    None
+}
+
+/// Résout le Client ID Microsoft OAuth2 (Device Code Flow) sans clé en dur dans le dépôt public :
+/// 1. Fichier local optionnel `%APPDATA%\MashClient\ms_client_id.txt`
+/// 2. Variable d'environnement `MASHCLIENT_MS_CLIENT_ID`
+/// 3. Secret injecté à la compilation (`MASHCLIENT_MS_CLIENT_ID` via GitHub Actions ou `launcher/.ms_client_id` ignoré par Git)
+pub fn effective_ms_client_id() -> Option<String> {
+    if let Ok(custom) = std::fs::read_to_string(app_storage_dir().join("ms_client_id.txt")) {
+        let t = custom.trim();
+        if !t.is_empty() {
+            return Some(t.to_owned());
+        }
+    }
+    if let Ok(env_id) = std::env::var("MASHCLIENT_MS_CLIENT_ID") {
+        let t = env_id.trim();
+        if !t.is_empty() {
+            return Some(t.to_owned());
+        }
+    }
+    if let Some(embedded) = option_env!("MASHCLIENT_EMBEDDED_MS_CLIENT_ID") {
         let t = embedded.trim();
         if !t.is_empty() {
             return Some(t.to_owned());
