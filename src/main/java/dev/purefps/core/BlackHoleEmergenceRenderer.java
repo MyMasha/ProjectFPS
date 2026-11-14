@@ -16,21 +16,21 @@ import org.lwjgl.opengl.GLContext;
 import java.nio.ByteBuffer;
 
 /**
- * Rendu Analytique O(1) Haute-Fréquence (600+ FPS) du Trou Noir de Schwarzschild (MashClient 4.0) :
- * - ZÉRO boucle de raymarching 3D coûteuse et ZÉRO FBM multi-octaves par pixel :
- *   utilise la projection analytique exacte de déflexion gravitationnelle d'Einstein (disque équatorial primaire
- *   + arche photonique secondaire courbée au-dessus/en-dessous de l'Horizon des Événements + effet Doppler relativiste)
- *   couplée à une texture procédurale 256x256 sans couture échantillonnée par filtrage matériel bilinéaire GPU !
- * - Tourne à 100 FPS constants sans AUCUN freeze sur le thread dédié SplashProgress$3 pendant tout le chargement
- *   de Minecraft (remplaçant intégralement l'écran Mojang), puis poursuit en continuité temporelle exacte à 120 FPS
- *   sur le menu principal MashClient !
+ * Rendu 3D Géodésique de Schwarzschild Haute-Fréquence (MashClient 4.1) :
+ * - UN SEUL disque d'accrétion équatorial 3D (`y = 0`) traversé par intégration RK2 adaptative
+ *   le long des géodésiques nulles de Schwarzschild : produit la vraie courbure gravitationnelle
+ *   de Gargantua SANS aucune double aura artificielle !
+ * - Espace profond #000000 pur + étoiles 3D analytiques circulaires (ZÉRO lecture de texture de bruit
+ *   dans l'espace = ZÉRO point blanc/noir parasite).
+ * - Texture procédurale périodique 512×512 (coarse/fine/ridge FBM) dédiée exclusivement aux filaments
+ *   du disque d'accrétion (120+ FPS constants sans aucun freeze).
  */
 public final class BlackHoleEmergenceRenderer {
 
     private static final float MAX_SPLASH_EMERGENCE = 0.68F;
     private static final float MENU_REMAINING_MS = 1550.0F;
-    private static final int NOISE_SIZE = 256;
-    private static final int MAX_MENU_FBO_HEIGHT = 768;
+    private static final int NOISE_SIZE = 512;
+    private static final int MAX_MENU_FBO_HEIGHT = 820;
 
     private static final String VERTEX_SHADER_SRC =
             "#version 120\n"
@@ -38,107 +38,178 @@ public final class BlackHoleEmergenceRenderer {
             + "    gl_Position = vec4(gl_Vertex.xy, 0.0, 1.0);\n"
             + "}\n";
 
-    /**
-     * Shader analytique O(1) ultra-rapide (~25 instructions ALU + 3 lectures texture2D matérielles, zéro boucle !) :
-     * fonctionne à > 600 FPS même sur GPU intégré tout en offrant une netteté cinématique supérieure.
-     */
     private static final String FRAGMENT_SHADER_SRC =
             "#version 120\n"
             + "uniform vec2 uRes;\n"
             + "uniform float uTime;\n"
             + "uniform float uEmergence;\n"
             + "uniform vec2 uMouse;\n"
+            + "uniform float uOffsetX;\n"
             + "uniform sampler2D uNoiseTex;\n"
             + "\n"
-            + "vec3 sampleDisk(float rNorm, float angle, float doppler, float spin) {\n"
-            + "    vec2 uv1 = vec2(rNorm * 2.3 - spin * 0.05, angle * 0.31830988 + spin * 0.14 / (0.35 + rNorm));\n"
-            + "    vec2 uv2 = vec2(rNorm * 5.1 + spin * 0.03, angle * 0.63661977 - spin * 0.22 / (0.28 + rNorm));\n"
-            + "    float n1 = texture2D(uNoiseTex, uv1).r;\n"
-            + "    float n2 = texture2D(uNoiseTex, uv2).g;\n"
-            + "    float streak = smoothstep(0.18, 0.88, n1 * 0.66 + n2 * 0.34);\n"
-            + "    float innerFade = smoothstep(0.0, 0.11, rNorm);\n"
-            + "    float outerFade = pow(max(1.0 - rNorm, 0.0), 1.85);\n"
-            + "    float profile = innerFade * outerFade * (0.48 + 0.82 * streak);\n"
-            + "    vec3 cHot = vec3(1.00, 0.94, 0.80);\n"
-            + "    vec3 cGold = vec3(0.96, 0.66, 0.25);\n"
-            + "    vec3 cDeep = vec3(0.58, 0.20, 0.04);\n"
-            + "    vec3 baseCol = mix(cHot, cGold, smoothstep(0.03, 0.44, rNorm));\n"
-            + "    baseCol = mix(baseCol, cDeep, smoothstep(0.42, 0.96, rNorm));\n"
-            + "    vec3 beamed = mix(baseCol * vec3(1.0, 0.72, 0.50), vec3(1.0, 0.96, 0.88), clamp((doppler - 0.85) * 0.65, 0.0, 0.72));\n"
-            + "    return beamed * profile * doppler;\n"
+            + "vec3 hash33(vec3 p) {\n"
+            + "    p = fract(p * vec3(0.1031, 0.1030, 0.0973));\n"
+            + "    p += dot(p, p.yxz + vec3(33.33, 33.33, 33.33));\n"
+            + "    return fract((p.xxy + p.yxx) * p.zyx);\n"
+            + "}\n"
+            + "\n"
+            + "vec3 renderStarfield(vec3 dir, float emerge) {\n"
+            + "    vec3 d = normalize(dir);\n"
+            + "    vec3 col = vec3(0.0, 0.0, 0.0);\n"
+            + "    vec3 grid1 = d * 78.0;\n"
+            + "    vec3 id1 = floor(grid1);\n"
+            + "    vec3 f1 = fract(grid1) - vec3(0.5, 0.5, 0.5);\n"
+            + "    vec3 rnd1 = hash33(id1);\n"
+            + "    if (rnd1.x > 0.968) {\n"
+            + "        vec3 jitter = (rnd1 - vec3(0.5, 0.5, 0.5)) * 0.52;\n"
+            + "        vec3 diff = f1 - jitter;\n"
+            + "        float dist2 = dot(diff, diff);\n"
+            + "        float core = exp(-dist2 * 95.0) * smoothstep(0.968, 0.999, rnd1.x);\n"
+            + "        vec3 tint = mix(vec3(0.84, 0.90, 1.0), vec3(1.0, 0.90, 0.74), rnd1.y);\n"
+            + "        col += tint * core * (1.35 - 0.35 * emerge);\n"
+            + "    }\n"
+            + "    vec3 grid2 = d * 142.0 + vec3(19.3, 19.3, 19.3);\n"
+            + "    vec3 id2 = floor(grid2);\n"
+            + "    vec3 f2 = fract(grid2) - vec3(0.5, 0.5, 0.5);\n"
+            + "    vec3 rnd2 = hash33(id2);\n"
+            + "    if (rnd2.x > 0.976) {\n"
+            + "        vec3 jitter2 = (rnd2 - vec3(0.5, 0.5, 0.5)) * 0.48;\n"
+            + "        vec3 diff2 = f2 - jitter2;\n"
+            + "        float dist2 = dot(diff2, diff2);\n"
+            + "        float core2 = exp(-dist2 * 125.0) * smoothstep(0.976, 0.999, rnd2.x);\n"
+            + "        col += vec3(0.92, 0.94, 0.98) * core2 * 0.56;\n"
+            + "    }\n"
+            + "    return col;\n"
+            + "}\n"
+            + "\n"
+            + "vec3 geodesicAccel(vec3 p, float h2) {\n"
+            + "    float r2 = max(dot(p, p), 0.04);\n"
+            + "    float r = sqrt(r2);\n"
+            + "    return (-1.5 * h2 / (r2 * r2 * r)) * p;\n"
+            + "}\n"
+            + "\n"
+            + "vec4 evaluateAccretionDisk(vec3 hit, vec3 rayDir, float spinPhase) {\n"
+            + "    float r = length(hit.xz);\n"
+            + "    float rIn = 1.82;\n"
+            + "    float rOut = 9.60;\n"
+            + "    if (r < rIn || r > rOut) {\n"
+            + "        return vec4(0.0, 0.0, 0.0, 0.0);\n"
+            + "    }\n"
+            + "    float normR = clamp((r - rIn) / (rOut - rIn), 0.0, 1.0);\n"
+            + "    float angle = atan(hit.z, hit.x);\n"
+            + "    float omega = 2.70 / pow(max(r, 1.5), 1.35);\n"
+            + "    float theta = angle + spinPhase * omega;\n"
+            + "    vec2 uv1 = vec2(normR * 2.35 - spinPhase * 0.032, theta * 0.318309886);\n"
+            + "    vec2 uv2 = vec2(normR * 5.20 + spinPhase * 0.021, theta * 0.795774715);\n"
+            + "    vec3 tex1 = texture2D(uNoiseTex, uv1).rgb;\n"
+            + "    vec3 tex2 = texture2D(uNoiseTex, uv2).rgb;\n"
+            + "    float filaments = smoothstep(0.16, 0.88, tex1.r * 0.56 + tex2.g * 0.30 + tex1.b * 0.14);\n"
+            + "    float innerFade = smoothstep(rIn, rIn + 0.56, r);\n"
+            + "    float outerFade = pow(max(1.0 - normR, 0.0), 1.95);\n"
+            + "    float dIsco = (r - 2.26) / 0.42;\n"
+            + "    float iscoRing = exp(-dIsco * dIsco) * 0.86;\n"
+            + "    float density = (innerFade * outerFade * (0.38 + 0.86 * filaments) + iscoRing) * 0.94;\n"
+            + "    vec3 tangent = normalize(vec3(-hit.z, 0.0, hit.x));\n"
+            + "    float beta = clamp(0.66 / sqrt(max(r - 0.85, 0.40)), 0.0, 0.78);\n"
+            + "    float cosTheta = dot(tangent, -normalize(rayDir));\n"
+            + "    float gamma = inversesqrt(max(1.0 - beta * beta, 0.12));\n"
+            + "    float doppler = 1.0 / max(gamma * (1.0 - beta * cosTheta), 0.24);\n"
+            + "    float beaming = pow(clamp(doppler, 0.28, 2.35), 2.50);\n"
+            + "    vec3 cHot = vec3(1.44, 1.28, 0.98);\n"
+            + "    vec3 cGold = vec3(1.08, 0.65, 0.22);\n"
+            + "    vec3 cCopper = vec3(0.58, 0.18, 0.04);\n"
+            + "    vec3 baseCol = mix(cHot, cGold, smoothstep(0.0, 0.35, normR));\n"
+            + "    baseCol = mix(baseCol, cCopper, smoothstep(0.33, 0.94, normR));\n"
+            + "    float shiftT = clamp((doppler - 0.74) * 0.64, 0.0, 1.0);\n"
+            + "    vec3 beamedCol = mix(baseCol * vec3(1.10, 0.50, 0.22), mix(baseCol, vec3(1.14, 1.18, 1.26), 0.36), shiftT);\n"
+            + "    float alpha = clamp(density * clamp(0.42 + 0.50 * beaming, 0.22, 1.55), 0.0, 0.96);\n"
+            + "    return vec4(beamedCol * density * beaming * 1.10, alpha);\n"
             + "}\n"
             + "\n"
             + "void main() {\n"
-            + "    vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / max(uRes.y, 1.0);\n"
+            + "    vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / max(min(uRes.x, uRes.y), 1.0);\n"
             + "    float e = clamp(uEmergence, 0.0, 1.0);\n"
-            + "    float easeOut = 1.0 - pow(1.0 - e, 2.6);\n"
+            + "    float easeOut = 1.0 - pow(1.0 - e, 2.65);\n"
+            + "    float menuSettle = smoothstep(0.58, 1.0, e);\n"
+            + "    uv.x -= uOffsetX * menuSettle;\n"
             + "\n"
-            + "    // Panoramique souris subtil une fois sorti en orbite\n"
-            + "    uv -= uMouse * (0.032 * smoothstep(0.55, 1.0, e));\n"
+            + "    // Sortie continue de l'Horizon (r = 1.08 -> orbite rapprochée r = 15.6 identique au Launcher)\n"
+            + "    float camDist = mix(1.08, 15.6, easeOut);\n"
+            + "    float elev = mix(0.055, 0.176 + uMouse.y * 0.04 * menuSettle, easeOut);\n"
+            + "    float azim = uTime * 0.032 + (1.0 - easeOut) * 0.72 + uMouse.x * 0.07 * menuSettle;\n"
             + "\n"
-            + "    // Rayon apparent de l'Horizon des Événements : couvre tout l'écran à e=0 (#000000), recule jusqu'à 0.165 en orbite\n"
-            + "    float rShadow = mix(1.42, 0.165, easeOut);\n"
-            + "    float tilt = mix(0.11, 0.255, easeOut);\n"
+            + "    vec3 ro = vec3(\n"
+            + "        camDist * cos(elev) * sin(azim),\n"
+            + "        camDist * sin(elev),\n"
+            + "        camDist * cos(elev) * cos(azim)\n"
+            + "    );\n"
             + "\n"
-            + "    // Inclinaison cinématique de Gargantua (-15 deg)\n"
-            + "    float ca = 0.9659258;\n"
-            + "    float sa = 0.2588190;\n"
-            + "    vec2 p = vec2(uv.x * ca - uv.y * sa, uv.x * sa + uv.y * ca);\n"
-            + "    float r = length(p);\n"
+            + "    vec3 forward = normalize(-ro);\n"
+            + "    vec3 worldUp = vec3(0.0, 1.0, 0.0);\n"
+            + "    float roll = mix(0.26, -0.155, easeOut);\n"
+            + "    vec3 right0 = normalize(cross(forward, worldUp));\n"
+            + "    vec3 up0 = cross(right0, forward);\n"
+            + "    vec3 right = right0 * cos(roll) + up0 * sin(roll);\n"
+            + "    vec3 up = -right0 * sin(roll) + up0 * cos(roll);\n"
             + "\n"
-            + "    // Fond stellaire lentillé par déflexion gravitationnelle 1/r\n"
-            + "    float deflect = (rShadow * rShadow) / max(r * r + 0.004, 0.004);\n"
-            + "    vec2 starUv = p * (1.0 - 0.42 * deflect) * 1.9 + vec2(uTime * 0.003, -uTime * 0.0015);\n"
-            + "    vec3 starSample = texture2D(uNoiseTex, starUv * 2.4).rgb;\n"
-            + "    float starSpark = pow(max(starSample.b - 0.74, 0.0) * 3.85, 3.2);\n"
-            + "    float nebula = starSample.r * exp(-abs(p.y) * 5.2) * 0.055;\n"
-            + "    vec3 col = vec3(0.95, 0.90, 0.82) * starSpark * smoothstep(rShadow * 0.98, rShadow * 1.18, r)\n"
-            + "             + vec3(0.08, 0.055, 0.035) * nebula;\n"
+            + "    float focal = mix(0.66, 1.56, easeOut);\n"
+            + "    vec3 rd = normalize(forward * focal + uv.x * right + uv.y * up);\n"
             + "\n"
-            + "    float rIn = rShadow * 1.16;\n"
-            + "    float rOut = rShadow * 4.55;\n"
-            + "    float spin = uTime * (1.05 + (1.0 - easeOut) * 1.65);\n"
-            + "    float doppler = clamp(1.0 - (p.x / max(rOut * 0.68, 0.001)) * 0.52, 0.34, 1.88);\n"
-            + "    doppler = doppler * doppler;\n"
+            + "    vec3 pos = ro;\n"
+            + "    vec3 vel = rd;\n"
+            + "    vec3 hVec = cross(pos, vel);\n"
+            + "    float h2 = dot(hVec, hVec);\n"
             + "\n"
-            + "    // 1. Arche gravitationnelle supérieure/inférieure (rayons courbés derrière le Trou Noir)\n"
-            + "    float lensedR = r + (rShadow * rShadow * 0.58) / max(abs(p.y) + rShadow * 0.34, 0.002);\n"
-            + "    float archNorm = (lensedR - rIn) / max(rOut - rIn, 0.001);\n"
-            + "    if (archNorm > 0.0 && archNorm < 1.0 && r > rShadow * 0.96) {\n"
-            + "        float archAng = atan(p.y * 1.35, p.x);\n"
-            + "        float backMask = smoothstep(rShadow * 0.96, rShadow * 1.06, r) * smoothstep(0.0, rShadow * 0.26, abs(p.y));\n"
-            + "        col += sampleDisk(archNorm, archAng, doppler * 0.86, spin) * backMask * 0.92;\n"
+            + "    vec3 accumColor = vec3(0.0, 0.0, 0.0);\n"
+            + "    float transmittance = 1.0;\n"
+            + "    float captured = 0.0;\n"
+            + "    float closestR = 100.0;\n"
+            + "    float spinPhase = uTime * 0.56 + (1.0 - easeOut) * 1.95;\n"
+            + "\n"
+            + "    for (int i = 0; i < 44; i++) {\n"
+            + "        float r = length(pos);\n"
+            + "        closestR = min(closestR, r);\n"
+            + "        if (r <= 1.015) {\n"
+            + "            captured = 1.0;\n"
+            + "            break;\n"
+            + "        }\n"
+            + "        if (r > 26.0 && i > 8) {\n"
+            + "            break;\n"
+            + "        }\n"
+            + "        float dt = clamp(0.172 * (r - 0.90), 0.058, 0.96);\n"
+            + "        vec3 a1 = geodesicAccel(pos, h2);\n"
+            + "        vec3 midPos = pos + vel * (0.5 * dt);\n"
+            + "        vec3 midVel = vel + a1 * (0.5 * dt);\n"
+            + "        vec3 a2 = geodesicAccel(midPos, h2);\n"
+            + "        vec3 prevPos = pos;\n"
+            + "        pos += midVel * dt;\n"
+            + "        vel = normalize(vel + a2 * dt);\n"
+            + "        if (prevPos.y * pos.y <= 0.0) {\n"
+            + "            float frac = abs(prevPos.y) / (abs(prevPos.y) + abs(pos.y) + 0.000001);\n"
+            + "            vec3 hit = mix(prevPos, pos, frac);\n"
+            + "            if (length(hit) > 1.03) {\n"
+            + "                vec4 disk = evaluateAccretionDisk(hit, vel, spinPhase);\n"
+            + "                accumColor += disk.rgb * transmittance;\n"
+            + "                transmittance *= (1.0 - disk.a);\n"
+            + "                if (transmittance < 0.028) {\n"
+            + "                    break;\n"
+            + "                }\n"
+            + "            }\n"
+            + "        }\n"
             + "    }\n"
             + "\n"
-            + "    // 2. Sphère d'ombre noire absolue de l'Horizon des Événements (#000000)\n"
-            + "    float shadowMask = smoothstep(rShadow * 1.015, rShadow * 0.975, r);\n"
-            + "    col *= (1.0 - shadowMask);\n"
+            + "    float photonGlow = exp(-max(closestR - 1.50, 0.0) * 8.4) * (1.0 - captured);\n"
+            + "    accumColor += vec3(1.18, 0.88, 0.52) * photonGlow * 0.42 * transmittance;\n"
             + "\n"
-            + "    // 3. Anneau de photons relativiste ultra-fin sur le bord exact de rShadow\n"
-            + "    float ringDist = (r - rShadow * 1.018) / max(rShadow * 0.048, 0.001);\n"
-            + "    float photonRing = exp(-ringDist * ringDist) * (0.75 + 0.45 * doppler);\n"
-            + "    col += vec3(1.0, 0.89, 0.68) * photonRing * 1.15 * smoothstep(0.02, 0.16, e);\n"
-            + "\n"
-            + "    // 4. Disque d'accrétion équatorial primaire (passe DEVANT l'hémisphère inférieur de l'Horizon)\n"
-            + "    vec2 diskP = vec2(p.x, p.y / max(tilt, 0.04));\n"
-            + "    float diskR = length(diskP);\n"
-            + "    float diskNorm = (diskR - rIn) / max(rOut - rIn, 0.001);\n"
-            + "    if (diskNorm > 0.0 && diskNorm < 1.0) {\n"
-            + "        float frontCross = smoothstep(rShadow * 0.18, -rShadow * 0.06, p.y);\n"
-            + "        float visMask = mix(1.0 - shadowMask, 1.0, frontCross);\n"
-            + "        float diskAng = atan(diskP.y, diskP.x);\n"
-            + "        col += sampleDisk(diskNorm, diskAng, doppler, spin) * visMask * 1.32;\n"
+            + "    if (captured < 0.5 && transmittance > 0.01) {\n"
+            + "        accumColor += renderStarfield(vel, easeOut) * transmittance;\n"
             + "    }\n"
             + "\n"
-            + "    // Halo gravitationnel chaud lors de la traversée de la sphère de photons\n"
-            + "    float warpFlash = exp(-pow((e - 0.14) / 0.11, 2.0)) * exp(-max(r - rShadow * 0.92, 0.0) * 6.5);\n"
-            + "    col += vec3(1.0, 0.84, 0.55) * warpFlash * 0.55;\n"
-            + "\n"
-            + "    // Mappage tonal ACES cinématique + garantie #000000 absolu à e=0\n"
-            + "    col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);\n"
-            + "    col = pow(clamp(col, 0.0, 1.0), vec3(0.94));\n"
-            + "    col *= smoothstep(0.0, 0.055, e);\n"
-            + "    gl_FragColor = vec4(col, 1.0);\n"
+            + "    vec3 x = max(vec3(0.0, 0.0, 0.0), accumColor);\n"
+            + "    vec3 mapped = (x * (2.51 * x + vec3(0.03, 0.03, 0.03))) / (x * (2.43 * x + vec3(0.59, 0.59, 0.59)) + vec3(0.14, 0.14, 0.14));\n"
+            + "    mapped = pow(clamp(mapped, 0.0, 1.0), vec3(0.92, 0.92, 0.92));\n"
+            + "    mapped *= smoothstep(0.0, 0.08, e);\n"
+            + "    gl_FragColor = vec4(mapped, 1.0);\n"
             + "}\n";
 
     // Ressources thread SplashProgress$3 (isolées puis détruites proprement dans clearGL)
@@ -148,6 +219,7 @@ public final class BlackHoleEmergenceRenderer {
     private static int splashULocTime = -1;
     private static int splashULocEmergence = -1;
     private static int splashULocMouse = -1;
+    private static int splashULocOffsetX = -1;
     private static int splashULocNoise = -1;
 
     // Ressources thread principal (Menu MashClient)
@@ -158,6 +230,7 @@ public final class BlackHoleEmergenceRenderer {
     private static int mainULocTime = -1;
     private static int mainULocEmergence = -1;
     private static int mainULocMouse = -1;
+    private static int mainULocOffsetX = -1;
     private static int mainULocNoise = -1;
     private static Framebuffer menuFbo = null;
 
@@ -210,7 +283,6 @@ public final class BlackHoleEmergenceRenderer {
         }
         float timeSec = (float) ((System.nanoTime() - bootOriginNs) * 1.0E-9D);
 
-        // Progression continue lissée (temps écoulé + avancement réel des barres Forge) jusqu'à MAX_SPLASH_EMERGENCE
         float timeCurve = 1.0F - (float) Math.exp(-timeSec * 0.42D);
         float target = Math.min(MAX_SPLASH_EMERGENCE, Math.max(timeCurve * 0.56F, forgeBarRatio * MAX_SPLASH_EMERGENCE));
         if (target > latestEmergence) {
@@ -236,11 +308,13 @@ public final class BlackHoleEmergenceRenderer {
                     splashULocTime,
                     splashULocEmergence,
                     splashULocMouse,
+                    splashULocOffsetX,
                     splashULocNoise,
                     fbW,
                     fbH,
                     timeSec,
                     latestEmergence,
+                    0.0F,
                     0.0F,
                     0.0F
             );
@@ -295,11 +369,13 @@ public final class BlackHoleEmergenceRenderer {
                         mainULocTime,
                         mainULocEmergence,
                         mainULocMouse,
+                        mainULocOffsetX,
                         mainULocNoise,
                         fbW,
                         fbH,
                         timeSec,
                         latestEmergence,
+                        0.0F,
                         0.0F,
                         0.0F
                 );
@@ -313,7 +389,8 @@ public final class BlackHoleEmergenceRenderer {
     }
 
     /**
-     * Rendu 120+ FPS dans GuiPureMainMenu : poursuit sans coupure la trajectoire de la caméra depuis latestEmergence jusqu'à 1.0.
+     * Rendu 120+ FPS dans GuiPureMainMenu : poursuit sans coupure la trajectoire de la caméra depuis latestEmergence jusqu'à 1.0,
+     * avec le même décalage éditorial (uOffsetX = 0.14) et le même cadrage rapproché que l'accueil du Launcher !
      */
     public static float renderMenuBackground(Minecraft mc, int guiWidth, int guiHeight, int mouseX, int mouseY) {
         long nowMs = System.currentTimeMillis();
@@ -353,13 +430,15 @@ public final class BlackHoleEmergenceRenderer {
                         mainULocTime,
                         mainULocEmergence,
                         mainULocMouse,
+                        mainULocOffsetX,
                         mainULocNoise,
                         fboW,
                         fboH,
                         timeSec,
                         emergence,
                         smoothMouseX,
-                        -smoothMouseY
+                        -smoothMouseY,
+                        0.14F
                 );
                 mc.getFramebuffer().bindFramebuffer(true);
 
@@ -370,23 +449,37 @@ public final class BlackHoleEmergenceRenderer {
                 GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
                 menuFbo.bindFramebufferTexture();
 
+                GL11.glMatrixMode(GL11.GL_PROJECTION);
+                GL11.glPushMatrix();
+                GL11.glLoadIdentity();
+                GL11.glOrtho(0.0D, 1.0D, 1.0D, 0.0D, -1.0D, 1.0D);
+                GL11.glMatrixMode(GL11.GL_MODELVIEW);
+                GL11.glPushMatrix();
+                GL11.glLoadIdentity();
+
                 GL11.glBegin(GL11.GL_QUADS);
                 GL11.glTexCoord2f(0.0F, 0.0F);
-                GL11.glVertex2f(0.0F, (float) guiHeight);
+                GL11.glVertex2f(0.0F, 1.0F);
                 GL11.glTexCoord2f(1.0F, 0.0F);
-                GL11.glVertex2f((float) guiWidth, (float) guiHeight);
+                GL11.glVertex2f(1.0F, 1.0F);
                 GL11.glTexCoord2f(1.0F, 1.0F);
-                GL11.glVertex2f((float) guiWidth, 0.0F);
+                GL11.glVertex2f(1.0F, 0.0F);
                 GL11.glTexCoord2f(0.0F, 1.0F);
                 GL11.glVertex2f(0.0F, 0.0F);
                 GL11.glEnd();
 
+                GL11.glPopMatrix();
+                GL11.glMatrixMode(GL11.GL_PROJECTION);
+                GL11.glPopMatrix();
+                GL11.glMatrixMode(GL11.GL_MODELVIEW);
+
+                GlStateManager.bindTexture(0);
                 GlStateManager.enableAlpha();
                 return computeCameraUiAlpha(emergence);
             }
         }
 
-        Gui.drawRect(0, 0, guiWidth, guiHeight, 0xFF040509);
+        Gui.drawRect(0, 0, guiWidth, guiHeight, 0xFF000000);
         return computeCameraUiAlpha(emergence);
     }
 
@@ -424,13 +517,15 @@ public final class BlackHoleEmergenceRenderer {
             int uTime,
             int uEmergence,
             int uMouse,
+            int uOffsetX,
             int uNoise,
             int w,
             int h,
             float timeSec,
             float emergence,
             float mx,
-            float my
+            float my,
+            float offsetX
     ) {
         GL11.glMatrixMode(GL11.GL_PROJECTION);
         GL11.glPushMatrix();
@@ -448,6 +543,7 @@ public final class BlackHoleEmergenceRenderer {
         GL20.glUniform1f(uTime, timeSec);
         GL20.glUniform1f(uEmergence, emergence);
         GL20.glUniform2f(uMouse, mx, my);
+        GL20.glUniform1f(uOffsetX, offsetX);
         GL20.glUniform1i(uNoise, 0);
 
         GL11.glBegin(GL11.GL_TRIANGLES);
@@ -484,6 +580,7 @@ public final class BlackHoleEmergenceRenderer {
             splashULocTime = GL20.glGetUniformLocation(prog, "uTime");
             splashULocEmergence = GL20.glGetUniformLocation(prog, "uEmergence");
             splashULocMouse = GL20.glGetUniformLocation(prog, "uMouse");
+            splashULocOffsetX = GL20.glGetUniformLocation(prog, "uOffsetX");
             splashULocNoise = GL20.glGetUniformLocation(prog, "uNoiseTex");
             return true;
         } catch (Throwable t) {
@@ -512,6 +609,7 @@ public final class BlackHoleEmergenceRenderer {
             mainULocTime = GL20.glGetUniformLocation(prog, "uTime");
             mainULocEmergence = GL20.glGetUniformLocation(prog, "uEmergence");
             mainULocMouse = GL20.glGetUniformLocation(prog, "uMouse");
+            mainULocOffsetX = GL20.glGetUniformLocation(prog, "uOffsetX");
             mainULocNoise = GL20.glGetUniformLocation(prog, "uNoiseTex");
             mainShaderState = 1;
             return true;
@@ -526,6 +624,7 @@ public final class BlackHoleEmergenceRenderer {
         GL20.glShaderSource(vs, VERTEX_SHADER_SRC);
         GL20.glCompileShader(vs);
         if (GL20.glGetShaderi(vs, GL20.GL_COMPILE_STATUS) == GL11.GL_FALSE) {
+            System.err.println("[MashClient] BlackHole VS error: " + GL20.glGetShaderInfoLog(vs, 2048));
             GL20.glDeleteShader(vs);
             return 0;
         }
@@ -534,6 +633,7 @@ public final class BlackHoleEmergenceRenderer {
         GL20.glShaderSource(fs, FRAGMENT_SHADER_SRC);
         GL20.glCompileShader(fs);
         if (GL20.glGetShaderi(fs, GL20.GL_COMPILE_STATUS) == GL11.GL_FALSE) {
+            System.err.println("[MashClient] BlackHole FS error: " + GL20.glGetShaderInfoLog(fs, 2048));
             GL20.glDeleteShader(vs);
             GL20.glDeleteShader(fs);
             return 0;
@@ -547,6 +647,7 @@ public final class BlackHoleEmergenceRenderer {
         GL20.glDeleteShader(fs);
 
         if (GL20.glGetProgrami(prog, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
+            System.err.println("[MashClient] BlackHole Link error: " + GL20.glGetProgramInfoLog(prog, 2048));
             GL20.glDeleteProgram(prog);
             return 0;
         }
@@ -554,7 +655,8 @@ public final class BlackHoleEmergenceRenderer {
     }
 
     /**
-     * Pré-calcule une seule fois sur CPU une texture de plasma/étoiles périodique 256x256 sans couture (GL_REPEAT).
+     * Pré-calcule une seule fois sur CPU une texture de plasma périodique 512×512 lisse et sans couture (GL_REPEAT) :
+     * uniquement utilisée pour les filaments du disque d'accrétion (ZÉRO bruit aléatoire dans l'espace).
      */
     private static synchronized ByteBuffer getOrBuildSeamlessNoisePixels() {
         if (cachedNoisePixels != null) {
@@ -564,13 +666,12 @@ public final class BlackHoleEmergenceRenderer {
         ByteBuffer buf = BufferUtils.createByteBuffer(NOISE_SIZE * NOISE_SIZE * 4);
         for (int y = 0; y < NOISE_SIZE; y++) {
             for (int x = 0; x < NOISE_SIZE; x++) {
-                float n1 = tileableFbm(x, y, 4, 4, 11);
-                float n2 = tileableFbm(x, y, 8, 5, 97);
-                int starHash = hash2i(x, y, 733);
-                int starVal = (starHash & 0xFF);
-                buf.put((byte) clampByte(n1 * 255.0F));
-                buf.put((byte) clampByte(n2 * 255.0F));
-                buf.put((byte) starVal);
+                float coarse = tileableFbm(x, y, 8, 5, 101);
+                float fine = tileableFbm(x, y, 20, 5, 409);
+                float ridge = 1.0F - Math.abs(tileableFbm(x, y, 12, 4, 733) * 2.0F - 1.0F);
+                buf.put((byte) clampByte(coarse * 255.0F));
+                buf.put((byte) clampByte(fine * 255.0F));
+                buf.put((byte) clampByte(ridge * 255.0F));
                 buf.put((byte) 255);
             }
         }

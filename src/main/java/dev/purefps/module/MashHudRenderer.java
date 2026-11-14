@@ -43,7 +43,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Moteur de rendu HUD unifié MashClient 4.0 :
+ * Moteur de rendu HUD unifié MashClient 4.1 :
  * - Dessine les 65 modules HUD déplaçables, le Curseur Personnalisé, l'Indicateur d'Arc et l'Alerte Vie Critique.
  * - Regroupe TOUTES les formes vectorielles SDF (cartes, graphes, keystrokes, curseur) en UN SEUL appel GPU NanoUiRenderer.
  * - Lorsqu'un élément HUD est sélectionné dans le menu RSHIFT, son opacité passe automatiquement en semi-transparence
@@ -592,7 +592,7 @@ public final class MashHudRenderer {
             case "hud_watermark": {
                 int style = mode(mod, "style", 0);
                 boolean inlineFps = bool(mod, "show_fps_inline", false);
-                String base = style == 1 ? "MASH \u2022 FPS" : (style == 2 ? "M  \u2022  4.0" : "MashClient 4.0");
+                String base = style == 1 ? "MASH \u2022 FPS" : (style == 2 ? "M  \u2022  4.1" : "MashClient 4.1");
                 if (inlineFps) {
                     base = base + "  \u2022  " + fps + " FPS";
                 }
@@ -1021,7 +1021,7 @@ public final class MashHudRenderer {
             case "hud_custom_label":
             default: {
                 int idx = mode(mod, "preset_label", 0);
-                String[] opts = {"MashClient 4.0", "Singularity FPS", "GG \u2022 FairPlay", "Mode Compétitif"};
+                String[] opts = {"MashClient 4.1", "Singularity FPS", "GG \u2022 FairPlay", "Mode Compétitif"};
                 String val = opts[Math.max(0, Math.min(opts.length - 1, idx))];
                 drawStandardBadge(mod, x, y, s, val, accentCol, textCol, shadow, true, alphaMul);
             }
@@ -1470,10 +1470,16 @@ public final class MashHudRenderer {
         }
         int baseAlpha = Math.round(mod.hudBgOpacity.get() * 2.55F * alphaMul);
         baseAlpha = Math.max(0, Math.min(255, baseAlpha));
-        int bgArgb = (baseAlpha << 24) | 0x090C13;
-        int borderArgb = mod.hudShowBorder.get() ? mulAlpha(0x26FFFFFF, alphaMul) : 0;
+        int topAlpha = Math.min(255, Math.round(baseAlpha * 1.04F));
+        int bgTopArgb = (topAlpha << 24) | 0x10141F;
+        int bgBotArgb = (baseAlpha << 24) | 0x090B12;
+        int borderArgb = mod.hudShowBorder.get() ? mulAlpha(0x28FFFFFF, alphaMul) : 0;
         float radius = mod.hudCornerRadius.get() * s;
-        NanoUiRenderer.drawRoundedRect(x, y, bw * s, bh * s, radius, bgArgb, borderArgb, mod.hudShowBorder.get() ? 1.0F : 0.0F);
+        NanoUiRenderer.drawRoundedGradient(
+                x, y, bw * s, bh * s, radius,
+                bgTopArgb, bgBotArgb, borderArgb,
+                mod.hudShowBorder.get() ? 1.1F : 0.0F
+        );
     }
 
     private static void renderCustomCrosshair(Minecraft mc, ScaledResolution sr, long nowMs) {

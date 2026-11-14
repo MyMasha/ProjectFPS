@@ -57,8 +57,8 @@ fn embed_windows_exe_icon() {
         "#pragma code_page(65001)\r\n\
          1 ICON \"{ico_escaped}\"\r\n\
          1 VERSIONINFO\r\n\
-         FILEVERSION 4,0,0,0\r\n\
-         PRODUCTVERSION 4,0,0,0\r\n\
+         FILEVERSION 4,1,0,0\r\n\
+         PRODUCTVERSION 4,1,0,0\r\n\
          FILEFLAGSMASK 0x3fL\r\n\
          FILEFLAGS 0x0L\r\n\
          FILEOS 0x40004L\r\n\
@@ -70,12 +70,12 @@ fn embed_windows_exe_icon() {
              BLOCK \"040904b0\"\r\n\
              BEGIN\r\n\
                VALUE \"CompanyName\", \"MashClient\\0\"\r\n\
-               VALUE \"FileDescription\", \"MashClient 4.0 - Singularity\\0\"\r\n\
-               VALUE \"FileVersion\", \"4.0.0\\0\"\r\n\
+               VALUE \"FileDescription\", \"MashClient 4.1 - Singularity\\0\"\r\n\
+               VALUE \"FileVersion\", \"4.1.0\\0\"\r\n\
                VALUE \"InternalName\", \"MashClient\\0\"\r\n\
                VALUE \"OriginalFilename\", \"MashClient.exe\\0\"\r\n\
                VALUE \"ProductName\", \"MashClient\\0\"\r\n\
-               VALUE \"ProductVersion\", \"4.0.0\\0\"\r\n\
+               VALUE \"ProductVersion\", \"4.1.0\\0\"\r\n\
              END\r\n\
            END\r\n\
            BLOCK \"VarFileInfo\"\r\n\

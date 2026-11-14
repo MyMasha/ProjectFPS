@@ -1,4 +1,4 @@
-//! Icône native de la zone de notification Windows (System Tray, en bas à droite) pour MashClient 4.0.
+//! Icône native de la zone de notification Windows (System Tray, en bas à droite) pour MashClient 4.1.
 //! - Réduit proprement le Launcher en bas à droite dès que Minecraft démarre (zéro encombrement dans la barre des tâches)
 //! - Clic gauche / double-clic : restaure instantanément MashClient
 //! - Clic droit : menu contextuel natif ("Ouvrir MashClient" / "Quitter MashClient")
@@ -349,12 +349,12 @@ mod imp {
                 }
                 return 0;
             } else if msg == WM_TRAY_SET_GAME_RUNNING {
-                st.current_tip = "MashClient 4.0 — Minecraft en cours (clic pour ouvrir)".to_owned();
+                st.current_tip = "MashClient 4.1 — Minecraft en cours (clic pour ouvrir)".to_owned();
                 let mut nid = make_nid(hwnd, st.h_icon, &st.current_tip);
                 let _ = Shell_NotifyIconW(NIM_MODIFY, &mut nid);
                 return 0;
             } else if msg == WM_TRAY_SET_IDLE {
-                st.current_tip = "MashClient 4.0 — Singularity".to_owned();
+                st.current_tip = "MashClient 4.1 — Singularity".to_owned();
                 let mut nid = make_nid(hwnd, st.h_icon, &st.current_tip);
                 let _ = Shell_NotifyIconW(NIM_MODIFY, &mut nid);
                 return 0;
@@ -418,7 +418,7 @@ mod imp {
                 }
 
                 let (h_icon, owns_icon) = load_mash_tray_icon(h_instance);
-                let initial_tip = "MashClient 4.0 — Singularity".to_owned();
+                let initial_tip = "MashClient 4.1 — Singularity".to_owned();
                 let state = Box::new(TrayWndState {
                     proxy,
                     h_icon,

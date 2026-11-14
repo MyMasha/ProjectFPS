@@ -356,14 +356,76 @@ pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: 
     let _ = std::fs::write(&cfg_path, updated_lines.join("\n") + "\n");
 }
 
+#[cfg(windows)]
+fn detect_and_focus_new_lwjgl_window(existing_hwnd: usize) -> Option<usize> {
+    use core::ffi::c_void;
+    #[link(name = "user32")]
+    extern "system" {
+        fn FindWindowExW(
+            hWndParent: *mut c_void,
+            hWndChildAfter: *mut c_void,
+            lpszClass: *const u16,
+            lpszWindow: *const u16,
+        ) -> *mut c_void;
+        fn IsWindowVisible(hWnd: *mut c_void) -> i32;
+        fn SetForegroundWindow(hWnd: *mut c_void) -> i32;
+    }
+    let cls: [u16; 6] = [b'L' as u16, b'W' as u16, b'J' as u16, b'G' as u16, b'L' as u16, 0];
+    unsafe {
+        let mut cur: *mut c_void = core::ptr::null_mut();
+        loop {
+            cur = FindWindowExW(core::ptr::null_mut(), cur, cls.as_ptr(), core::ptr::null());
+            if cur.is_null() {
+                break;
+            }
+            let addr = cur as usize;
+            if addr != existing_hwnd && IsWindowVisible(cur) != 0 {
+                let _ = SetForegroundWindow(cur);
+                return Some(addr);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn current_visible_lwjgl_hwnd() -> usize {
+    use core::ffi::c_void;
+    #[link(name = "user32")]
+    extern "system" {
+        fn FindWindowW(lpClassName: *const u16, lpWindowName: *const u16) -> *mut c_void;
+        fn IsWindowVisible(hWnd: *mut c_void) -> i32;
+    }
+    let cls: [u16; 6] = [b'L' as u16, b'W' as u16, b'J' as u16, b'G' as u16, b'L' as u16, 0];
+    unsafe {
+        let hwnd = FindWindowW(cls.as_ptr(), core::ptr::null());
+        if !hwnd.is_null() && IsWindowVisible(hwnd) != 0 {
+            hwnd as usize
+        } else {
+            0
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn current_visible_lwjgl_hwnd() -> usize {
+    0
+}
+
+#[cfg(not(windows))]
+fn detect_and_focus_new_lwjgl_window(_existing_hwnd: usize) -> Option<usize> {
+    None
+}
+
 fn spawn_display_ready_watcher(
     watched_game_dirs: Vec<PathBuf>,
     proxy: EventLoopProxy<AppEvent>,
     stop_flag: Arc<AtomicBool>,
 ) {
+    let pre_existing_lwjgl = current_visible_lwjgl_hwnd();
     std::thread::spawn(move || {
         let start = Instant::now();
-        let timeout = Duration::from_secs(9);
+        let timeout = Duration::from_secs(26);
         while !stop_flag.load(Ordering::Relaxed) && start.elapsed() < timeout {
             for dir in &watched_game_dirs {
                 let cfg = dir.join("config");
@@ -372,14 +434,22 @@ fn spawn_display_ready_watcher(
                 if disp_ready.is_file() || menu_ready.is_file() {
                     let _ = std::fs::remove_file(&disp_ready);
                     let _ = std::fs::remove_file(&menu_ready);
+                    let _ = detect_and_focus_new_lwjgl_window(pre_existing_lwjgl);
                     stop_flag.store(true, Ordering::Relaxed);
                     let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
                     return;
                 }
             }
+            if start.elapsed() >= Duration::from_millis(900)
+                && detect_and_focus_new_lwjgl_window(pre_existing_lwjgl).is_some()
+            {
+                stop_flag.store(true, Ordering::Relaxed);
+                let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
+                return;
+            }
             std::thread::sleep(Duration::from_millis(25));
         }
-        // Sécurité absolue : ne bloque jamais l'écran indéfiniment même si une instance externe est lancée
+        // Sécurité absolue : ne bloque jamais l'écran indéfiniment même si une instance externe met très longtemps
         if !stop_flag.load(Ordering::Relaxed) {
             let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
         }
@@ -533,7 +603,7 @@ pub fn run_direct_jvm_blocking(
     let status = child.wait().map_err(|e| e.to_string())?;
     stop_watcher.store(true, Ordering::Relaxed);
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[PureLauncher] Processus Minecraft terminé ({status})."
+        "[MashClient] Processus Minecraft terminé ({status})."
     )));
     let _ = proxy.send_event(AppEvent::GameRunning(false));
     Ok(())
@@ -561,7 +631,7 @@ pub fn prepare_prism_bridge_files(
         match sync_pureclient_jar(&gdir_str) {
             Ok(msg) => {
                 if !synced_any {
-                    let _ = proxy.send_event(AppEvent::LogLine(format!("[PureLauncher] {msg}")));
+                    let _ = proxy.send_event(AppEvent::LogLine(format!("[MashClient] {msg}")));
                 }
                 synced_any = true;
             }
@@ -578,14 +648,24 @@ pub fn prepare_prism_bridge_files(
     Ok((instance_id, watched_dirs))
 }
 
+#[cfg(windows)]
+pub fn focus_visible_lwjgl_window() {
+    let _ = detect_and_focus_new_lwjgl_window(0);
+}
+
+#[cfg(not(windows))]
+pub fn focus_visible_lwjgl_window() {}
+
 pub fn spawn_prism_bridge_now(
     prefs: &LauncherPrefs,
     instance_id: &str,
     watched_dirs: Vec<PathBuf>,
     proxy: &EventLoopProxy<AppEvent>,
 ) -> Result<(), String> {
+    let pre_existing_lwjgl = current_visible_lwjgl_hwnd();
+
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[PureLauncher] Pont Singularity Prism : lancement de '{}' ({} MiB RAM)...",
+        "[MashClient] Pont Singularity Prism : lancement de '{}' ({} MiB RAM)...",
         instance_id, prefs.ram_mb
     )));
 
@@ -598,8 +678,40 @@ pub fn spawn_prism_bridge_now(
     cmd.spawn()
         .map_err(|e| format!("Échec lancement PrismLauncher : {e}"))?;
 
+    let _ = proxy.send_event(AppEvent::GameRunning(true));
+
     let stop_watcher = Arc::new(AtomicBool::new(false));
     spawn_display_ready_watcher(watched_dirs, proxy.clone(), stop_watcher);
+
+    let p_life = proxy.clone();
+    std::thread::spawn(move || {
+        let start = Instant::now();
+        let mut tracked_hwnd: usize = 0;
+
+        while start.elapsed() < Duration::from_secs(36) {
+            if let Some(hwnd) = detect_and_focus_new_lwjgl_window(pre_existing_lwjgl) {
+                tracked_hwnd = hwnd;
+                break;
+            }
+            let any = current_visible_lwjgl_hwnd();
+            if any != 0 && any != pre_existing_lwjgl {
+                tracked_hwnd = any;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+
+        if tracked_hwnd != 0 {
+            loop {
+                std::thread::sleep(Duration::from_millis(1200));
+                if current_visible_lwjgl_hwnd() == 0 {
+                    break;
+                }
+            }
+        }
+        let _ = p_life.send_event(AppEvent::GameRunning(false));
+    });
+
     Ok(())
 }
 

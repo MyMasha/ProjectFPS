@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag de version à publier (ex: v4.0.0)"
+        description: "Tag de version à publier (ex: v4.1.0)"
         required: true
-        default: "v4.0.0"
+        default: "v4.1.0"
 
 permissions:
   contents: write
@@ -58,12 +58,11 @@ jobs:
           body: |
             ## MashClient ${{ steps.ver.outputs.version }} — Singularity Edition
 
-            ### Nouveautés v4.0.0 — 200 Modules, Sous-Paramètres Clic Droit, HUD Magnétique & `MashClient.exe`
-            - **Launcher renommé `MashClient.exe` + Logo `.ico` intégré + Réduction en Bas à Droite (System Tray)** : exécutable Windows `MashClient.exe` (sans `-launcher`) embarquant son logo Singularity multi-résolution (256/64/32/16 px) et se réduisant automatiquement dans la zone de notification Windows en bas à droite (`0 %` GPU/CPU en arrière-plan) dès l'ouverture de Minecraft.
-            - **200 Modules style Lunar Client + Sous-Paramètres complets au Clic Droit (`RSHIFT`)** : `65` widgets HUD + `30` PvP + `35` Visuel + `25` Hypixel + `20` Monde + `25` Moteur FPS. Clic droit sur n'importe quel module pour configurer tous ses sous-paramètres : **Curseur Personnalisé** avec aperçu direct, **Champ de Vision PvP (FOV)** avec FOV de base personnalisée + Speed/Sprint/Arc, **Zoom Optique Pro** avec choix entre zoomer à la molette ou changer normalement de slot dans la barre d'action, Viewmodel XYZ, HurtCam 0–100 %, Time/Weather Changer, etc.
-            - **Nouveau Menu `RSHIFT` Professionnel & Éditeur HUD Transparent à Aimantation Magnétique** : sélectionnez directement n'importe quel élément HUD à l'écran (rendu translucide pendant le déplacement) avec lignes guides dorées/cyan d'alignement d'axes, collage bord-à-bord entre éléments et verrouillage d'axe strict (`Shift`).
-            - **Animations Trou Noir Ultra-Fluides (O(1) 600+ FPS) & Mode Plein Écran Sans Bordure (`Borderless`)** : lentille gravitationnelle analytique sans aucune boucle coûteuse ni `-XX:+AlwaysPreTouch` côté Launcher, et émergence 100 FPS sur le thread dédié `SplashProgress$3` côté Minecraft en fenêtre **Borderless** (`WS_POPUP` à `(0, 0)`).
-            - **Stabilité Réseau Multijoueur & Haute Performance FPS** : pile IPv4 forcée (`-Djava.net.preferIPv4Stack=true`), double tentative OAuth2 Microsoft au lancement, `acceptableRemoteVersions = "*"`, sauvegardes JSON asynchrones hors-thread, batching UI 1-draw `NanoUiRenderer`, caches `O(1)` `FontRenderer` / `FastSkullCache` et zéro modification des tables trigonométriques de physique joueur.
+            ### Nouveautés v4.1.0 — Trou Noir 3D Gargantua Proche, Rideau Noir `#000000` & Masquage Tray, Nouvelles UIs Desktop & Recherche Anglais/Français
+            - **Trou Noir 3D Gargantua Rapproché (Launcher & Minecraft) — Sans Points Buggés ni Double Aura** : restauration du cadrage 3D rapproché de Gargantua (`camDist = 15.6 -> 0.82`) avec géodésiques de Schwarzschild RK2 fluides et **un seul disque d'accrétion équatorial 3D** courbé par la gravité (suppression de la double aura illogique). En jeu, l'espace profond est désormais d'un noir pur `#000000` avec étoiles circulaires analytiques 3D sans aucune lecture de texture bruitée (zéro point blanc/noir parasite).
+            - **Transition Écran Noir `#000000` Continue & Fermeture Complète vers la Zone de Notification (System Tray)** : le Launcher garde son plein écran noir `#000000` actif sans jamais repasser en petite fenêtre `1240×780` après le plongeon, attend l'ouverture réelle de la fenêtre OpenGL `LWJGL` de Minecraft, puis se masque intégralement du bureau et de la barre des tâches (`SW_HIDE` + `WS_EX_TOOLWINDOW` + `set_skip_taskbar`) dans l'icône en bas à droite (`0 %` GPU).
+            - **Refonte Intégrale des Interfaces En Jeu (`GuiPureMainMenu` & Menu `RSHIFT`) en Viewport Desktop `1280×720`** : correction des attributs génériques OpenGL 2.0 (`NanoUiRenderer`) + polices haute densité `SmoothFontRenderer`, nouveau menu principal verre fumé laissant Gargantua dégagé à droite, et nouvelle feuille `RSHIFT` inspirée du panneau Optimisations du Launcher (cartes aérées 2 colonnes, tiroir latéral de sous-paramètres au clic droit, éditeur HUD plein écran translucide à lignes magnétiques).
+            - **Recherche Intelligente Bilingue Français + Anglais sur les 200 Modules** : catalogue complet des noms officiels anglais Lunar/Badlion (`Armor Status`, `No Hurt Cam` / `hurtcam`, `Custom Crosshair`, `Time Changer`, `Toggle Sprint`, `Freelook`, `1.7 Animations`, `Block Outline`, `Clear Water`, `UHC Overlay`, etc.) avec normalisation UK/US (`armour` -> `armor`), mots composés avec ou sans espace, tolérance aux fautes de frappe et tri par pertinence.
           generate_release_notes: true
           files: build/libs/purefps-${{ steps.ver.outputs.version }}.jar
 

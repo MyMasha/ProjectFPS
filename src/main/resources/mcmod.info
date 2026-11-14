@@ -2,7 +2,7 @@
   {
     "modid": "${modid}",
     "name": "MashClient",
-    "description": "MashClient 4.0 Singularity — Client Minecraft 1.8.9 ultra-optimisé FPS & PvP (200 Modules, Moteur GPU Region MultiDraw + Blit FBO GL30 + Borderless).",
+    "description": "MashClient 4.1 Singularity — Client Minecraft 1.8.9 ultra-optimisé FPS & PvP (200 Modules FR/EN, Trou Noir 3D Gargantua, UI Desktop 1280×720, Borderless).",
     "version": "${version}",
     "mcversion": "${mcversion}",
     "url": "https://github.com/MyMasha/ProjectFPS",

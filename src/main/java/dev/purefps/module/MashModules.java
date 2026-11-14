@@ -140,8 +140,40 @@ public final class MashModules {
 
     public static List<MashModule> filter(MashCategory category, boolean onlyEnabled, boolean onlyFavorites, String rawQuery) {
         ensureRegistered();
-        String normQ = MashModule.stripAccents(rawQuery != null ? rawQuery.trim() : "");
-        List<MashModule> out = new ArrayList<>(ALL_MODULES.size());
+        String normQ = MashModule.normalizeSearch(rawQuery);
+        boolean hasQuery = !normQ.isEmpty();
+
+        if (!hasQuery) {
+            List<MashModule> out = new ArrayList<>(ALL_MODULES.size());
+            for (int i = 0; i < ALL_MODULES.size(); i++) {
+                MashModule m = ALL_MODULES.get(i);
+                if (category != null && category != MashCategory.ALL && m.getCategory() != category) {
+                    continue;
+                }
+                if (onlyEnabled && !m.isEnabled()) {
+                    continue;
+                }
+                if (onlyFavorites && !m.isFavorite()) {
+                    continue;
+                }
+                out.add(m);
+            }
+            return out;
+        }
+
+        final class Scored {
+            final MashModule module;
+            final int score;
+            final int order;
+
+            Scored(MashModule module, int score, int order) {
+                this.module = module;
+                this.score = score;
+                this.order = order;
+            }
+        }
+
+        List<Scored> scoredList = new ArrayList<>(64);
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
             if (category != null && category != MashCategory.ALL && m.getCategory() != category) {
@@ -153,10 +185,20 @@ public final class MashModules {
             if (onlyFavorites && !m.isFavorite()) {
                 continue;
             }
-            if (!normQ.isEmpty() && !m.matchesQuery(normQ)) {
-                continue;
+            int sc = m.scoreQuery(rawQuery);
+            if (sc > 0) {
+                scoredList.add(new Scored(m, sc, i));
             }
-            out.add(m);
+        }
+
+        scoredList.sort((a, b) -> {
+            int cmp = Integer.compare(b.score, a.score);
+            return cmp != 0 ? cmp : Integer.compare(a.order, b.order);
+        });
+
+        List<MashModule> out = new ArrayList<>(scoredList.size());
+        for (int i = 0; i < scoredList.size(); i++) {
+            out.add(scoredList.get(i).module);
         }
         return out;
     }
@@ -243,7 +285,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.0.0");
+        root.addProperty("version", "4.1.0");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
@@ -625,8 +667,8 @@ public final class MashModules {
         MashModule m;
 
         // 1..10
-        m = regHud("hud_watermark", "Signature MashClient", "Badge Singularity MashClient 4.0 minimaliste", "watermark logo brand mash", true, 8, 8, 108, 19);
-        m.addSetting(new MashSetting.ModeSetting("style", "Style du badge", "Format de la signature", 0, "MashClient 4.0", "MASH • FPS", "Minimal M"));
+        m = regHud("hud_watermark", "Signature MashClient", "Badge Singularity MashClient 4.1 minimaliste", "watermark logo brand mash", true, 8, 8, 108, 19);
+        m.addSetting(new MashSetting.ModeSetting("style", "Style du badge", "Format de la signature", 0, "MashClient 4.1", "MASH • FPS", "Minimal M"));
         m.addSetting(new MashSetting.BooleanSetting("show_fps_inline", "Inclure FPS en direct", "Ajoute les FPS dans la signature", false));
 
         m = regHud("hud_fps", "Compteur FPS", "Fréquence d'images instantanée sans allocation", "fps framerate images", true, 8, 30, 78, 19);
@@ -843,7 +885,7 @@ public final class MashModules {
         m.addSetting(new MashSetting.NumberSetting("duration", "Durée Régénération", "Secondes d'effet après consommation", 5.0F, 3.0F, 30.0F, 1.0F, "s"));
 
         m = regHud("hud_custom_label", "Badge Personnalisé", "Étiquette élégante personnalisable sur votre HUD", "custom text label badge", false, 608, 184, 108, 19);
-        m.addSetting(new MashSetting.ModeSetting("preset_label", "Texte affiché", "Devise affichée dans le badge", 0, "MashClient 4.0", "Singularity FPS", "GG • FairPlay", "Mode Compétitif"));
+        m.addSetting(new MashSetting.ModeSetting("preset_label", "Texte affiché", "Devise affichée dans le badge", 0, "MashClient 4.1", "Singularity FPS", "GG • FairPlay", "Mode Compétitif"));
     }
 
     // =========================================================================
@@ -1249,7 +1291,7 @@ public final class MashModules {
         m = regMod("wld_memory_cleaner", "Purge Douce Changement Monde", "Libère les tampons régions et têtes obsolètes sans jamais appeler System.gc()", "memory cleaner cache purge", MashCategory.WORLD, true);
         m.addSetting(new MashSetting.BooleanSetting("clear_skulls", "Vider cache crânes", "Purge les skins expirés entre deux lobbys", true));
 
-        m = regMod("wld_custom_main_menu", "Menu Principal Singularity", "Active le menu principal MashClient 4.0 avec le Trou Noir analytique 600 FPS", "main menu trou noir singularity", MashCategory.WORLD, true);
+        m = regMod("wld_custom_main_menu", "Menu Principal Singularity", "Active le menu principal MashClient 4.1 avec le Trou Noir Gargantua 3D", "main menu trou noir singularity", MashCategory.WORLD, true);
         m.addSetting(new MashSetting.BooleanSetting("mouse_parallax", "Parallaxe souris douce", "Légère inclinaison orbitale avec le curseur", true));
 
         m = regMod("wld_discord_status_fmt", "Confidentialité Serveur", "Masque l'adresse IP privée dans les affichages si souhaité", "privacy server ip", MashCategory.WORLD, false);

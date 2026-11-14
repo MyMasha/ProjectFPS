@@ -23,24 +23,27 @@ import org.lwjgl.opengl.GL11;
 import java.io.IOException;
 
 /**
- * Menu Principal MashClient 4.0 — Édition "Singularity" :
- * - Poursuit en temps réel à 600+ FPS la lentille analytique du Trou Noir relativiste (commencée à la place de "Mojang").
- * - Panneau de commande en verre fumé obsidienne & or chaud (#F5B85C), aligné sur le design du Launcher MashClient.exe.
+ * Menu Principal MashClient 4.1 — Édition "Singularity" :
+ * - Rendu dans un viewport Bureau indépendant du GuiScale (~1280x720) fidèle à l'esthétique du Launcher MashClient.exe.
+ * - Laisse le Trou Noir Gargantua 3D (une seule couronne équatoriale relativiste, espace noir pur) entièrement dégagé
+ *   sur la droite, avec barre supérieure en verre fumé, bloc éditorial bas-gauche et dock inférieur avec CTA doré.
  */
 public class GuiPureMainMenu extends GuiScreen {
 
     private static boolean bypassOnce = false;
 
-    private static final int BTN_HYPIXEL = 1;
-    private static final int BTN_MULTI = 2;
-    private static final int BTN_SOLO = 3;
-    private static final int BTN_CLIENT = 4;
-    private static final int BTN_OPTIONS = 5;
-    private static final int BTN_MODS = 6;
-    private static final int BTN_QUIT = 7;
-    private static final int BTN_VANILLA = 8;
-    private static final int BTN_PROFILE = 9;
-    private static final int BTN_BORDERLESS = 10;
+    private static final int ACT_HYPIXEL = 1;
+    private static final int ACT_MULTI = 2;
+    private static final int ACT_SOLO = 3;
+    private static final int ACT_STUDIO = 4;
+    private static final int ACT_OPTIONS = 5;
+    private static final int ACT_MODS = 6;
+    private static final int ACT_VANILLA = 7;
+    private static final int ACT_QUIT = 8;
+    private static final int ACT_PROF_FPS = 9;
+    private static final int ACT_PROF_BAL = 10;
+    private static final int ACT_PROF_QUAL = 11;
+    private static final int ACT_BORDERLESS = 12;
 
     private String gpuBrand = "GPU OpenGL";
     private float lastUiAlpha = 1.0F;
@@ -60,7 +63,7 @@ public class GuiPureMainMenu extends GuiScreen {
         try {
             String renderer = GL11.glGetString(GL11.GL_RENDERER);
             if (renderer != null && !renderer.isEmpty()) {
-                gpuBrand = renderer.replace("/PCIe/SSE2", "").trim();
+                gpuBrand = renderer.replace("/PCIe/SSE2", "").replace("(TM)", "").replace("(R)", "").trim();
             }
         } catch (Throwable ignored) {
         }
@@ -68,8 +71,6 @@ public class GuiPureMainMenu extends GuiScreen {
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        NanoUiRenderer.updateScaleFactor(this.mc);
-
         float uiAlpha = BlackHoleEmergenceRenderer.renderMenuBackground(this.mc, this.width, this.height, mouseX, mouseY);
         this.lastUiAlpha = uiAlpha;
         if (uiAlpha <= 0.015F) {
@@ -77,245 +78,306 @@ public class GuiPureMainMenu extends GuiScreen {
             return;
         }
 
-        float cx = this.width * 0.5F;
-        float cy = this.height * 0.5F;
-        float cardW = 288.0F;
-        float cardH = 244.0F;
-        float px = cx - cardW * 0.5F;
-        float py = cy - cardH * 0.5F + 6.0F;
+        float dw = NanoUiRenderer.desktopWidth(this.mc);
+        float dh = NanoUiRenderer.desktopHeight(this.mc);
+        float mx = NanoUiRenderer.desktopMouseX(this.mc);
+        float my = NanoUiRenderer.desktopMouseY(this.mc);
+        boolean interactive = uiAlpha > 0.45F;
 
-        PureFPSProfile prof = PureFPSConfig.activeProfile;
-        int profColor = mulAlpha(profileAccentArgb(prof), uiAlpha);
-
-        NanoUiRenderer.beginBatch();
-
-        NanoUiRenderer.drawShadow(px, py, cardW, cardH, 13.0F, 26.0F, mulAlpha(0xC0000000, uiAlpha));
-
-        // Barre de télémétrie supérieure en verre fumé obsidienne
-        NanoUiRenderer.drawRoundedRect(
-                -4.0F, -4.0F, this.width + 8.0F, 34.0F, 0.0F,
-                mulAlpha(0xBE06080E, uiAlpha), mulAlpha(0x18FFFFFF, uiAlpha), 1.0F
-        );
-
-        // Pilule Joueur + Profil cliquable
-        boolean profHov = uiAlpha > 0.45F && inside(mouseX, mouseY, 10.0F, 5.5F, 198.0F, 19.0F);
-        NanoUiRenderer.drawRoundedRect(
-                10.0F, 5.5F, 198.0F, 19.0F, 9.5F,
-                mulAlpha(profHov ? 0xE0111623 : 0xCC0B0E17, uiAlpha),
-                mulAlpha(profHov ? 0x55F5B85C : 0x22FFFFFF, uiAlpha),
-                1.0F
-        );
-        NanoUiRenderer.drawCircle(20.0F, 15.0F, 2.6F, profColor);
-
-        // Pilule FPS temps-réel + Pilule Borderless
-        NanoUiRenderer.drawRoundedRect(
-                214.0F, 5.5F, 68.0F, 19.0F, 9.5F,
-                mulAlpha(0xCC0B0E17, uiAlpha), mulAlpha(0x20FFFFFF, uiAlpha), 1.0F
-        );
-        NanoUiRenderer.drawCircle(223.5F, 15.0F, 2.2F, mulAlpha(0xFF34D399, uiAlpha));
-
-        boolean brdOn = PureFPSConfig.borderlessFullscreen;
-        boolean brdHov = uiAlpha > 0.45F && inside(mouseX, mouseY, 288.0F, 5.5F, 92.0F, 19.0F);
-        if (this.width >= 560) {
-            NanoUiRenderer.drawRoundedRect(
-                    288.0F, 5.5F, 92.0F, 19.0F, 9.5F,
-                    mulAlpha(brdOn ? 0x2634D399 : 0xCC0B0E17, uiAlpha),
-                    mulAlpha(brdHov ? 0x7734D399 : (brdOn ? 0x4D34D399 : 0x20FFFFFF), uiAlpha),
-                    1.0F
-            );
+        NanoUiRenderer.beginDesktopViewport(this.mc);
+        try {
+            renderDesktopMainMenu(dw, dh, mx, my, interactive, uiAlpha);
+        } finally {
+            NanoUiRenderer.endDesktopViewport();
         }
-
-        // Carte centrale Singularity
-        NanoUiRenderer.drawRoundedGradient(
-                px, py, cardW, cardH, 13.0F,
-                mulAlpha(0xDA0A0D16, uiAlpha),
-                mulAlpha(0xE806080E, uiAlpha),
-                mulAlpha(0x2CF5B85C, uiAlpha),
-                1.0F
-        );
-        NanoUiRenderer.drawLine(px + 22.0F, py + 54.0F, px + cardW - 22.0F, py + 54.0F, 0.8F, mulAlpha(0x1EFFFFFF, uiAlpha));
-
-        // Emblème M doré + Badge 4.0
-        SmoothFontRenderer titleF = SmoothFontRenderer.title();
-        SmoothFontRenderer bodyF = SmoothFontRenderer.body();
-        SmoothFontRenderer smallF = SmoothFontRenderer.small();
-
-        String brand = "MASHCLIENT";
-        float brandW = titleF.getStringWidth(brand);
-        float badgeW = 32.0F;
-        float emblemW = 20.0F;
-        float groupW = emblemW + 7.0F + brandW + 7.0F + badgeW;
-        float groupX = cx - groupW * 0.5F;
-
-        NanoUiRenderer.drawRoundedGradient(
-                groupX, py + 14.0F, emblemW, 20.0F, 5.5F,
-                mulAlpha(0xFFF6C76E, uiAlpha), mulAlpha(0xFFC98122, uiAlpha),
-                mulAlpha(0x99FFE7B5, uiAlpha), 1.0F
-        );
-        NanoUiRenderer.drawRoundedRect(
-                groupX + emblemW + 7.0F + brandW + 7.0F, py + 17.5F,
-                badgeW, 13.5F, 6.75F,
-                mulAlpha(0x33F5B85C, uiAlpha), mulAlpha(0x77F5B85C, uiAlpha), 1.0F
-        );
-
-        // Boutons principaux
-        float bx = cx - 122.0F;
-        float bw = 244.0F;
-        float by = py + 64.0F;
-        float halfW = 119.0F;
-
-        drawButtonBg(bx, by, bw, 28.0F, mouseX, mouseY, ButtonKind.PRIMARY, uiAlpha);
-        drawButtonBg(bx, by + 34.0F, bw, 24.0F, mouseX, mouseY, ButtonKind.SECONDARY, uiAlpha);
-        drawButtonBg(bx, by + 63.0F, bw, 24.0F, mouseX, mouseY, ButtonKind.SECONDARY, uiAlpha);
-        drawButtonBg(bx, by + 92.0F, bw, 26.0F, mouseX, mouseY, ButtonKind.ACCENT_OUTLINE, uiAlpha);
-        drawButtonBg(bx, by + 124.0F, halfW, 22.0F, mouseX, mouseY, ButtonKind.SUBTLE, uiAlpha);
-        drawButtonBg(bx + 125.0F, by + 124.0F, halfW, 22.0F, mouseX, mouseY, ButtonKind.SUBTLE, uiAlpha);
-        drawButtonBg(this.width - 154.0F, 5.5F, 82.0F, 19.0F, mouseX, mouseY, ButtonKind.SUBTLE, uiAlpha);
-        drawButtonBg(this.width - 66.0F, 5.5F, 56.0F, 19.0F, mouseX, mouseY, ButtonKind.DANGER, uiAlpha);
-
-        NanoUiRenderer.drawCircle(14.0F, this.height - 11.5F, 2.2F, profColor);
-        NanoUiRenderer.endBatch();
-
-        // Typographie HD
-        String sessionName = (this.mc.getSession() != null && this.mc.getSession().getUsername() != null)
-                ? this.mc.getSession().getUsername()
-                : "Player";
-        titleF.drawStringWithShadow(brand, groupX + emblemW + 7.0F, py + 15.0F, mulAlpha(0xFFF7F4EC, uiAlpha));
-
-        bodyF.beginBatch();
-        bodyF.drawCentered("M", groupX + emblemW * 0.5F, py + 19.5F, mulAlpha(0xFF0A0B0E, uiAlpha), false);
-        drawButtonLabel(bodyF, bx, by, bw, 28.0F, "Rejoindre Hypixel", mouseX, mouseY, ButtonKind.PRIMARY, uiAlpha);
-        drawButtonLabel(bodyF, bx, by + 34.0F, bw, 24.0F, "Multijoueur", mouseX, mouseY, ButtonKind.SECONDARY, uiAlpha);
-        drawButtonLabel(bodyF, bx, by + 63.0F, bw, 24.0F, "Mode Solo", mouseX, mouseY, ButtonKind.SECONDARY, uiAlpha);
-        drawButtonLabel(bodyF, bx, by + 92.0F, bw, 26.0F, "Studio MashClient (200 Modules)", mouseX, mouseY, ButtonKind.ACCENT_OUTLINE, uiAlpha);
-        bodyF.endBatch();
-
-        smallF.beginBatch();
-        smallF.drawString(sessionName + "  \u2022  Profil " + prof.getDisplayName(), 28.0F, 11.0F, mulAlpha(0xFFEAECEF, uiAlpha));
-        smallF.drawString(Minecraft.getDebugFPS() + " FPS", 230.5F, 11.0F, mulAlpha(0xFFECEFF6, uiAlpha));
-        if (this.width >= 560) {
-            smallF.drawCentered(brdOn ? "Borderless ON" : "Borderless OFF", 334.0F, 11.0F, mulAlpha(brdOn ? 0xFF6EE7B7 : 0xFF949CB0, uiAlpha), false);
-        }
-
-        smallF.drawCentered("v4.0", groupX + emblemW + 7.0F + brandW + 7.0F + badgeW * 0.5F, py + 20.5F, mulAlpha(0xFFF7CE86, uiAlpha), false);
-        smallF.drawCentered("Singularity Engine  \u2022  RSHIFT pour les 200 modules & HUD", cx, py + 38.0F, mulAlpha(0xFF949CB0, uiAlpha), false);
-
-        drawButtonLabel(smallF, bx, by + 124.0F, halfW, 22.0F, "Options MC", mouseX, mouseY, ButtonKind.SUBTLE, uiAlpha);
-        drawButtonLabel(smallF, bx + 125.0F, by + 124.0F, halfW, 22.0F, "Mods Forge", mouseX, mouseY, ButtonKind.SUBTLE, uiAlpha);
-        drawButtonLabel(smallF, this.width - 154.0F, 5.5F, 82.0F, 19.0F, "Menu Vanilla", mouseX, mouseY, ButtonKind.SUBTLE, uiAlpha);
-        drawButtonLabel(smallF, this.width - 66.0F, 5.5F, 56.0F, 19.0F, "Quitter", mouseX, mouseY, ButtonKind.DANGER, uiAlpha);
-
-        String footerLeft = gpuBrand + "  \u2022  " + MashModules.getActiveCount() + "/200 modules actifs";
-        smallF.drawString(footerLeft, 21.0F, this.height - 15.5F, mulAlpha(0xFF7D8599, uiAlpha));
-        String footerRight = "MashClient 4.0.0  \u2022  Forge 1.8.9";
-        float rw = smallF.getStringWidth(footerRight);
-        smallF.drawString(footerRight, this.width - rw - 12.0F, this.height - 15.5F, mulAlpha(0xFF7D8599, uiAlpha));
-        smallF.endBatch();
 
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         super.drawScreen(mouseX, mouseY, partialTicks);
     }
 
-    private enum ButtonKind {
-        PRIMARY,
-        SECONDARY,
-        ACCENT_OUTLINE,
-        SUBTLE,
-        DANGER
-    }
+    private void renderDesktopMainMenu(float dw, float dh, float mx, float my, boolean interactive, float uiAlpha) {
+        SmoothFontRenderer heroF = SmoothFontRenderer.uiHero();
+        SmoothFontRenderer cardTitleF = SmoothFontRenderer.uiCardTitle();
+        SmoothFontRenderer bodyF = SmoothFontRenderer.uiBody();
+        SmoothFontRenderer smallF = SmoothFontRenderer.uiSmall();
+        SmoothFontRenderer boldSmallF = SmoothFontRenderer.uiBoldSmall();
 
-    private static int mulAlpha(int argb, float alphaFactor) {
-        int baseA = (argb >>> 24) & 0xFF;
-        int scaledA = Math.max(0, Math.min(255, Math.round((float) baseA * alphaFactor)));
-        return (scaledA << 24) | (argb & 0x00FFFFFF);
-    }
+        PureFPSProfile activeProf = PureFPSConfig.activeProfile;
+        boolean brdOn = PureFPSConfig.borderlessFullscreen;
+        int activeMods = MashModules.getActiveCount();
+        int fps = Minecraft.getDebugFPS();
+        String sessionName = (this.mc.getSession() != null && this.mc.getSession().getUsername() != null)
+                ? this.mc.getSession().getUsername()
+                : "Player";
 
-    private static void drawButtonBg(float x, float y, float w, float h, int mx, int my, ButtonKind kind, float uiAlpha) {
-        boolean hov = uiAlpha > 0.45F && mx >= x && mx <= x + w && my >= y && my <= y + h;
-        int top;
-        int bot;
-        int border;
+        // Géométrie barre supérieure (52 px)
+        float topH = 52.0F;
+        float navW = 472.0F;
+        float navH = 34.0F;
+        float navX = (dw - navW) * 0.5F;
+        float navY = 9.0F;
 
-        switch (kind) {
-            case PRIMARY:
-                top = hov ? 0xFFF8CA78 : 0xFFEAB354;
-                bot = hov ? 0xFFE39E3B : 0xFFC98324;
-                border = hov ? 0xAAFFF3D6 : 0x66FFE6B3;
-                break;
-            case ACCENT_OUTLINE:
-                top = hov ? 0xEE1C1917 : 0xDD12131B;
-                bot = hov ? 0xEE141312 : 0xDD0D0F16;
-                border = hov ? 0xBBF5B85C : 0x5CF5B85C;
-                break;
-            case DANGER:
-                top = hov ? 0xDD3A1820 : 0xAA181217;
-                bot = hov ? 0xDD2C1218 : 0xAA120E13;
-                border = hov ? 0x88F87171 : 0x38F87171;
-                break;
-            case SUBTLE:
-                top = hov ? 0xEE1A1E2A : 0xCC10131C;
-                bot = hov ? 0xEE141822 : 0xCC0C0F17;
-                border = hov ? 0x32FFFFFF : 0x16FFFFFF;
-                break;
-            case SECONDARY:
-            default:
-                top = hov ? 0xF01C202C : 0xE6131720;
-                bot = hov ? 0xF0161923 : 0xE60F121A;
-                border = hov ? 0x3AFFFFFF : 0x1CFFFFFF;
-                break;
-        }
+        // Géométrie bloc éditorial bas-gauche
+        float heroX = 44.0F;
+        float dockH = 66.0F;
+        float dockY = dh - dockH;
+        float profBoxY = dockY - 62.0F;
+        float profBoxW = 306.0F;
+        float profBoxH = 38.0F;
+        float heroBaseY = profBoxY - 128.0F;
+
+        // Géométrie dock inférieur
+        float segX = 32.0F;
+        float segY = dockY + 15.0F;
+        float segW = 312.0F;
+        float segH = 36.0F;
+
+        float brdPillX = segX + segW + 12.0F;
+        float brdPillW = 166.0F;
+
+        float ctaW = 226.0F;
+        float ctaH = 42.0F;
+        float ctaX = dw - ctaW - 32.0F;
+        float ctaY = dockY + 12.0F;
+
+        // Contrôles haut-droite
+        float quitX = dw - 52.0F;
+        float vanX = quitX - 68.0F;
+        float modsX = vanX - 64.0F;
+        float sessW = Math.max(128.0F, bodyF.getStringWidth(sessionName) + 82.0F);
+        float sessX = modsX - sessW - 10.0F;
+
+        // =====================================================================
+        // PASSE 1 : TOUTES LES SURFACES SDF EN VERRE FUMÉ & OR CHAUD (1 DRAW)
+        // =====================================================================
+        NanoUiRenderer.beginBatch();
+
+        // Légère vignette bas-gauche pour ancrer la lisibilité du titre éditorial sans toucher au Trou Noir
         NanoUiRenderer.drawRoundedGradient(
-                x, y, w, h, 6.5F,
-                mulAlpha(top, uiAlpha),
-                mulAlpha(bot, uiAlpha),
-                mulAlpha(border, uiAlpha),
+                -10.0F, heroBaseY - 36.0F, 520.0F, dockY - heroBaseY + 46.0F, 24.0F,
+                mulAlpha(0x00030408, uiAlpha), mulAlpha(0x68030408, uiAlpha), 0, 0.0F
+        );
+
+        // 1. Barre supérieure en verre fumé
+        NanoUiRenderer.drawRoundedRect(
+                -2.0F, -2.0F, dw + 4.0F, topH + 2.0F, 0.0F,
+                mulAlpha(0xBA05060A, uiAlpha), mulAlpha(0x16FFFFFF, uiAlpha), 1.0F
+        );
+        NanoUiRenderer.drawSingularityEmblem(34.0F, 26.0F, 18.0F, uiAlpha);
+
+        // Badge SINGULARITY 4.1
+        String brandText = "M A S H C L I E N T";
+        float brandW = boldSmallF.getStringWidth(brandText);
+        float singPillX = 52.0F + brandW + 12.0F;
+        NanoUiRenderer.drawRoundedRect(
+                singPillX, 15.0F, 112.0F, 22.0F, 5.0F,
+                mulAlpha(0x1FF5B85C, uiAlpha), mulAlpha(0x52F5B85C, uiAlpha), 1.0F
+        );
+
+        // Pilule centrale de navigation (Accueil | Multijoueur | Mode Solo | Studio 200 | Options)
+        NanoUiRenderer.drawRoundedRect(
+                navX, navY, navW, navH, 17.0F,
+                mulAlpha(0xCC0A0D14, uiAlpha), mulAlpha(0x22FFFFFF, uiAlpha), 1.0F
+        );
+        float[] navItemWidths = {78.0F, 98.0F, 88.0F, 122.0F, 74.0F};
+        float curNavX = navX + 6.0F;
+        for (int i = 0; i < navItemWidths.length; i++) {
+            float iw = navItemWidths[i];
+            boolean active = (i == 0);
+            boolean hov = interactive && inside(mx, my, curNavX, navY + 4.0F, iw, navH - 8.0F);
+            if (active || hov) {
+                NanoUiRenderer.drawRoundedRect(
+                        curNavX, navY + 4.0F, iw, navH - 8.0F, 13.0F,
+                        mulAlpha(active ? 0x24FFFFFF : 0x14FFFFFF, uiAlpha),
+                        mulAlpha(active ? 0x2EFFFFFF : 0x00000000, uiAlpha),
+                        active ? 1.0F : 0.0F
+                );
+            }
+            curNavX += iw;
+        }
+
+        // Pilule Session + FPS haut-droite
+        NanoUiRenderer.drawRoundedRect(
+                sessX, 11.0F, sessW, 30.0F, 15.0F,
+                mulAlpha(0xCC0A0D14, uiAlpha), mulAlpha(0x24FFFFFF, uiAlpha), 1.0F
+        );
+        NanoUiRenderer.drawCircle(sessX + 14.0F, 26.0F, 3.2F, mulAlpha(0xFF34D399, uiAlpha));
+
+        // Boutons Mods, Vanilla, Quitter
+        drawSubtlePill(modsX, 11.0F, 56.0F, 30.0F, 15.0F, interactive && inside(mx, my, modsX, 11.0F, 56.0F, 30.0F), false, uiAlpha);
+        drawSubtlePill(vanX, 11.0F, 60.0F, 30.0F, 15.0F, interactive && inside(mx, my, vanX, 11.0F, 60.0F, 30.0F), false, uiAlpha);
+        drawSubtlePill(quitX, 11.0F, 30.0F, 30.0F, 15.0F, interactive && inside(mx, my, quitX, 11.0F, 30.0F, 30.0F), true, uiAlpha);
+
+        // 2. Sélecteur de Profils Moteur (• Turbo FPS | • Équilibré | • Qualité)
+        NanoUiRenderer.drawRoundedRect(
+                heroX, profBoxY, profBoxW, profBoxH, 9.0F,
+                mulAlpha(0xD4090B11, uiAlpha), mulAlpha(0x22FFFFFF, uiAlpha), 1.0F
+        );
+        PureFPSProfile[] profs = {PureFPSProfile.FPS, PureFPSProfile.BALANCED, PureFPSProfile.QUALITY};
+        float segProfW = (profBoxW - 10.0F) / 3.0F;
+        for (int i = 0; i < 3; i++) {
+            float px = heroX + 5.0F + i * segProfW;
+            float py = profBoxY + 4.5F;
+            boolean sel = activeProf == profs[i];
+            boolean hov = interactive && inside(mx, my, px, py, segProfW, profBoxH - 9.0F);
+            if (sel || hov) {
+                NanoUiRenderer.drawRoundedRect(
+                        px, py, segProfW, profBoxH - 9.0F, 6.5F,
+                        mulAlpha(sel ? 0x2EF5B85C : 0x14FFFFFF, uiAlpha),
+                        mulAlpha(sel ? 0x70EAB354 : 0x00000000, uiAlpha),
+                        sel ? 1.0F : 0.0F
+                );
+            }
+        }
+
+        // 3. Dock inférieur en verre fumé
+        NanoUiRenderer.drawRoundedRect(
+                -2.0F, dockY, dw + 4.0F, dockH + 4.0F, 0.0F,
+                mulAlpha(0xC805060A, uiAlpha), mulAlpha(0x18FFFFFF, uiAlpha), 1.0F
+        );
+
+        // Groupe d'actions rapides bas-gauche (Multijoueur | Mode Solo | Studio RSHIFT)
+        NanoUiRenderer.drawRoundedRect(
+                segX, segY, segW, segH, 9.0F,
+                mulAlpha(0xD80A0D14, uiAlpha), mulAlpha(0x22FFFFFF, uiAlpha), 1.0F
+        );
+        float subSegW = (segW - 8.0F) / 3.0F;
+        for (int i = 0; i < 3; i++) {
+            float sx = segX + 4.0F + i * subSegW;
+            boolean hov = interactive && inside(mx, my, sx, segY + 4.0F, subSegW, segH - 8.0F);
+            boolean accentStudio = (i == 2);
+            if (hov || accentStudio) {
+                NanoUiRenderer.drawRoundedRect(
+                        sx, segY + 4.0F, subSegW, segH - 8.0F, 6.5F,
+                        mulAlpha(hov ? 0x28FFFFFF : 0x16FFFFFF, uiAlpha),
+                        mulAlpha(hov ? 0x44F5B85C : 0x20FFFFFF, uiAlpha),
+                        1.0F
+                );
+            }
+        }
+
+        // Pilule Borderless F11
+        boolean brdHov = interactive && inside(mx, my, brdPillX, segY, brdPillW, segH);
+        NanoUiRenderer.drawRoundedRect(
+                brdPillX, segY, brdPillW, segH, 9.0F,
+                mulAlpha(brdOn ? 0x1E34D399 : (brdHov ? 0xE0111520 : 0xD80A0D14), uiAlpha),
+                mulAlpha(brdOn ? 0x5534D399 : (brdHov ? 0x38FFFFFF : 0x22FFFFFF), uiAlpha),
                 1.0F
         );
+        NanoUiRenderer.drawCircle(brdPillX + 15.0F, segY + segH * 0.5F, 3.0F, mulAlpha(brdOn ? 0xFF34D399 : 0xFF64748B, uiAlpha));
+
+        // Bouton principal CTA Or Chaud (▶ JOUER SUR HYPIXEL)
+        boolean ctaHov = interactive && inside(mx, my, ctaX, ctaY, ctaW, ctaH);
+        NanoUiRenderer.drawShadow(ctaX, ctaY, ctaW, ctaH, 10.0F, 16.0F, mulAlpha(ctaHov ? 0x66F5B85C : 0x40F5B85C, uiAlpha));
+        NanoUiRenderer.drawRoundedGradient(
+                ctaX, ctaY, ctaW, ctaH, 10.0F,
+                mulAlpha(ctaHov ? 0xFFF9D084 : 0xFFF3C26E, uiAlpha),
+                mulAlpha(ctaHov ? 0xFFE39E3B : 0xFFD68E2F, uiAlpha),
+                mulAlpha(0xBBFFE9BE, uiAlpha),
+                1.2F
+        );
+
+        NanoUiRenderer.endBatch();
+
+        // =====================================================================
+        // PASSE 2 : TYPOGRAPHIE HD BUREAU
+        // =====================================================================
+        heroF.drawStringWithShadow("MASHCLIENT", heroX - 1.0F, heroBaseY + 18.0F, mulAlpha(0xFFFFFFFF, uiAlpha));
+
+        boldSmallF.beginBatch();
+        boldSmallF.drawString(brandText, 52.0F, 20.5F, mulAlpha(0xFFF7F4EC, uiAlpha));
+        boldSmallF.drawCentered("SINGULARITY 4.1", singPillX + 56.0F, 20.5F, mulAlpha(0xFFEAB354, uiAlpha), false);
+        boldSmallF.drawString(
+                "FORGE 1.8.9   \u2022   VAO GL30 + MULTIDRAW   \u2022   RSHIFT STUDIO",
+                heroX, heroBaseY, mulAlpha(0xFFD99B43, uiAlpha)
+        );
+        boldSmallF.endBatch();
+
+        cardTitleF.beginBatch();
+        cardTitleF.drawCentered(
+                "\u25B6   REJOINDRE HYPIXEL",
+                ctaX + ctaW * 0.5F,
+                ctaY + (ctaH - cardTitleF.getHeight()) * 0.5F + 0.5F,
+                mulAlpha(0xFF0A0B0E, uiAlpha),
+                false
+        );
+        cardTitleF.endBatch();
+
+        bodyF.beginBatch();
+        // Onglets de la barre centrale
+        String[] navLabels = {"Accueil", "Multijoueur", "Mode Solo", "Studio " + activeMods + "/200", "Options"};
+        curNavX = navX + 6.0F;
+        for (int i = 0; i < navLabels.length; i++) {
+            float iw = navItemWidths[i];
+            boolean hov = interactive && inside(mx, my, curNavX, navY + 4.0F, iw, navH - 8.0F);
+            int col = (i == 0 || hov) ? 0xFFF7F4EC : (i == 3 ? 0xFFF3C677 : 0xFFA2AABF);
+            bodyF.drawCentered(navLabels[i], curNavX + iw * 0.5F, navY + 10.5F, mulAlpha(col, uiAlpha), false);
+            curNavX += iw;
+        }
+
+        // Session & FPS
+        bodyF.drawString(sessionName, sessX + 24.0F, 19.5F, mulAlpha(0xFFECEFF6, uiAlpha));
+        String fpsStr = fps + " FPS";
+        bodyF.drawString(fpsStr, sessX + sessW - bodyF.getStringWidth(fpsStr) - 12.0F, 19.5F, mulAlpha(0xFF6EE7B7, uiAlpha));
+
+        // Sous-texte éditorial
+        bodyF.drawString(
+                "Pipeline OpenGL sans blocage GPU, 200 modules PvP & HUD magnétiques",
+                heroX, heroBaseY + 62.0F, mulAlpha(0xFFA6AEBF, uiAlpha)
+        );
+        bodyF.drawString(
+                "et transition directe depuis l'horizon des événements vers Minecraft.",
+                heroX, heroBaseY + 81.0F, mulAlpha(0xFFA6AEBF, uiAlpha)
+        );
+
+        // Segments Profils
+        String[] profNames = {"\u2022  Turbo FPS", "\u2022  Équilibré", "\u2022  Qualité"};
+        for (int i = 0; i < 3; i++) {
+            float px = heroX + 5.0F + i * segProfW;
+            boolean sel = activeProf == profs[i];
+            boolean hov = interactive && inside(mx, my, px, profBoxY + 4.5F, segProfW, profBoxH - 9.0F);
+            int col = sel ? 0xFFFFDF9E : (hov ? 0xFFECEFF6 : 0xFF9AA3B8);
+            bodyF.drawCentered(profNames[i], px + segProfW * 0.5F, profBoxY + 12.5F, mulAlpha(col, uiAlpha), false);
+        }
+
+        // Segments Dock bas-gauche
+        String[] dockActions = {"Multijoueur", "Mode Solo", "Studio 200 Mods"};
+        for (int i = 0; i < 3; i++) {
+            float sx = segX + 4.0F + i * subSegW;
+            boolean hov = interactive && inside(mx, my, sx, segY + 4.0F, subSegW, segH - 8.0F);
+            int col = hov ? 0xFFFFFFFF : (i == 2 ? 0xFFF5C878 : 0xFFD5DCEB);
+            bodyF.drawCentered(dockActions[i], sx + subSegW * 0.5F, segY + 11.5F, mulAlpha(col, uiAlpha), false);
+        }
+
+        bodyF.drawString(
+                brdOn ? "Borderless F11 : ON" : "Borderless F11 : OFF",
+                brdPillX + 26.0F, segY + 11.5F,
+                mulAlpha(brdOn ? 0xFF6EE7B7 : 0xFFA2AABF, uiAlpha)
+        );
+        bodyF.endBatch();
+
+        smallF.beginBatch();
+        smallF.drawCentered("Mods", modsX + 28.0F, 20.0F, mulAlpha(0xFFB4BCD0, uiAlpha), false);
+        smallF.drawCentered("Vanilla", vanX + 30.0F, 20.0F, mulAlpha(0xFFB4BCD0, uiAlpha), false);
+        smallF.drawCentered("\u00D7", quitX + 15.0F, 19.5F, mulAlpha(0xFFF87171, uiAlpha), false);
+
+        // Télémétrie centrale du dock inférieur
+        float teleLeft = brdPillX + brdPillW + 18.0F;
+        float teleAvail = ctaX - teleLeft - 18.0F;
+        if (teleAvail > 120.0F) {
+            String tele = smallF.trimToWidth(
+                    gpuBrand + "   \u2022   " + activeMods + "/200 modules actifs   \u2022   RSHIFT Studio",
+                    teleAvail
+            );
+            smallF.drawString(tele, teleLeft, dockY + 27.5F, mulAlpha(0xFF727B90, uiAlpha));
+        }
+        smallF.endBatch();
     }
 
-    private static void drawButtonLabel(
-            SmoothFontRenderer sf,
-            float x,
-            float y,
-            float w,
-            float h,
-            String label,
-            int mx,
-            int my,
-            ButtonKind kind,
-            float uiAlpha
-    ) {
-        boolean hov = uiAlpha > 0.45F && mx >= x && mx <= x + w && my >= y && my <= y + h;
-        int textCol;
-        switch (kind) {
-            case PRIMARY:
-                textCol = 0xFF0A0B0E;
-                break;
-            case ACCENT_OUTLINE:
-                textCol = hov ? 0xFFFFF4DC : 0xFFF5C878;
-                break;
-            case DANGER:
-                textCol = hov ? 0xFFFFB4B4 : 0xFFF87171;
-                break;
-            case SUBTLE:
-                textCol = hov ? 0xFFECEFF6 : 0xFF949CB0;
-                break;
-            case SECONDARY:
-            default:
-                textCol = 0xFFECEFF6;
-                break;
-        }
-        float textY = y + (h - sf.getHeight()) * 0.5F + 0.5F;
-        sf.drawCentered(label, x + w * 0.5F, textY, mulAlpha(textCol, uiAlpha), false);
-    }
-
-    private static int profileAccentArgb(PureFPSProfile prof) {
-        switch (prof) {
-            case FPS: return 0xFF34D399;
-            case BALANCED: return 0xFFF5B85C;
-            case QUALITY: return 0xFF60A5FA;
-            default: return 0xFFE5E7EB;
-        }
+    private static void drawSubtlePill(float x, float y, float w, float h, float r, boolean hov, boolean danger, float uiAlpha) {
+        int fill = danger ? (hov ? 0xDD3B1720 : 0xCC130E13) : (hov ? 0xE6181D2B : 0xCC0A0D14);
+        int brd = danger ? (hov ? 0x88F87171 : 0x34F87171) : (hov ? 0x3CFFFFFF : 0x22FFFFFF);
+        NanoUiRenderer.drawRoundedRect(x, y, w, h, r, mulAlpha(fill, uiAlpha), mulAlpha(brd, uiAlpha), 1.0F);
     }
 
     @Override
@@ -324,80 +386,134 @@ public class GuiPureMainMenu extends GuiScreen {
             super.mouseClicked(mouseX, mouseY, mouseButton);
             return;
         }
-        int hit = hitTestButton(mouseX, mouseY);
-        if (hit < 0) {
+        float dw = NanoUiRenderer.desktopWidth(this.mc);
+        float dh = NanoUiRenderer.desktopHeight(this.mc);
+        float mx = NanoUiRenderer.desktopEventMouseX(this.mc);
+        float my = NanoUiRenderer.desktopEventMouseY(this.mc);
+
+        int act = hitTestDesktopAction(dw, dh, mx, my);
+        if (act < 0) {
             super.mouseClicked(mouseX, mouseY, mouseButton);
             return;
         }
+
         this.mc.getSoundHandler().playSound(PositionedSoundRecord.create(new ResourceLocation("gui.button.press"), 1.0F));
-        switch (hit) {
-            case BTN_HYPIXEL:
+        switch (act) {
+            case ACT_HYPIXEL:
                 ServerData hypixel = new ServerData("Hypixel", "mc.hypixel.net", false);
                 this.mc.displayGuiScreen(new GuiConnecting(this, this.mc, hypixel));
                 break;
-            case BTN_MULTI:
+            case ACT_MULTI:
                 this.mc.displayGuiScreen(new GuiMultiplayer(this));
                 break;
-            case BTN_SOLO:
+            case ACT_SOLO:
                 this.mc.displayGuiScreen(new GuiSelectWorld(this));
                 break;
-            case BTN_CLIENT:
+            case ACT_STUDIO:
                 this.mc.displayGuiScreen(new GuiMashClientMenu(this));
                 break;
-            case BTN_OPTIONS:
+            case ACT_OPTIONS:
                 this.mc.displayGuiScreen(new GuiOptions(this, this.mc.gameSettings));
                 break;
-            case BTN_MODS:
+            case ACT_MODS:
                 this.mc.displayGuiScreen(new GuiModList(this));
                 break;
-            case BTN_VANILLA:
+            case ACT_VANILLA:
                 bypassOnce = true;
                 this.mc.displayGuiScreen(new GuiMainMenu());
                 break;
-            case BTN_PROFILE: {
-                PureFPSProfile next = PureFPSConfig.activeProfile == PureFPSProfile.FPS
-                        ? PureFPSProfile.BALANCED
-                        : (PureFPSConfig.activeProfile == PureFPSProfile.BALANCED ? PureFPSProfile.QUALITY : PureFPSProfile.FPS);
-                PureFPSConfig.applyProfile(next, true);
+            case ACT_QUIT:
+                this.mc.shutdown();
+                break;
+            case ACT_PROF_FPS:
+                PureFPSConfig.applyProfile(PureFPSProfile.FPS, true);
                 MashModules.syncFromPureConfig();
                 break;
-            }
-            case BTN_BORDERLESS:
+            case ACT_PROF_BAL:
+                PureFPSConfig.applyProfile(PureFPSProfile.BALANCED, true);
+                MashModules.syncFromPureConfig();
+                break;
+            case ACT_PROF_QUAL:
+                PureFPSConfig.applyProfile(PureFPSProfile.QUALITY, true);
+                MashModules.syncFromPureConfig();
+                break;
+            case ACT_BORDERLESS:
                 PureFPSConfig.borderlessFullscreen = !PureFPSConfig.borderlessFullscreen;
                 MashModules.MOD_BORDERLESS.setEnabledSilent(PureFPSConfig.borderlessFullscreen);
                 PureFPSConfig.markDirty();
-                break;
-            case BTN_QUIT:
-                this.mc.shutdown();
                 break;
             default:
                 break;
         }
     }
 
-    private int hitTestButton(int mx, int my) {
-        float cx = this.width * 0.5F;
-        float cy = this.height * 0.5F;
-        float py = cy - 244.0F * 0.5F + 6.0F;
-        float bx = cx - 122.0F;
-        float bw = 244.0F;
-        float by = py + 64.0F;
-        float halfW = 119.0F;
+    private static int hitTestDesktopAction(float dw, float dh, float mx, float my) {
+        // 1. Barre de navigation supérieure
+        float navW = 472.0F;
+        float navX = (dw - navW) * 0.5F;
+        float navY = 9.0F;
+        float[] navItemWidths = {78.0F, 98.0F, 88.0F, 122.0F, 74.0F};
+        int[] navActions = {-1, ACT_MULTI, ACT_SOLO, ACT_STUDIO, ACT_OPTIONS};
+        float curNavX = navX + 6.0F;
+        for (int i = 0; i < navItemWidths.length; i++) {
+            float iw = navItemWidths[i];
+            if (inside(mx, my, curNavX, navY + 4.0F, iw, 26.0F)) {
+                return navActions[i];
+            }
+            curNavX += iw;
+        }
 
-        if (inside(mx, my, bx, by, bw, 28.0F)) return BTN_HYPIXEL;
-        if (inside(mx, my, bx, by + 34.0F, bw, 24.0F)) return BTN_MULTI;
-        if (inside(mx, my, bx, by + 63.0F, bw, 24.0F)) return BTN_SOLO;
-        if (inside(mx, my, bx, by + 92.0F, bw, 26.0F)) return BTN_CLIENT;
-        if (inside(mx, my, bx, by + 124.0F, halfW, 22.0F)) return BTN_OPTIONS;
-        if (inside(mx, my, bx + 125.0F, by + 124.0F, halfW, 22.0F)) return BTN_MODS;
-        if (inside(mx, my, 10.0F, 5.5F, 198.0F, 19.0F)) return BTN_PROFILE;
-        if (this.width >= 560 && inside(mx, my, 288.0F, 5.5F, 92.0F, 19.0F)) return BTN_BORDERLESS;
-        if (inside(mx, my, this.width - 154.0F, 5.5F, 82.0F, 19.0F)) return BTN_VANILLA;
-        if (inside(mx, my, this.width - 66.0F, 5.5F, 56.0F, 19.0F)) return BTN_QUIT;
+        // 2. Contrôles haut-droite
+        float quitX = dw - 52.0F;
+        float vanX = quitX - 68.0F;
+        float modsX = vanX - 64.0F;
+        if (inside(mx, my, quitX, 11.0F, 30.0F, 30.0F)) return ACT_QUIT;
+        if (inside(mx, my, vanX, 11.0F, 60.0F, 30.0F)) return ACT_VANILLA;
+        if (inside(mx, my, modsX, 11.0F, 56.0F, 30.0F)) return ACT_MODS;
+
+        // 3. Sélecteur de Profils Moteur
+        float dockY = dh - 66.0F;
+        float profBoxY = dockY - 62.0F;
+        float profBoxW = 306.0F;
+        float segProfW = (profBoxW - 10.0F) / 3.0F;
+        int[] profActs = {ACT_PROF_FPS, ACT_PROF_BAL, ACT_PROF_QUAL};
+        for (int i = 0; i < 3; i++) {
+            float px = 44.0F + 5.0F + i * segProfW;
+            if (inside(mx, my, px, profBoxY + 4.5F, segProfW, 29.0F)) {
+                return profActs[i];
+            }
+        }
+
+        // 4. Dock inférieur
+        float segX = 32.0F;
+        float segY = dockY + 15.0F;
+        float segW = 312.0F;
+        float subSegW = (segW - 8.0F) / 3.0F;
+        int[] dockActs = {ACT_MULTI, ACT_SOLO, ACT_STUDIO};
+        for (int i = 0; i < 3; i++) {
+            float sx = segX + 4.0F + i * subSegW;
+            if (inside(mx, my, sx, segY + 4.0F, subSegW, 28.0F)) {
+                return dockActs[i];
+            }
+        }
+
+        float brdPillX = segX + segW + 12.0F;
+        if (inside(mx, my, brdPillX, segY, 166.0F, 36.0F)) return ACT_BORDERLESS;
+
+        float ctaW = 226.0F;
+        float ctaX = dw - ctaW - 32.0F;
+        if (inside(mx, my, ctaX, dockY + 12.0F, ctaW, 42.0F)) return ACT_HYPIXEL;
+
         return -1;
     }
 
-    private static boolean inside(int mx, int my, float x, float y, float w, float h) {
+    private static int mulAlpha(int argb, float alphaFactor) {
+        int baseA = (argb >>> 24) & 0xFF;
+        int scaledA = Math.max(0, Math.min(255, Math.round((float) baseA * alphaFactor)));
+        return (scaledA << 24) | (argb & 0x00FFFFFF);
+    }
+
+    private static boolean inside(float mx, float my, float x, float y, float w, float h) {
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
 }

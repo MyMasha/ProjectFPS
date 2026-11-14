@@ -812,4 +812,69 @@ public class PureFPSCoreTest {
         assertEquals(135.0F, shiftAxis.y, 0.01F);
         assertTrue(shiftAxis.hasHorizontalGuide);
     }
+
+    @Test
+    public void testBilingualEnglishModuleSearchAndDesktopFonts() throws Exception {
+        java.io.File tempDir = java.nio.file.Files.createTempDirectory("mashclient_en_test").toFile();
+        tempDir.deleteOnExit();
+        dev.purefps.module.MashModules.init(tempDir);
+
+        java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
+        assertEquals(200, all.size());
+        for (dev.purefps.module.MashModule mod : all) {
+            dev.purefps.module.MashEnglishCatalog.Entry entry = dev.purefps.module.MashEnglishCatalog.lookup(mod.getId());
+            assertNotNull("Catalogue anglais manquant pour " + mod.getId(), entry);
+            assertFalse("Nom anglais vide pour " + mod.getId(), mod.getEnglishName().trim().isEmpty());
+        }
+
+        String[][] expectedTopMatches = {
+                {"Armor Status", "hud_armor"},
+                {"armour status", "hud_armor"},
+                {"FPS Counter", "hud_fps"},
+                {"Custom Crosshair", "pvp_crosshair"},
+                {"croshair", "pvp_crosshair"},
+                {"No Hurt Cam", "pvp_no_hurtcam"},
+                {"hurtcam", "pvp_no_hurtcam"},
+                {"hurt cam", "pvp_no_hurtcam"},
+                {"Time Changer", "vis_time_changer"},
+                {"timechanger", "vis_time_changer"},
+                {"Toggle Sprint", "pvp_toggle_sprint"},
+                {"togglesprint", "pvp_toggle_sprint"},
+                {"Freelook", "pvp_freelook"},
+                {"perspective mod", "pvp_freelook"},
+                {"1.7 animations", "pvp_old_animations"},
+                {"blockhit", "pvp_old_animations"},
+                {"Block Outline", "vis_block_overlay"},
+                {"Clear Water", "pvp_clean_water_overlay"},
+                {"Item Physics", "vis_item_physics"},
+                {"UHC Overlay", "hyp_uhc_overlay"},
+                {"AutoGG", "hyp_autogg"},
+                {"auto gg", "hyp_autogg"},
+                {"Entity Culling", "eng_entity_culling"},
+                {"Keystrokes", "hud_keystrokes"},
+                {"Potion Effects", "hud_potions"},
+                {"Coordinates", "hud_coords"},
+                {"Zoom", "pvp_zoom"},
+                {"FOV Changer", "pvp_fov"}
+        };
+
+        for (String[] pair : expectedTopMatches) {
+            String query = pair[0];
+            String expectedId = pair[1];
+            java.util.List<dev.purefps.module.MashModule> results = dev.purefps.module.MashModules.filter(
+                    dev.purefps.module.MashCategory.ALL,
+                    false,
+                    false,
+                    query
+            );
+            assertFalse("Aucun résultat pour la requête anglaise '" + query + "'", results.isEmpty());
+            assertEquals("Mauvais premier résultat pour '" + query + "'", expectedId, results.get(0).getId());
+        }
+
+        // Vérification du bake headless des nouvelles polices UI Desktop (incluant ▶ et ♥)
+        assertNotNull(dev.purefps.client.ui.SmoothFontRenderer.uiHero().bakeAtlasImage());
+        assertNotNull(dev.purefps.client.ui.SmoothFontRenderer.uiCardTitle().bakeAtlasImage());
+        assertTrue(dev.purefps.client.ui.SmoothFontRenderer.uiCardTitle().getStringWidth("\u25B6 REJOINDRE HYPIXEL") > 40.0F);
+        assertTrue(dev.purefps.client.ui.SmoothFontRenderer.uiBody().getStringWidth("10.0 \u2665") > 15.0F);
+    }
 }

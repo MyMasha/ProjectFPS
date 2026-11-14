@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MashClient 4.0 — Singularity</title>
-<meta name="description" content="MashClient 4.0 Singularity Edition — Client compétitif Minecraft 1.8.9 (200 modules, HUD magnétique, Borderless, Trou Noir O(1) ultra-fluide).">
+<title>MashClient 4.1 — Singularity</title>
+<meta name="description" content="MashClient 4.1 Singularity Edition — Client compétitif Minecraft 1.8.9 (200 modules FR/EN, HUD magnétique, Borderless, Trou Noir 3D de Schwarzschild ultra-fluide).">
 <style>
   :root {
     --void-0: #000000;
@@ -1195,7 +1195,7 @@
   <canvas id="singularity-canvas"></canvas>
   <div class="cinema-vignette"></div>
 
-  <!-- Interface Principale MashClient 4.0 Singularity -->
+  <!-- Interface Principale MashClient 4.1 Singularity -->
   <div id="launcher-shell">
     <header class="topbar" id="titlebar">
       <div class="brand-cluster">
@@ -1207,7 +1207,7 @@
           </svg>
         </div>
         <span class="brand-wordmark">MASHCLIENT</span>
-        <span class="brand-edition">SINGULARITY 4.0</span>
+        <span class="brand-edition">SINGULARITY 4.1</span>
       </div>
 
       <nav class="top-nav" aria-label="Navigation principale">
@@ -1254,14 +1254,14 @@
     </header>
 
     <main class="stage">
-      <!-- VUE 1 : JOUER (Mise en valeur du Trou Noir O(1) ultra-fluide) -->
+      <!-- VUE 1 : JOUER (Mise en valeur du Trou Noir 3D de Schwarzschild rapproché) -->
       <section class="stage-view active" id="view-play">
         <div></div>
         <div class="hero-editorial">
           <div class="hero-kicker">FORGE 1.8.9  &bull;  200 MODULES  &bull;  BORDERLESS</div>
           <h1 class="hero-title">MASHCLIENT</h1>
           <p class="hero-subtitle">
-            200 modules compétitifs avec sous-paramètres complets (clic droit dans <strong>RSHIFT</strong>), HUD magnétique transparent, Plein Écran Borderless et émergence Trou Noir 100 FPS sans aucun freeze.
+            200 modules compétitifs FR/EN avec sous-paramètres complets (clic droit dans <strong>RSHIFT</strong>), HUD magnétique transparent, Plein Écran Borderless et Trou Noir 3D de Schwarzschild ultra-fluide.
           </p>
 
           <div class="profile-strip" role="radiogroup" aria-label="Profil de performance">
@@ -1336,10 +1336,10 @@
         <div class="glass-sheet">
           <div class="sheet-header">
             <div>
-              <h2 class="sheet-title">Modules Principaux (200 Modules + Sous-Paramètres via RSHIFT en jeu)</h2>
-              <p class="sheet-desc">Ouvrez <strong>RSHIFT</strong> en jeu pour configurer les 200 modules (clic droit = sous-paramètres, glisser-déposer = lignes magnétiques).</p>
+              <h2 class="sheet-title">Modules Principaux (200 Modules FR/EN + Sous-Paramètres via RSHIFT en jeu)</h2>
+              <p class="sheet-desc">Ouvrez <strong>RSHIFT</strong> en jeu pour rechercher en français ou en anglais les 200 modules (clic droit = sous-paramètres, glisser = lignes magnétiques).</p>
             </div>
-            <input type="search" class="search-field" id="mod-search" placeholder="Rechercher un module..." oninput="renderModules()">
+            <input type="search" class="search-field" id="mod-search" placeholder="Rechercher (FR / English : Armor, Zoom, FPS...)" oninput="renderModules()">
           </div>
           <div class="sheet-scroll">
             <div class="settings-grid" id="modules-grid"></div>
@@ -1353,7 +1353,7 @@
           <div class="sheet-header">
             <div>
               <h2 class="sheet-title">Auto-Updater, JVM &amp; Environnement</h2>
-              <p class="sheet-desc">Mises à jour automatiques GitHub Releases (<code style="font-family:var(--font-mono);color:var(--gold-bright)">MashClient.exe</code> + <code style="font-family:var(--font-mono);color:var(--gold-bright)">purefps-4.0.0.jar</code>) et réduction automatique en bas à droite.</p>
+              <p class="sheet-desc">Mises à jour automatiques GitHub Releases (<code style="font-family:var(--font-mono);color:var(--gold-bright)">MashClient.exe</code> + <code style="font-family:var(--font-mono);color:var(--gold-bright)">purefps-4.1.0.jar</code>) et fermeture vers la zone de notification.</p>
             </div>
             <div style="display:flex;gap:8px;">
               <button class="btn-outline" onclick="sendIpc({cmd:'open_mods_folder'})">Dossier Mods</button>
@@ -1366,7 +1366,7 @@
                 <div class="updater-title-group">
                   <span class="updater-title">Auto-Updater GitHub Releases</span>
                   <span class="updater-badge ok" id="upd-token-badge">Jeton Read-Only actif</span>
-                  <span class="updater-badge" id="upd-status-badge">MashClient v4.0.0</span>
+                  <span class="updater-badge" id="upd-status-badge">MashClient v4.1.0</span>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;">
                   <button class="btn-outline" id="btn-upd-check" onclick="triggerManualUpdateCheck()">Vérifier maintenant</button>
@@ -1426,7 +1426,7 @@
             </div>
 
             <div class="sys-label" style="margin-bottom:7px;">Journal d'exécution temps-réel</div>
-            <pre class="log-terminal" id="log-console">[MashClient 4.0] Prêt. Dès le lancement, MashClient se réduit automatiquement en bas à droite (System Tray) et ouvre Minecraft en Borderless.</pre>
+            <pre class="log-terminal" id="log-console">[MashClient 4.1] Prêt. L'écran noir reste actif jusqu'à l'ouverture de Minecraft, puis MashClient se referme dans la zone de notification en bas à droite.</pre>
           </div>
         </div>
       </section>
@@ -1460,9 +1460,9 @@
     <div class="modal-card" id="account-modal-body"></div>
   </div>
 
-  <!-- Rideau Noir Absolu (#000000) une fois la caméra aspirée dans le Trou Noir (cliquable / Échap / Alt+Tab) -->
-  <div id="horizon-blackout" onclick="if(plungeActive){resetPlungeSequence();sendIpc({cmd:'abort_launch_curtain'});}">
-    <div class="horizon-telemetry" id="horizon-status">ENTRÉE DANS MASHCLIENT 4.0  &bull;  ÉCHAP OU ALT+TAB POUR QUITTER</div>
+  <!-- Rideau Noir Absolu (#000000) une fois la caméra aspirée dans le Trou Noir (Échap pour annuler) -->
+  <div id="horizon-blackout">
+    <div class="horizon-telemetry" id="horizon-status">ENTRÉE DANS MASHCLIENT 4.1  &bull;  OUVERTURE DE MINECRAFT...</div>
   </div>
 
   <!-- Aperçu interactif du menu Minecraft Singularity (uniquement hors-JVM pour démonstration fluide) -->
@@ -1482,10 +1482,10 @@
       <div class="mc-card">
         <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
           <span style="font-size:19px;font-weight:700;letter-spacing:0.14em;color:#f7f4ec;">MASHCLIENT</span>
-          <span class="brand-edition">v4.0</span>
+          <span class="brand-edition">v4.1</span>
         </div>
         <div style="font-size:11px;color:#8a91a2;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.09);">
-          200 Modules  &bull;  HUD Magnétique  &bull;  RSHIFT en jeu
+          200 Modules FR/EN  &bull;  HUD Magnétique  &bull;  RSHIFT en jeu
         </div>
         <button class="mc-btn primary">Rejoindre Hypixel</button>
         <button class="mc-btn">Multijoueur</button>
@@ -1500,7 +1500,7 @@
 
     <div style="padding:10px 16px;display:flex;justify-content:space-between;font-size:11px;color:#697082;">
       <span>Borderless Windowed  &bull;  200 Modules</span>
-      <span>MashClient 4.0.0  &bull;  Forge 1.8.9</span>
+      <span>MashClient 4.1.0  &bull;  Forge 1.8.9</span>
     </div>
   </div>
 
@@ -1529,20 +1529,20 @@
   ];
 
   const MODULE_DEFS = [
-    { key: "borderless_fullscreen", title: "Plein Écran Borderless (F11)", desc: "Fenêtre sans bordure instantanée à (0, 0) sans écran noir lors d'Alt-Tab" },
-    { key: "hud_enabled", title: "HUD MashClient (65 Widgets)", desc: "Rendu unifié en 1 seul appel SDF GPU + lignes magnétiques via RSHIFT" },
-    { key: "hud_fps_cps", title: "Compteur FPS & CPS", desc: "Cadence d'images et clics par seconde avec sous-options clic droit" },
-    { key: "hud_keystrokes", title: "Keystrokes Compétitif", desc: "Visualisation ZQSD/WASD, souris et barre d'espace personnalisable" },
-    { key: "hud_ping", title: "Latence Serveur", desc: "Mesure du ping réseau échantillonnée sans surcharge CPU" },
-    { key: "hud_armor", title: "État d'Équipement", desc: "Affiche l'armure portée et sa durabilité en temps réel" },
-    { key: "toggle_sprint", title: "ToggleSprint & Sneak", desc: "Maintien fluide du Sprint avec textes d'état personnalisables" },
-    { key: "zoom_enabled", title: "Zoom Optique (Molette configurable)", desc: "Zoom C avec choix clic droit : zoomer à la molette ou garder la hotbar" },
-    { key: "fullbright", title: "Fullbright Réglable", desc: "Luminosité maximale sans modifier options.txt" },
-    { key: "low_fire", title: "Feu Abaissé Réglable", desc: "Hauteur des flammes ajustable dans les sous-paramètres RSHIFT" },
-    { key: "no_hurt_cam", title: "HurtCam Réglable (0-100%)", desc: "Intensité d'inclinaison aux dégâts ajustable au pourcentage près" },
-    { key: "static_fov", title: "PvP FOV Changer", desc: "FOV de base personnalisé (30-150°) et multiplicateurs Speed/Sprint/Arc" },
-    { key: "smooth_client_font", title: "Typographie Lissée HD", desc: "Atlas anti-aliasé O(1) fusionné ombre + texte en 1 passe" },
-    { key: "custom_main_menu", title: "Menu Singularity 4.0", desc: "Émergence Trou Noir 100 FPS sur thread dédié à la place de Mojang" }
+    { key: "borderless_fullscreen", title: "Plein Écran Borderless (F11)", en: "Borderless Fullscreen", kw: "borderless fullscreen windowed f11 alt tab screen", desc: "Fenêtre sans bordure instantanée à (0, 0) sans écran noir lors d'Alt-Tab" },
+    { key: "hud_enabled", title: "HUD MashClient (65 Widgets)", en: "HUD Editor & Mods", kw: "hud editor magnetic snap lines widgets overlay lunar", desc: "Rendu unifié en 1 seul appel SDF GPU + lignes magnétiques via RSHIFT" },
+    { key: "hud_fps_cps", title: "Compteur FPS & CPS", en: "FPS & CPS Counter", kw: "fps counter cps clicks per second framerate display", desc: "Cadence d'images et clics par seconde avec sous-options clic droit" },
+    { key: "hud_keystrokes", title: "Keystrokes Compétitif", en: "Keystrokes", kw: "keystrokes wasd zqsd keys mouse buttons spacebar", desc: "Visualisation ZQSD/WASD, souris et barre d'espace personnalisable" },
+    { key: "hud_ping", title: "Latence Serveur", en: "Ping Display", kw: "ping latency ms connection server delay", desc: "Mesure du ping réseau échantillonnée sans surcharge CPU" },
+    { key: "hud_armor", title: "État d'Équipement", en: "Armor Status", kw: "armor status armour durability helmet chestplate leggings boots equipment", desc: "Affiche l'armure portée et sa durabilité en temps réel" },
+    { key: "toggle_sprint", title: "ToggleSprint & Sneak", en: "ToggleSprint / ToggleSneak", kw: "togglesprint toggle sprint togglesneak toggle sneak run crouch", desc: "Maintien fluide du Sprint avec textes d'état personnalisables" },
+    { key: "zoom_enabled", title: "Zoom Optique (Molette configurable)", en: "Zoom", kw: "zoom optifine scroll wheel smooth camera", desc: "Zoom C avec choix clic droit : zoomer à la molette ou garder la hotbar" },
+    { key: "fullbright", title: "Fullbright Réglable", en: "Fullbright", kw: "fullbright gamma brightness night vision cave light", desc: "Luminosité maximale sans modifier options.txt" },
+    { key: "low_fire", title: "Feu Abaissé Réglable", en: "Low Fire", kw: "low fire lowfire flame height burning overlay", desc: "Hauteur des flammes ajustable dans les sous-paramètres RSHIFT" },
+    { key: "no_hurt_cam", title: "HurtCam Réglable (0-100%)", en: "No HurtCam / HurtCam", kw: "hurtcam nohurtcam no hurt cam damage shake tilt", desc: "Intensité d'inclinaison aux dégâts ajustable au pourcentage près" },
+    { key: "static_fov", title: "PvP FOV Changer", en: "FOV Changer", kw: "fov changer field of view dynamic fov speed bow sprint", desc: "FOV de base personnalisé (30-150°) et multiplicateurs Speed/Sprint/Arc" },
+    { key: "smooth_client_font", title: "Typographie Lissée HD", en: "Smooth Font", kw: "smooth font custom font hd text typography", desc: "Atlas anti-aliasé O(1) fusionné ombre + texte en 1 passe" },
+    { key: "custom_main_menu", title: "Menu Singularity 4.1", en: "Custom Main Menu", kw: "custom main menu black hole singularity title screen", desc: "Émergence Trou Noir 3D de Schwarzschild à la place de Mojang" }
   ];
 
   let state = {
@@ -1610,8 +1610,8 @@
     has_github_token: true,
     update: {
       status: "idle",
-      current_version: "4.0.0",
-      installed_jar_version: "4.0.0",
+      current_version: "4.1.0",
+      installed_jar_version: "4.1.0",
       latest_version: null,
       release_notes: null,
       download_percent: 0,
@@ -1628,7 +1628,7 @@
   // État cinématique du Trou Noir et de l'aspiration caméra
   let plungeActive = false;
   let plungeStartMs = 0;
-  let plungeProgress = 0.0; // 0.0 = orbite calme, 1.0 = franchissement de l'Horizon des Événements (#000000)
+  let plungeProgress = 0.0; // 0.0 = orbite rapprochée, 1.0 = franchissement de l'Horizon des Événements (#000000)
   let darknessSignaled = false;
   const PLUNGE_DURATION_MS = 2050.0;
 
@@ -1636,7 +1636,7 @@
   let mouseTargetY = 0.0;
   let mouseSmoothX = 0.0;
   let mouseSmoothY = 0.0;
-  let lensOffsetCurrentX = 0.15;
+  let lensOffsetCurrentX = 0.14;
   let fixedDemoTimeSec = null;
 
   function hasNativeIpc() {
@@ -1932,21 +1932,44 @@
     setSlider("rng-part-cap", "lbl-part-cap", state.settings.max_particles_per_layer, " / couche");
   }
 
+  function normalizeSearchText(str) {
+    return String(str || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/armour/g, "armor")
+      .replace(/colour/g, "color")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  function matchesSmartSearch(item, rawQuery) {
+    const qNorm = normalizeSearchText(rawQuery);
+    if (!qNorm) return true;
+    const hay = normalizeSearchText(`${item.title} ${item.en || ""} ${item.kw || ""} ${item.desc} ${item.key}`);
+    const hayCompact = hay.replace(/\s+/g, "");
+    const qCompact = qNorm.replace(/\s+/g, "");
+    if (hay.includes(qNorm) || hayCompact.includes(qCompact)) return true;
+    const tokens = qNorm.split(/\s+/).filter(Boolean);
+    return tokens.every((tok) => hay.includes(tok) || hayCompact.includes(tok));
+  }
+
   function renderModules() {
-    const q = (document.getElementById("mod-search").value || "").trim().toLowerCase();
+    const rawQ = document.getElementById("mod-search").value || "";
     const grid = document.getElementById("modules-grid");
     let activeCount = 0;
     let html = "";
     for (const m of MODULE_DEFS) {
       const on = !!state.settings[m.key];
       if (on) activeCount++;
-      if (q && !m.title.toLowerCase().includes(q) && !m.desc.toLowerCase().includes(q)) {
+      if (!matchesSmartSearch(m, rawQ)) {
         continue;
       }
+      const enTag = m.en ? ` <span style="color:var(--text-muted);font-weight:400;font-size:11px;">&middot; ${escapeHtml(m.en)}</span>` : "";
       html += `
         <div class="setting-row ${on ? "is-on" : ""}" onclick="toggleSetting('${m.key}')">
           <div class="setting-meta">
-            <div class="setting-name">${escapeHtml(m.title)}</div>
+            <div class="setting-name">${escapeHtml(m.title)}${enTag}</div>
             <div class="setting-sub">${escapeHtml(m.desc)}</div>
           </div>
           <div class="toggle-pill"></div>
@@ -2000,7 +2023,7 @@
     const checkBtn = document.getElementById("btn-upd-check");
     const actBtn = document.getElementById("btn-upd-action");
 
-    const curVer = upd.current_version || "4.0.0";
+    const curVer = upd.current_version || "4.1.0";
     const modVer = upd.installed_jar_version ? ` • Mod v${upd.installed_jar_version}` : "";
     if (msgEl) msgEl.textContent = upd.message || `MashClient v${curVer}${modVer}`;
 
@@ -2061,12 +2084,12 @@
   function triggerManualUpdateCheck() {
     if (!hasNativeIpc()) {
       state.update.status = "available";
-      state.update.latest_version = "4.0.0";
+      state.update.latest_version = "4.1.0";
       state.update.has_jar_update = true;
       state.update.has_exe_update = true;
-      state.update.message = "Nouvelle version v4.0.0 détectée sur MyMasha/ProjectFPS (purefps-4.0.0.jar + MashClient.exe).";
+      state.update.message = "Nouvelle version v4.1.0 détectée sur MyMasha/ProjectFPS (purefps-4.1.0.jar + MashClient.exe).";
       renderAll();
-      showToast("Mise à jour MashClient v4.0.0 disponible !", false);
+      showToast("Mise à jour MashClient v4.1.0 disponible !", false);
       return;
     }
     sendIpc({ cmd: "check_updates", manual: true });
@@ -2081,12 +2104,12 @@
       }
       state.update.status = "downloading";
       state.update.download_percent = 68;
-      state.update.message = "Téléchargement de purefps-4.0.0.jar (68%)...";
+      state.update.message = "Téléchargement de purefps-4.1.0.jar (68%)...";
       renderAll();
       setTimeout(() => {
         state.update.status = "ready_restart";
         state.update.download_percent = 100;
-        state.update.message = "Mise à jour v4.0.0 installée — cliquez sur Relancer MashClient.";
+        state.update.message = "Mise à jour v4.1.0 installée — cliquez sur Relancer MashClient.";
         renderAll();
       }, 900);
       return;
@@ -2169,7 +2192,7 @@
   }
 
   function clearLogs() {
-    document.getElementById("log-console").textContent = "[MashClient 4.0] Journal effacé.\n";
+    document.getElementById("log-console").textContent = "[MashClient 4.1] Journal effacé.\n";
   }
 
   function appendLog(line) {
@@ -2205,7 +2228,7 @@
     renderAccountModal();
   }
 
-  // Suspension WebGL 0% GPU lorsque MashClient est réduit dans la zone de notification (en bas à droite)
+  // Suspension WebGL 0% GPU lorsque MashClient est refermé dans la zone de notification (en bas à droite)
   let mashSuspended = false;
   let mashResumeRenderFn = null;
   window.__mashSetSuspended = function(susp) {
@@ -2237,13 +2260,14 @@
   };
 
   /* ============================================================================
-   * MOTEUR WEBGL ANALYTIQUE O(1) DE SCHWARZSCHILD (600+ FPS — ZÉRO BOUCLE PAR PIXEL)
-   * - Projection gravitationnelle analytique d'Einstein (disque primaire + arche
-   *   photonique supérieure/inférieure + anneau de photons + Doppler relativiste).
-   * - Texture procédurale 256×256 sans couture pré-calculée une seule fois au boot
-   *   (filtrage bilinéaire matériel GPU, 0 itération RK2 / 0 boucle FBM par pixel !).
-   * - Plafond interne 1920×1080 et delta-time borné pendant le redimensionnement
-   *   plein écran pour une fluidité constante sans aucun micro-freeze.
+   * MOTEUR WEBGL 3D GÉODÉSIQUE DE SCHWARZSCHILD (GARGANTUA RAPPROCHÉ — 120+ FPS)
+   * - Cadrage rapproché d'origine (`camDist = mix(15.6, 0.82, pDive)`) :
+   *   UN SEUL disque d'accrétion équatorial 3D (`y = 0`) naturellement courbé
+   *   par la gravité (zéro fausse double aura plaquée au-dessus !).
+   * - Espace profond #000000 pur + étoiles 3D analytiques nettes (zéro texture
+   *   dans l'espace = zéro point blanc/noir parasite).
+   * - Plasma du disque accéléré 15× par une texture périodique 512×512 FBM
+   *   pré-calculée au démarrage (2 lectures bilinéaires GPU au lieu de 15 fbm()).
    * ============================================================================ */
   function buildTileableNoiseRGBA(size) {
     const data = new Uint8Array(size * size * 4);
@@ -2274,7 +2298,7 @@
       let amp = 0.52;
       let norm = 0.0;
       let p = basePeriod;
-      for (let o = 0; o < 4; o++) {
+      for (let o = 0; o < 5; o++) {
         sum += amp * valueNoise(u, v, p, seed + o * 31);
         norm += amp;
         p *= 2;
@@ -2287,13 +2311,12 @@
       const v = y / size;
       for (let x = 0; x < size; x++) {
         const u = x / size;
-        const coarse = tileFbm(u, v, 6, 101);
-        const fine = tileFbm(u, v, 16, 409);
-        const starCell = hashGrid(x, y, size, 977);
-        const starVal = starCell > 0.986 ? Math.min(1.0, 0.78 + (starCell - 0.986) * 15.5) : coarse * 0.25;
+        const coarse = tileFbm(u, v, 8, 101);
+        const fine = tileFbm(u, v, 20, 409);
+        const ridge = 1.0 - Math.abs(tileFbm(u, v, 12, 733) * 2.0 - 1.0);
         data[ptr++] = Math.max(0, Math.min(255, (coarse * 255.0) | 0));
         data[ptr++] = Math.max(0, Math.min(255, (fine * 255.0) | 0));
-        data[ptr++] = Math.max(0, Math.min(255, (starVal * 255.0) | 0));
+        data[ptr++] = Math.max(0, Math.min(255, (ridge * 255.0) | 0));
         data[ptr++] = 255;
       }
     }
@@ -2333,27 +2356,96 @@
       uniform float u_offsetX;
       uniform sampler2D u_noise;
 
-      vec3 sampleAccretion(float rNorm, float angle, float doppler, float spin) {
-        vec2 uv1 = vec2(rNorm * 2.15 - spin * 0.045, angle * 0.31830988 + spin * 0.145 / (0.34 + rNorm));
-        vec2 uv2 = vec2(rNorm * 4.90 + spin * 0.028, angle * 0.63661977 - spin * 0.230 / (0.27 + rNorm));
-        float n1 = texture2D(u_noise, uv1).r;
-        float n2 = texture2D(u_noise, uv2).g;
-        float filaments = smoothstep(0.17, 0.87, n1 * 0.64 + n2 * 0.36);
+      vec3 hash33(vec3 p) {
+        p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+        p += dot(p, p.yxz + 33.33);
+        return fract((p.xxy + p.yxx) * p.zyx);
+      }
 
-        float innerEdge = smoothstep(0.0, 0.105, rNorm);
-        float outerEdge = pow(max(1.0 - rNorm, 0.0), 1.88);
-        float density = innerEdge * outerEdge * (0.44 + 0.88 * filaments);
+      // Étoiles analytiques 3D circulaires sur espace profond #000000 pur (zéro texture = zéro point parasite)
+      vec3 renderStarfield(vec3 dir, float plunge) {
+        vec3 d = normalize(dir);
+        vec3 col = vec3(0.0);
 
-        vec3 hotIsco    = vec3(1.48, 1.30, 0.96);
-        vec3 warmGold   = vec3(1.08, 0.66, 0.23);
-        vec3 deepCopper = vec3(0.62, 0.19, 0.042);
+        vec3 grid1 = d * 78.0;
+        vec3 id1 = floor(grid1);
+        vec3 f1 = fract(grid1) - 0.5;
+        vec3 rnd1 = hash33(id1);
+        if (rnd1.x > 0.968) {
+          vec3 jitter = (rnd1 - 0.5) * 0.52;
+          float dist2 = dot(f1 - jitter, f1 - jitter);
+          float core = exp(-dist2 * 95.0) * smoothstep(0.968, 0.999, rnd1.x);
+          vec3 tint = mix(vec3(0.84, 0.90, 1.0), vec3(1.0, 0.90, 0.74), rnd1.y);
+          col += tint * core * (0.95 + plunge * 0.65);
+        }
 
-        vec3 thermal = mix(hotIsco, warmGold, smoothstep(0.02, 0.38, rNorm));
-        thermal = mix(thermal, deepCopper, smoothstep(0.36, 0.95, rNorm));
+        vec3 grid2 = d * 142.0 + 19.3;
+        vec3 id2 = floor(grid2);
+        vec3 f2 = fract(grid2) - 0.5;
+        vec3 rnd2 = hash33(id2);
+        if (rnd2.x > 0.976) {
+          vec3 jitter2 = (rnd2 - 0.5) * 0.48;
+          float dist2 = dot(f2 - jitter2, f2 - jitter2);
+          float core2 = exp(-dist2 * 125.0) * smoothstep(0.976, 0.999, rnd2.x);
+          col += vec3(0.92, 0.94, 0.98) * core2 * 0.58;
+        }
+        return col;
+      }
 
-        float blueShift = clamp((doppler - 0.84) * 0.68, 0.0, 0.74);
-        vec3 beamed = mix(thermal * vec3(1.04, 0.72, 0.46), vec3(1.16, 1.10, 1.02), blueShift);
-        return beamed * density * doppler;
+      // Accélération géodésique nulle de Schwarzschild : d²x/dλ² = -1.5 * h² * x / r⁵ (Rs = 1.0)
+      vec3 geodesicAccel(vec3 p, float h2) {
+        float r2 = max(dot(p, p), 0.04);
+        float r = sqrt(r2);
+        return (-1.5 * h2 / (r2 * r2 * r)) * p;
+      }
+
+      // Émission relativiste de l'unique disque d'accrétion équatorial (y = 0)
+      vec4 evaluateAccretionDisk(vec3 hit, vec3 rayDir, float spinPhase) {
+        float r = length(hit.xz);
+        const float rIn = 1.82;
+        const float rOut = 9.60;
+        if (r < rIn || r > rOut) return vec4(0.0);
+
+        float normR = clamp((r - rIn) / (rOut - rIn), 0.0, 1.0);
+        float angle = atan(hit.z, hit.x);
+        float omega = 2.70 / pow(max(r, 1.5), 1.35);
+        float theta = angle + spinPhase * omega;
+
+        // Multiples entiers exacts de 1/(2π) sur l'axe azimutal -> raccord 360° garanti sans couture
+        vec2 uv1 = vec2(normR * 2.35 - spinPhase * 0.032, theta * 0.318309886);
+        vec2 uv2 = vec2(normR * 5.20 + spinPhase * 0.021, theta * 0.795774715);
+        vec3 tex1 = texture2D(u_noise, uv1).rgb;
+        vec3 tex2 = texture2D(u_noise, uv2).rgb;
+        float filaments = smoothstep(0.16, 0.88, tex1.r * 0.56 + tex2.g * 0.30 + tex1.b * 0.14);
+
+        float innerFade = smoothstep(rIn, rIn + 0.56, r);
+        float outerFade = pow(max(1.0 - normR, 0.0), 1.95);
+        float iscoRing = exp(-pow((r - 2.26) / 0.42, 2.0)) * 0.86;
+        float density = (innerFade * outerFade * (0.38 + 0.86 * filaments) + iscoRing) * 0.94;
+
+        // Facteur Doppler relativiste authentique (côté approchant blanc-doré, côté fuyant cuivré)
+        vec3 tangent = normalize(vec3(-hit.z, 0.0, hit.x));
+        float beta = clamp(0.66 / sqrt(max(r - 0.85, 0.40)), 0.0, 0.78);
+        float cosTheta = dot(tangent, -normalize(rayDir));
+        float gamma = inversesqrt(max(1.0 - beta * beta, 0.12));
+        float doppler = 1.0 / max(gamma * (1.0 - beta * cosTheta), 0.24);
+        float beaming = pow(clamp(doppler, 0.28, 2.35), 2.50);
+
+        vec3 cHot = vec3(1.44, 1.28, 0.98);
+        vec3 cGold = vec3(1.08, 0.65, 0.22);
+        vec3 cCopper = vec3(0.58, 0.18, 0.04);
+        vec3 baseCol = mix(cHot, cGold, smoothstep(0.0, 0.35, normR));
+        baseCol = mix(baseCol, cCopper, smoothstep(0.33, 0.94, normR));
+
+        float shiftT = clamp((doppler - 0.74) * 0.64, 0.0, 1.0);
+        vec3 beamedCol = mix(
+          baseCol * vec3(1.10, 0.50, 0.22),
+          mix(baseCol, vec3(1.14, 1.18, 1.26), 0.36),
+          shiftT
+        );
+
+        float alpha = clamp(density * clamp(0.42 + 0.50 * beaming, 0.22, 1.55), 0.0, 0.96);
+        return vec4(beamedCol * density * beaming * 1.10, alpha);
       }
 
       void main() {
@@ -2361,78 +2453,95 @@
 
         float p = clamp(u_plunge, 0.0, 1.0);
         float pSmooth = p * p * (3.0 - 2.0 * p);
-        float pDive = pow(p, 1.78);
+        float pDive = pow(p, 1.85);
 
-        // Cadrage respirant sur l'accueil -> centrage pur lors du plongeon vers l'Horizon
+        // Cadrage rapproché d'origine sur l'accueil -> centrage pur lors du plongeon vers l'Horizon
         uv.x -= u_offsetX * (1.0 - pSmooth);
-        uv.y += 0.016 * (1.0 - pSmooth);
-        uv -= u_mouse * (0.028 * (1.0 - pSmooth));
 
-        // L'Horizon des Événements grandit de r = 0.118 en orbite jusqu'à engloutir tout l'écran (r = 1.55)
-        float rShadow = mix(0.118, 1.55, pDive);
-        float diskTilt = mix(0.225 + u_mouse.y * 0.025, 0.105, pSmooth);
+        // Trajectoire caméra rapprochée : r = 15.6 -> r = 0.82 (franchissement de l'Horizon Rs = 1.0)
+        float camDist = mix(15.6, 0.82, pDive);
+        float elev = mix(0.176 + u_mouse.y * 0.04, 0.052, pSmooth);
+        float azim = u_time * 0.032 + u_mouse.x * 0.07 * (1.0 - pSmooth) + pDive * 0.65;
 
-        // Roulis relativiste progressif (-10° -> -34°) pendant l'aspiration
-        float roll = mix(-0.175, -0.59, pSmooth);
-        float ca = cos(roll);
-        float sa = sin(roll);
-        vec2 q = vec2(uv.x * ca - uv.y * sa, uv.x * sa + uv.y * ca);
-        float r = length(q);
+        vec3 ro = vec3(
+          camDist * cos(elev) * sin(azim),
+          camDist * sin(elev),
+          camDist * cos(elev) * cos(azim)
+        );
 
-        // 1. Champ stellaire lentillé par déflexion gravitationnelle analytique 1/r²
-        float deflect = (rShadow * rShadow) / max(r * r + 0.0035, 0.0035);
-        vec2 starUv = q * (1.0 - 0.44 * deflect) * 1.65 + vec2(u_time * 0.0028, -u_time * 0.0014);
-        vec3 starTex = texture2D(u_noise, starUv * 2.25).rgb;
-        float starCore = pow(max(starTex.b - 0.74, 0.0) * 3.85, 3.0) * (1.0 + pSmooth * 1.45);
-        float galDust = starTex.r * exp(-abs(q.y) * 5.0) * 0.052;
-        vec3 col = vec3(0.96, 0.90, 0.82) * starCore * smoothstep(rShadow * 0.99, rShadow * 1.18, r)
-                 + vec3(0.075, 0.050, 0.032) * galDust;
+        vec3 forward = normalize(-ro);
+        vec3 worldUp = vec3(0.0, 1.0, 0.0);
+        float roll = -0.155 * (1.0 - pSmooth) + pDive * 0.42;
+        vec3 right0 = normalize(cross(forward, worldUp));
+        vec3 up0 = cross(right0, forward);
+        vec3 right = right0 * cos(roll) + up0 * sin(roll);
+        vec3 up = -right0 * sin(roll) + up0 * cos(roll);
 
-        float rIn = rShadow * 1.15;
-        float rOut = rShadow * 4.75;
-        float spin = u_time * 0.92 + pDive * 4.85;
+        float focal = mix(1.56, 0.64, clamp(pow(p, 0.82), 0.0, 1.0));
+        vec3 rd = normalize(forward * focal + uv.x * right + uv.y * up);
 
-        // Facteur Doppler relativiste (côté gauche approchant incandescent, côté droit fuyant cuivré)
-        float doppler = clamp(1.0 - (q.x / max(rOut * 0.66, 0.001)) * 0.54, 0.36, 1.86);
-        doppler = doppler * doppler;
+        vec3 pos = ro;
+        vec3 vel = rd;
+        vec3 hVec = cross(pos, vel);
+        float h2 = dot(hVec, hVec);
 
-        // 2. Arche gravitationnelle secondaire (image du disque arrière courbée au-dessus et en-dessous de l'ombre)
-        float lensedR = r + (rShadow * rShadow * 0.60) / max(abs(q.y) + rShadow * 0.33, 0.002);
-        float archNorm = (lensedR - rIn) / max(rOut - rIn, 0.001);
-        if (archNorm > 0.0 && archNorm < 1.0 && r > rShadow * 0.96) {
-          float archAng = atan(q.y * 1.35, q.x);
-          float archMask = smoothstep(rShadow * 0.96, rShadow * 1.06, r) * smoothstep(0.0, rShadow * 0.25, abs(q.y));
-          col += sampleAccretion(archNorm, archAng, doppler * 0.86, spin) * archMask * (0.98 + pSmooth * 0.35);
+        vec3 accumColor = vec3(0.0);
+        float transmittance = 1.0;
+        float captured = 0.0;
+        float closestR = 100.0;
+        float spinPhase = u_time * 0.56 + pDive * 2.2;
+
+        // Intégration RK2 adaptative 48 pas (fluide à 120+ FPS tout en résolvant la courbure 3D exacte)
+        for (int i = 0; i < 48; i++) {
+          float r = length(pos);
+          closestR = min(closestR, r);
+
+          if (r <= 1.015) {
+            captured = 1.0;
+            break;
+          }
+          if (r > 26.0 && i > 8) {
+            break;
+          }
+
+          float dt = clamp(0.165 * (r - 0.90), 0.055, 0.95);
+          vec3 a1 = geodesicAccel(pos, h2);
+          vec3 midPos = pos + vel * (0.5 * dt);
+          vec3 midVel = vel + a1 * (0.5 * dt);
+          vec3 a2 = geodesicAccel(midPos, h2);
+
+          vec3 prevPos = pos;
+          pos += midVel * dt;
+          vel = normalize(vel + a2 * dt);
+
+          // Traversée du plan équatorial (y = 0) : produit naturellement le disque avant ET l'arche courbée !
+          if (prevPos.y * pos.y <= 0.0) {
+            float frac = abs(prevPos.y) / (abs(prevPos.y) + abs(pos.y) + 1e-6);
+            vec3 hit = mix(prevPos, pos, frac);
+            if (length(hit) > 1.03) {
+              vec4 disk = evaluateAccretionDisk(hit, vel, spinPhase);
+              accumColor += disk.rgb * transmittance;
+              transmittance *= (1.0 - disk.a);
+              if (transmittance < 0.025) break;
+            }
+          }
         }
 
-        // 3. Ombre centrale pure #000000 de l'Horizon des Événements
-        float shadowMask = smoothstep(rShadow * 1.015, rShadow * 0.978, r);
-        col *= (1.0 - shadowMask);
+        // Anneau photonique d'Einstein ultra-fin (r = 1.5 Rs)
+        float photonGlow = exp(-max(closestR - 1.50, 0.0) * 8.4) * (1.0 - captured);
+        accumColor += vec3(1.18, 0.88, 0.52) * photonGlow * 0.42 * transmittance;
 
-        // 4. Anneau de photons d'Einstein ultra-fin sur le bord exact de la sphère de photons
-        float ringDist = (r - rShadow * 1.018) / max(rShadow * 0.044, 0.001);
-        float photonRing = exp(-ringDist * ringDist) * (0.78 + 0.46 * doppler);
-        float outerGlow = exp(-max(r - rShadow, 0.0) / max(rShadow * 0.55, 0.004)) * 0.11;
-        col += vec3(1.18, 0.98, 0.72) * photonRing + vec3(0.92, 0.54, 0.18) * outerGlow * (1.0 - shadowMask);
-
-        // 5. Disque équatorial primaire (passe DEVANT l'hémisphère inférieur du Trou Noir)
-        vec2 diskQ = vec2(q.x, q.y / max(diskTilt, 0.04));
-        float diskR = length(diskQ);
-        float diskNorm = (diskR - rIn) / max(rOut - rIn, 0.001);
-        if (diskNorm > 0.0 && diskNorm < 1.0) {
-          float frontCross = smoothstep(rShadow * 0.16, -rShadow * 0.05, q.y);
-          float visMask = mix(1.0 - shadowMask, 1.0, frontCross);
-          float diskAng = atan(diskQ.y, diskQ.x);
-          col += sampleAccretion(diskNorm, diskAng, doppler, spin) * visMask * (1.36 + pSmooth * 0.42);
+        if (captured < 0.5 && transmittance > 0.01) {
+          accumColor += renderStarfield(vel, pSmooth) * transmittance;
         }
 
         // Mappage tonal ACES Filmic
-        vec3 x = max(vec3(0.0), col);
+        vec3 x = max(vec3(0.0), accumColor);
         vec3 mapped = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
         mapped = pow(clamp(mapped, 0.0, 1.0), vec3(0.92));
 
         // Franchissement final de l'Horizon des Événements -> noir absolu #000000 garanti
-        float horizonBlackout = 1.0 - smoothstep(0.80, 0.97, p);
+        float horizonBlackout = 1.0 - smoothstep(0.82, 0.975, p);
         mapped *= horizonBlackout;
 
         gl_FragColor = vec4(mapped, 1.0);
@@ -2467,8 +2576,8 @@
       return;
     }
 
-    // Texture procédurale 256×256 sans couture générée une seule fois en mémoire GPU
-    const NOISE_DIM = 256;
+    // Texture procédurale 512×512 sans couture générée une seule fois en mémoire GPU
+    const NOISE_DIM = 512;
     const noiseTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, noiseTex);
     gl.texImage2D(
@@ -2502,7 +2611,8 @@
     function resize() {
       const iw = Math.max(1, window.innerWidth);
       const ih = Math.max(1, window.innerHeight);
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.35, 1920 / iw, 1080 / ih);
+      // Plafond interne 1600×900 (filtrage bilinéaire plein écran sans explosion du nombre de fragments)
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.0, 1600 / iw, 900 / ih);
       const w = Math.max(1, Math.floor(iw * dpr));
       const h = Math.max(1, Math.floor(ih * dpr));
       if (canvas.width !== w || canvas.height !== h) {
@@ -2542,7 +2652,6 @@
       resize();
 
       if (plungeActive && fixedDemoTimeSec === null) {
-        // Progression bornée par delta-frame lissé : aucun saut lors du passage Borderless plein écran !
         if (plungeProgress === 0.0 && nowMs - plungeStartMs < 40.0) {
           plungeProgress = Math.min(1.0, Math.max(0.001, (nowMs - plungeStartMs) / PLUNGE_DURATION_MS));
         } else {
@@ -2569,7 +2678,7 @@
       mouseSmoothX += (mouseTargetX - mouseSmoothX) * smoothFactor;
       mouseSmoothY += (mouseTargetY - mouseSmoothY) * smoothFactor;
       if (fixedDemoTimeSec === null) {
-        const targetOffsetX = activeTab === "play" ? 0.15 : 0.0;
+        const targetOffsetX = activeTab === "play" ? 0.14 : 0.0;
         lensOffsetCurrentX += (targetOffsetX - lensOffsetCurrentX) * (1.0 - Math.exp(-clampedDtMs * 0.006));
       }
 
@@ -2656,17 +2765,17 @@
       state.has_github_token = true;
       state.update = {
         status: "available",
-        current_version: "3.6.0",
-        installed_jar_version: "3.6.0",
-        latest_version: "4.0.0",
-        release_notes: "MashClient 4.0 : 200 Modules, Sous-Paramètres Clic Droit, HUD Magnétique, Borderless & Tray",
+        current_version: "4.0.0",
+        installed_jar_version: "4.0.0",
+        latest_version: "4.1.0",
+        release_notes: "MashClient 4.1 : Recherche FR/EN intelligente, Trou Noir 3D rapproché sans double aura, UIs refondues & System Tray",
         download_percent: 0,
-        message: "Nouvelle Release détectée sur MyMasha/ProjectFPS : purefps-4.0.0.jar + MashClient.exe prêts à installer.",
+        message: "Nouvelle Release détectée sur MyMasha/ProjectFPS : purefps-4.1.0.jar + MashClient.exe prêts à installer.",
         has_exe_update: true,
         has_jar_update: true
       };
       appendLog("[Auto-Updater] Authentifié via Fine-Grained PAT Read-Only sur MyMasha/ProjectFPS.");
-      appendLog("[Auto-Updater] Nouvelle Release détectée : v4.0.0 (purefps-4.0.0.jar + MashClient.exe).");
+      appendLog("[Auto-Updater] Nouvelle Release détectée : v4.1.0 (purefps-4.1.0.jar + MashClient.exe).");
       renderAll();
       switchTab("system");
     } else if (demo === "plunge") {

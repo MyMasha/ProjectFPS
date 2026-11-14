@@ -15,15 +15,17 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 
 /**
- * Police TrueType haute définition anti-aliasée (Segoe UI sur-échantillonnée 3x avec filtrage GL_LINEAR) :
- * - Émet désormais l'ombre et le texte principal en UN SEUL Tessellator.draw() (divise par 2 tous les draw calls texte).
- * - Supporte beginBatch() / endBatch() pour regrouper toutes les chaînes d'une même fonte HUD en 1 seul draw call GPU.
+ * Police TrueType haute définition anti-aliasée (Segoe UI sur-échantillonnée avec filtrage GL_LINEAR) :
+ * - Famille HUD (title/subtitle/body/small, diviseur 3x) calibrée pour ScaledResolution.
+ * - Famille Bureau (uiHero/uiHeader/uiCardTitle/uiBody/uiSmall/uiBoldSmall, diviseur 2x) calibrée pour le viewport 1280x720.
+ * - Supporte beginBatch() / endBatch() pour regrouper toutes les chaînes d'une même fonte en 1 seul draw call GPU.
  */
 public final class SmoothFontRenderer {
 
-    private static final int ATLAS_SIZE = 1024;
-    private static final float GUI_SCALE_DIVISOR = 3.0F;
-    private static final int GLYPH_SLOTS = 268;
+    private static final float HUD_SCALE_DIVISOR = 3.0F;
+    private static final float DESKTOP_SCALE_DIVISOR = 2.0F;
+
+    private static final int GLYPH_SLOTS = 270;
     private static final int SLOT_BULLET = 256;    // •
     private static final int SLOT_EM_DASH = 257;   // —
     private static final int SLOT_EN_DASH = 258;   // –
@@ -32,14 +34,27 @@ public final class SmoothFontRenderer {
     private static final int SLOT_STAR = 261;      // ★
     private static final int SLOT_STAR_OUT = 262;  // ☆
     private static final int SLOT_GEAR = 263;      // ⚙
+    private static final int SLOT_PLAY = 264;      // ▶
+    private static final int SLOT_HEART = 265;     // ♥
 
+    // Fontes HUD (ScaledResolution)
     private static SmoothFontRenderer titleFont;
     private static SmoothFontRenderer subtitleFont;
     private static SmoothFontRenderer bodyFont;
     private static SmoothFontRenderer smallFont;
 
+    // Fontes Bureau (Viewport 1280x720 style Launcher Singularity)
+    private static SmoothFontRenderer uiHeroFont;
+    private static SmoothFontRenderer uiHeaderFont;
+    private static SmoothFontRenderer uiCardTitleFont;
+    private static SmoothFontRenderer uiBodyFont;
+    private static SmoothFontRenderer uiSmallFont;
+    private static SmoothFontRenderer uiBoldSmallFont;
+
     private final int awtStyle;
     private final int awtPixelSize;
+    private final float scaleDivisor;
+    private final int atlasSize;
     private final Glyph[] glyphs = new Glyph[GLYPH_SLOTS];
     private final dev.purefps.core.FastFontCaches.WidthCache widthCache = new dev.purefps.core.FastFontCaches.WidthCache();
     private float fontHeightGui = 9.0F;
@@ -57,42 +72,93 @@ public final class SmoothFontRenderer {
         float advanceGui;
     }
 
-    private SmoothFontRenderer(int awtStyle, int awtPixelSize) {
+    private SmoothFontRenderer(int awtStyle, int awtPixelSize, float scaleDivisor) {
         this.awtStyle = awtStyle;
         this.awtPixelSize = awtPixelSize;
+        this.scaleDivisor = scaleDivisor;
+        this.atlasSize = awtPixelSize >= 52 ? 2048 : 1024;
     }
 
+    // =========================================================================
+    // Fontes HUD (ScaledResolution)
+    // =========================================================================
     public static SmoothFontRenderer title() {
         if (titleFont == null) {
-            titleFont = new SmoothFontRenderer(Font.BOLD, 48);
+            titleFont = new SmoothFontRenderer(Font.BOLD, 48, HUD_SCALE_DIVISOR);
         }
         return titleFont;
     }
 
     public static SmoothFontRenderer subtitle() {
         if (subtitleFont == null) {
-            subtitleFont = new SmoothFontRenderer(Font.BOLD, 31);
+            subtitleFont = new SmoothFontRenderer(Font.BOLD, 31, HUD_SCALE_DIVISOR);
         }
         return subtitleFont;
     }
 
     public static SmoothFontRenderer body() {
         if (bodyFont == null) {
-            bodyFont = new SmoothFontRenderer(Font.BOLD, 26);
+            bodyFont = new SmoothFontRenderer(Font.BOLD, 26, HUD_SCALE_DIVISOR);
         }
         return bodyFont;
     }
 
     public static SmoothFontRenderer small() {
         if (smallFont == null) {
-            smallFont = new SmoothFontRenderer(Font.PLAIN, 22);
+            smallFont = new SmoothFontRenderer(Font.PLAIN, 22, HUD_SCALE_DIVISOR);
         }
         return smallFont;
     }
 
+    // =========================================================================
+    // Fontes Bureau (Viewport 1280x720 style Launcher)
+    // =========================================================================
+    public static SmoothFontRenderer uiHero() {
+        if (uiHeroFont == null) {
+            uiHeroFont = new SmoothFontRenderer(Font.BOLD, 70, DESKTOP_SCALE_DIVISOR);
+        }
+        return uiHeroFont;
+    }
+
+    public static SmoothFontRenderer uiHeader() {
+        if (uiHeaderFont == null) {
+            uiHeaderFont = new SmoothFontRenderer(Font.BOLD, 42, DESKTOP_SCALE_DIVISOR);
+        }
+        return uiHeaderFont;
+    }
+
+    public static SmoothFontRenderer uiCardTitle() {
+        if (uiCardTitleFont == null) {
+            uiCardTitleFont = new SmoothFontRenderer(Font.BOLD, 30, DESKTOP_SCALE_DIVISOR);
+        }
+        return uiCardTitleFont;
+    }
+
+    public static SmoothFontRenderer uiBody() {
+        if (uiBodyFont == null) {
+            uiBodyFont = new SmoothFontRenderer(Font.PLAIN, 26, DESKTOP_SCALE_DIVISOR);
+        }
+        return uiBodyFont;
+    }
+
+    public static SmoothFontRenderer uiSmall() {
+        if (uiSmallFont == null) {
+            uiSmallFont = new SmoothFontRenderer(Font.PLAIN, 23, DESKTOP_SCALE_DIVISOR);
+        }
+        return uiSmallFont;
+    }
+
+    public static SmoothFontRenderer uiBoldSmall() {
+        if (uiBoldSmallFont == null) {
+            uiBoldSmallFont = new SmoothFontRenderer(Font.BOLD, 23, DESKTOP_SCALE_DIVISOR);
+        }
+        return uiBoldSmallFont;
+    }
+
     public BufferedImage bakeAtlasImage() {
+        int size = this.atlasSize;
         Font font = createBestFont(this.awtStyle, this.awtPixelSize);
-        BufferedImage img = new BufferedImage(ATLAS_SIZE, ATLAS_SIZE, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -103,7 +169,7 @@ public final class SmoothFontRenderer {
         FontMetrics fm = g.getFontMetrics();
         int ascent = fm.getAscent();
         int lineH = fm.getHeight();
-        this.fontHeightGui = lineH / GUI_SCALE_DIVISOR;
+        this.fontHeightGui = lineH / this.scaleDivisor;
 
         int pad = 4;
         int penX = pad;
@@ -120,37 +186,37 @@ public final class SmoothFontRenderer {
             int cellW = charAdvance + pad * 2;
             int cellH = lineH + pad;
 
-            if (penX + cellW + pad >= ATLAS_SIZE) {
+            if (penX + cellW + pad >= size) {
                 penX = pad;
                 penY += rowHeight;
             }
-            if (penY + cellH >= ATLAS_SIZE) {
+            if (penY + cellH >= size) {
                 break;
             }
 
             g.drawString(s, penX + (pad >> 1), penY + ascent);
 
             Glyph glyph = new Glyph();
-            glyph.u0 = (float) penX / (float) ATLAS_SIZE;
-            glyph.v0 = (float) penY / (float) ATLAS_SIZE;
-            glyph.u1 = (float) (penX + cellW) / (float) ATLAS_SIZE;
-            glyph.v1 = (float) (penY + cellH) / (float) ATLAS_SIZE;
-            glyph.widthGui = cellW / GUI_SCALE_DIVISOR;
-            glyph.heightGui = cellH / GUI_SCALE_DIVISOR;
-            glyph.advanceGui = charAdvance / GUI_SCALE_DIVISOR;
+            glyph.u0 = (float) penX / (float) size;
+            glyph.v0 = (float) penY / (float) size;
+            glyph.u1 = (float) (penX + cellW) / (float) size;
+            glyph.v1 = (float) (penY + cellH) / (float) size;
+            glyph.widthGui = cellW / this.scaleDivisor;
+            glyph.heightGui = cellH / this.scaleDivisor;
+            glyph.advanceGui = charAdvance / this.scaleDivisor;
             this.glyphs[slot] = glyph;
 
             penX += cellW + pad;
         }
         g.dispose();
 
-        int[] pixels = new int[ATLAS_SIZE * ATLAS_SIZE];
-        img.getRGB(0, 0, ATLAS_SIZE, ATLAS_SIZE, pixels, 0, ATLAS_SIZE);
+        int[] pixels = new int[size * size];
+        img.getRGB(0, 0, size, size, pixels, 0, size);
         for (int i = 0; i < pixels.length; i++) {
             int alpha = (pixels[i] >>> 24) & 0xFF;
             pixels[i] = (alpha << 24) | 0x00FFFFFF;
         }
-        img.setRGB(0, 0, ATLAS_SIZE, ATLAS_SIZE, pixels, 0, ATLAS_SIZE);
+        img.setRGB(0, 0, size, size, pixels, 0, size);
 
         this.metricsBaked = true;
         return img;
@@ -276,17 +342,18 @@ public final class SmoothFontRenderer {
         }
         int shadowAlpha = (baseAlpha * 115) / 255;
         int shadowArgb = (shadowAlpha << 24) | 0x05070D;
+        float shOff = 1.65F / this.scaleDivisor;
 
         if (this.batching) {
             WorldRenderer wr = Tessellator.getInstance().getWorldRenderer();
-            emitVertices(wr, text, x + 0.55F, y + 0.60F, shadowArgb, true);
+            emitVertices(wr, text, x + shOff, y + shOff, shadowArgb, true);
             emitVertices(wr, text, x, y, argb, false);
             return;
         }
 
         beginSingleDraw();
         WorldRenderer wr = Tessellator.getInstance().getWorldRenderer();
-        emitVertices(wr, text, x + 0.55F, y + 0.60F, shadowArgb, true);
+        emitVertices(wr, text, x + shOff, y + shOff, shadowArgb, true);
         emitVertices(wr, text, x, y, argb, false);
         finishSingleDraw();
     }
@@ -325,9 +392,9 @@ public final class SmoothFontRenderer {
         int curG = (argb >>> 8) & 0xFF;
         int curB = argb & 0xFF;
 
-        float padOffset = (4.0F * 0.5F) / GUI_SCALE_DIVISOR;
+        float padOffset = (4.0F * 0.5F) / this.scaleDivisor;
         float cursorX = x;
-        float cursorY = y - 1.0F;
+        float cursorY = y - (3.0F / this.scaleDivisor);
 
         int len = text.length();
         for (int i = 0; i < len; i++) {
@@ -380,6 +447,10 @@ public final class SmoothFontRenderer {
             slot = SLOT_STAR_OUT;
         } else if (ch == '\u2699') {
             slot = SLOT_GEAR;
+        } else if (ch == '\u25B6') {
+            slot = SLOT_PLAY;
+        } else if (ch == '\u2665') {
+            slot = SLOT_HEART;
         } else if (ch >= 32 && ch < 256) {
             slot = (int) ch;
         } else {
@@ -399,6 +470,8 @@ public final class SmoothFontRenderer {
             case SLOT_STAR: return '\u2605';
             case SLOT_STAR_OUT: return '\u2606';
             case SLOT_GEAR: return '\u2699';
+            case SLOT_PLAY: return '\u25B6';
+            case SLOT_HEART: return '\u2665';
             default: return (char) slot;
         }
     }

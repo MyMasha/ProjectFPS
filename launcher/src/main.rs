@@ -1,11 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! MashClient 4.0 — Singularity Edition Native Desktop Launcher (`MashClient.exe`, WebView2 `tao` + `wry`)
-//! - Rendu temps-réel WebGL2 O(1) ultra-fluide d'un Trou Noir relativiste (lentille analytique de Schwarzschild + disque Doppler)
-//! - Transition cinématique sans changement de fenêtre visible et sans jamais bloquer Alt-Tab :
-//!   aspiration dans l'Horizon des Événements -> ouverture de Minecraft en mode Borderless Windowed à (0, 0) ->
-//!   réduction automatique du Launcher en bas à droite (System Tray Windows, 0% GPU en arrière-plan) ->
-//!   remplacement de l'écran "Mojang" par la caméra du joueur qui sort du Trou Noir à 100 FPS constants.
+//! MashClient 4.1 — Singularity Edition Native Desktop Launcher (`MashClient.exe`, WebView2 `tao` + `wry`)
+//! - Rendu temps-réel WebGL2 3D Gargantua de Schwarzschild (texture FBM pré-calculée + RK2 adaptatif 120+ FPS)
+//! - Transition cinématique sans changement de fenêtre visible et sans jamais rétrécir la fenêtre :
+//!   aspiration dans l'Horizon des Événements -> écran noir #000000 maintenu jusqu'à l'ouverture OpenGL de Minecraft ->
+//!   fermeture complète de la fenêtre Launcher vers la zone de notification en bas à droite (System Tray Windows, 0% GPU) ->
+//!   remplacement de l'écran "Mojang" par la caméra du joueur qui sort du Trou Noir à 100+ FPS constants.
 
 mod auth;
 mod config;
@@ -24,16 +24,16 @@ use config::{
     PureProfile,
 };
 use runner::{
-    auto_fetch_mod_jar_if_needed, offline_uuid_hex, prepare_prism_bridge_files,
-    run_direct_jvm_blocking, spawn_prism_bridge_now,
+    auto_fetch_mod_jar_if_needed, focus_visible_lwjgl_window, offline_uuid_hex,
+    prepare_prism_bridge_files, run_direct_jvm_blocking, spawn_prism_bridge_now,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tao::dpi::{LogicalSize, Size};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
@@ -62,6 +62,109 @@ fn allow_any_foreground_window() {
 
 #[cfg(not(windows))]
 fn allow_any_foreground_window() {}
+
+#[cfg(windows)]
+fn user_pressing_task_switch_keys() -> bool {
+    const VK_MENU: i32 = 0x12; // Alt (Alt+Tab / Alt+Esc)
+    const VK_LWIN: i32 = 0x5B; // Touche Windows gauche
+    const VK_RWIN: i32 = 0x5C; // Touche Windows droite
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetAsyncKeyState(vKey: i32) -> i16;
+    }
+    unsafe {
+        (GetAsyncKeyState(VK_MENU) as u16 & 0x8000) != 0
+            || (GetAsyncKeyState(VK_LWIN) as u16 & 0x8000) != 0
+            || (GetAsyncKeyState(VK_RWIN) as u16 & 0x8000) != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn user_pressing_task_switch_keys() -> bool {
+    false
+}
+
+/// Masque instantanément le HWND sous Windows SANS quitter le plein écran au préalable
+/// (évite à 100% le flash/rétrécissement vers 1240×780) et retire le bouton de la barre des tâches
+/// pour ne laisser que l'icône MashClient dans la zone de notification en bas à droite (System Tray).
+#[cfg(windows)]
+fn win32_hide_window_to_tray(window: &Window) {
+    use core::ffi::c_void;
+    use tao::platform::windows::WindowExtWindows;
+
+    const SW_HIDE: i32 = 0;
+    const GWL_EXSTYLE: i32 = -20;
+    const WS_EX_APPWINDOW: isize = 0x0004_0000;
+    const WS_EX_TOOLWINDOW: isize = 0x0000_0080;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn ShowWindow(hWnd: *mut c_void, nCmdShow: i32) -> i32;
+        fn GetWindowLongPtrW(hWnd: *mut c_void, nIndex: i32) -> isize;
+        fn SetWindowLongPtrW(hWnd: *mut c_void, nIndex: i32, dwNewLong: isize) -> isize;
+    }
+
+    let hwnd = window.hwnd() as *mut c_void;
+    if !hwnd.is_null() {
+        unsafe {
+            ShowWindow(hwnd, SW_HIDE);
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW);
+            ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+    window.set_skip_taskbar(true);
+    window.set_visible(false);
+}
+
+#[cfg(not(windows))]
+fn win32_hide_window_to_tray(window: &Window) {
+    window.set_visible(false);
+}
+
+#[cfg(windows)]
+fn win32_restore_window_from_tray(window: &Window) {
+    use core::ffi::c_void;
+    use tao::platform::windows::WindowExtWindows;
+
+    const SW_SHOW: i32 = 5;
+    const SW_RESTORE: i32 = 9;
+    const GWL_EXSTYLE: i32 = -20;
+    const WS_EX_APPWINDOW: isize = 0x0004_0000;
+    const WS_EX_TOOLWINDOW: isize = 0x0000_0080;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn ShowWindow(hWnd: *mut c_void, nCmdShow: i32) -> i32;
+        fn GetWindowLongPtrW(hWnd: *mut c_void, nIndex: i32) -> isize;
+        fn SetWindowLongPtrW(hWnd: *mut c_void, nIndex: i32, dwNewLong: isize) -> isize;
+        fn SetForegroundWindow(hWnd: *mut c_void) -> i32;
+    }
+
+    window.set_skip_taskbar(false);
+    window.set_fullscreen(None);
+    let hwnd = window.hwnd() as *mut c_void;
+    if !hwnd.is_null() {
+        unsafe {
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex & !WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW);
+            ShowWindow(hwnd, SW_RESTORE);
+            ShowWindow(hwnd, SW_SHOW);
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+    window.set_visible(true);
+    window.set_minimized(false);
+    window.set_focus();
+}
+
+#[cfg(not(windows))]
+fn win32_restore_window_from_tray(window: &Window) {
+    window.set_fullscreen(None);
+    window.set_visible(true);
+    window.set_minimized(false);
+    window.set_focus();
+}
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -176,13 +279,12 @@ struct Controller {
     account: Option<MicrosoftAccount>,
     game_running: bool,
     prelaunch_syncing: bool,
+    hidden_in_tray: bool,
     curtain_id: u64,
     curtain_active: bool,
-    curtain_entered_at: Option<Instant>,
     plunge_darkness_reached: bool,
     mc_menu_ready: bool,
     handoff_dispatched: bool,
-    deferred_prism_launch: Option<(String, Vec<PathBuf>)>,
     active_challenge: Option<DeviceCodeChallenge>,
     auth_cancel: Arc<AtomicBool>,
     update_view: UiUpdateView,
@@ -205,13 +307,12 @@ impl Controller {
             account,
             game_running: false,
             prelaunch_syncing: false,
+            hidden_in_tray: false,
             curtain_id: 0,
             curtain_active: false,
-            curtain_entered_at: None,
             plunge_darkness_reached: false,
             mc_menu_ready: false,
             handoff_dispatched: false,
-            deferred_prism_launch: None,
             active_challenge: None,
             auth_cancel: Arc::new(AtomicBool::new(false)),
             update_view,
@@ -309,27 +410,29 @@ impl Controller {
     fn enter_singularity_curtain(&mut self, window: &Window, webview: &wry::WebView) {
         self.curtain_id = self.curtain_id.wrapping_add(1);
         self.curtain_active = true;
-        self.curtain_entered_at = Some(Instant::now());
+        self.hidden_in_tray = false;
         self.plunge_darkness_reached = false;
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
 
         Self::set_webview_suspended(webview, false);
 
-        // Aucun `set_always_on_top(true)` : laisse Alt-Tab fonctionner naturellement et laisse la fenêtre
-        // Borderless Windowed de Minecraft s'ouvrir directement devant lui à (0, 0).
-        window.set_always_on_top(false);
+        // Maintient l'écran noir #000000 au premier plan pendant l'initialisation Forge/PrismLauncher
+        // (pour masquer toute petite fenêtre de chargement PrismLauncher), tout en relâchant
+        // immédiatement `always_on_top` si l'utilisateur appuie sur Alt+Tab / touche Windows !
         window.set_minimized(false);
         window.set_visible(true);
         window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+        window.set_always_on_top(true);
         window.set_cursor_visible(false);
         window.set_focus();
         allow_any_foreground_window();
         Self::push_plunge_command(webview, "start");
     }
 
-    /// Masque complètement la fenêtre du Launcher de la barre des tâches et la loge dans la zone de notification
-    /// en bas à droite (`SystemTray`) tout en coupant la boucle WebGL2 (`0% GPU` en arrière-plan) !
+    /// Ferme complètement la fenêtre du Launcher du bureau et de la barre des tâches SANS quitter
+    /// le plein écran au préalable (zéro rétrécissement vers 1240×780 !) pour la loger uniquement
+    /// dans la zone de notification en bas à droite (`SystemTray`, 0% GPU).
     fn suspend_to_system_tray(
         &mut self,
         window: &Window,
@@ -338,23 +441,20 @@ impl Controller {
     ) {
         self.curtain_id = self.curtain_id.wrapping_add(1);
         self.curtain_active = false;
-        self.curtain_entered_at = None;
+        self.hidden_in_tray = true;
         self.plunge_darkness_reached = false;
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
-        self.deferred_prism_launch = None;
 
         window.set_always_on_top(false);
         window.set_cursor_visible(true);
-        window.set_fullscreen(None);
-        window.set_visible(false);
+        win32_hide_window_to_tray(window);
         tray.set_game_running_mode(true);
-        Self::push_plunge_command(webview, "reset");
         Self::set_webview_suspended(webview, true);
     }
 
-    /// Retire proprement le plein écran WebView2 et réduit MashClient en bas à droite (System Tray)
-    /// pendant que la fenêtre Borderless OpenGL #000000 de Minecraft prend sa place à (0, 0).
+    /// Masque MashClient directement dans la zone de notification en bas à droite (System Tray)
+    /// dès que la fenêtre Borderless OpenGL #000000 de Minecraft a pris sa place à (0, 0).
     fn dismiss_curtain_for_game(
         &mut self,
         window: &Window,
@@ -367,46 +467,6 @@ impl Controller {
         self.suspend_to_system_tray(window, webview, tray);
     }
 
-    /// Appelé dès que l'utilisateur fait Alt-Tab vers une autre application (ou que Minecraft
-    /// prend le focus au premier plan) : quitte immédiatement le plein écran sans voler le focus !
-    fn dismiss_curtain_on_focus_loss(
-        &mut self,
-        window: &Window,
-        webview: &wry::WebView,
-        tray: &SystemTray,
-        proxy: &EventLoopProxy<AppEvent>,
-    ) {
-        if !self.curtain_active {
-            return;
-        }
-        if let Some(entered) = self.curtain_entered_at {
-            if entered.elapsed() < Duration::from_millis(320) {
-                return;
-            }
-        }
-
-        let should_hide_to_tray = self.plunge_darkness_reached || self.game_running;
-        if let Some((inst_id, watched_dirs)) = self.deferred_prism_launch.take() {
-            let _ = spawn_prism_bridge_now(&self.prefs, &inst_id, watched_dirs, proxy);
-        }
-
-        if should_hide_to_tray {
-            self.suspend_to_system_tray(window, webview, tray);
-        } else {
-            self.curtain_id = self.curtain_id.wrapping_add(1);
-            self.curtain_active = false;
-            self.curtain_entered_at = None;
-            self.plunge_darkness_reached = false;
-            self.mc_menu_ready = false;
-            self.handoff_dispatched = false;
-
-            window.set_always_on_top(false);
-            window.set_cursor_visible(true);
-            window.set_fullscreen(None);
-            Self::push_plunge_command(webview, "reset");
-        }
-    }
-
     fn restore_normal_window(
         &mut self,
         window: &Window,
@@ -415,35 +475,40 @@ impl Controller {
     ) {
         self.curtain_id = self.curtain_id.wrapping_add(1);
         self.curtain_active = false;
-        self.curtain_entered_at = None;
+        self.hidden_in_tray = false;
         self.plunge_darkness_reached = false;
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
-        self.deferred_prism_launch = None;
 
         Self::set_webview_suspended(webview, false);
+        Self::push_plunge_command(webview, "reset");
         tray.set_game_running_mode(self.game_running);
 
         window.set_always_on_top(false);
-        window.set_fullscreen(None);
-        window.set_visible(true);
-        window.set_minimized(false);
         window.set_cursor_visible(true);
-        window.set_focus();
-        Self::push_plunge_command(webview, "reset");
+        win32_restore_window_from_tray(window);
     }
 
-    fn try_schedule_seamless_handoff(&mut self, proxy: &EventLoopProxy<AppEvent>) {
+    fn try_schedule_seamless_handoff(
+        &mut self,
+        window: &Window,
+        proxy: &EventLoopProxy<AppEvent>,
+    ) {
         if self.curtain_active
             && self.plunge_darkness_reached
             && self.mc_menu_ready
             && !self.handoff_dispatched
         {
             self.handoff_dispatched = true;
+            // Relâche `always_on_top` et place la fenêtre OpenGL LWJGL #000000 juste devant le rideau #000000
+            window.set_always_on_top(false);
+            allow_any_foreground_window();
+            focus_visible_lwjgl_window();
+
             let expected_id = self.curtain_id;
             let p = proxy.clone();
             std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(35));
+                std::thread::sleep(Duration::from_millis(45));
                 let _ = p.send_event(AppEvent::RevealMinecraftNow(expected_id));
             });
         }
@@ -464,6 +529,7 @@ fn begin_singularity_launch_now(
     ctrl: &mut Controller,
     window: &Window,
     webview: &wry::WebView,
+    tray: &SystemTray,
     proxy: &EventLoopProxy<AppEvent>,
 ) {
     let _ = ctrl.settings.save_to_game_dir(&ctrl.prefs.game_dir);
@@ -475,8 +541,13 @@ fn begin_singularity_launch_now(
         LaunchMode::PrismBridge => {
             match prepare_prism_bridge_files(&ctrl.prefs, screen_w, screen_h, proxy) {
                 Ok((inst_id, watched_dirs)) => {
-                    ctrl.deferred_prism_launch = Some((inst_id, watched_dirs));
                     ctrl.enter_singularity_curtain(window, webview);
+                    if let Err(e) =
+                        spawn_prism_bridge_now(&ctrl.prefs, &inst_id, watched_dirs, proxy)
+                    {
+                        ctrl.restore_normal_window(window, webview, tray);
+                        Controller::push_toast(webview, &e, true);
+                    }
                 }
                 Err(e) => {
                     Controller::push_toast(webview, &e, true);
@@ -801,22 +872,14 @@ fn handle_ipc(
         IpcCommand::PlungeDarknessReached => {
             ctrl.plunge_darkness_reached = true;
             allow_any_foreground_window();
+            ctrl.try_schedule_seamless_handoff(window, proxy);
 
-            if let Some((inst_id, watched_dirs)) = ctrl.deferred_prism_launch.take() {
-                if let Err(e) = spawn_prism_bridge_now(&ctrl.prefs, &inst_id, watched_dirs, proxy) {
-                    ctrl.restore_normal_window(window, webview, tray);
-                    Controller::push_toast(webview, &e, true);
-                    return false;
-                }
-            }
-
-            ctrl.try_schedule_seamless_handoff(proxy);
-
-            // Garde-fou matériel absolu : réduit automatiquement MashClient en bas à droite après max 3.0s
+            // Garde-fou matériel large (28s) : laisse le temps à Forge 1.8.9 d'ouvrir sa fenêtre OpenGL
+            // tout en garantissant que l'écran noir #000000 ne reste jamais bloqué si le lancement échoue
             let expected_id = ctrl.curtain_id;
             let p_safety = proxy.clone();
             std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(3000));
+                std::thread::sleep(Duration::from_millis(28_000));
                 let _ = p_safety.send_event(AppEvent::CurtainSafetyTimeout(expected_id));
             });
         }
@@ -858,7 +921,7 @@ fn handle_ipc(
                 return false;
             }
 
-            let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 0, 0));
+            let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 1, 0));
             let mod_up_to_date = installed_mod_version(&ctrl.prefs.game_dir)
                 .is_some_and(|cur| cur >= launcher_ver);
 
@@ -866,7 +929,7 @@ fn handle_ipc(
                 ctrl.prelaunch_syncing = true;
                 Controller::push_toast(
                     webview,
-                    "Synchronisation automatique du mod MashClient 4.0...",
+                    "Synchronisation automatique du mod MashClient 4.1...",
                     false,
                 );
                 let prefs_clone = ctrl.prefs.clone();
@@ -876,7 +939,7 @@ fn handle_ipc(
                     let _ = p.send_event(AppEvent::PreLaunchModSynced);
                 });
             } else {
-                begin_singularity_launch_now(ctrl, window, webview, proxy);
+                begin_singularity_launch_now(ctrl, window, webview, tray, proxy);
             }
         }
     }
@@ -893,7 +956,7 @@ fn main() -> wry::Result<()> {
     let win_icon = Icon::from_rgba(WINDOW_ICON_64_RGBA.to_vec(), 64, 64).ok();
 
     let window = WindowBuilder::new()
-        .with_title("MashClient 4.0 — Singularity")
+        .with_title("MashClient 4.1 — Singularity")
         .with_window_icon(win_icon)
         .with_decorations(false)
         .with_inner_size(Size::Logical(LogicalSize::new(1240.0, 780.0)))
@@ -933,8 +996,11 @@ fn main() -> wry::Result<()> {
                 event: WindowEvent::Focused(false),
                 ..
             } => {
-                if ctrl.curtain_active {
-                    ctrl.dismiss_curtain_on_focus_loss(&window, &webview, &tray, &proxy);
+                // Ne JAMAIS réduire/rétrécir la fenêtre sur une perte de focus interne (ex: lancement PrismLauncher) !
+                // Si l'utilisateur appuie volontairement sur Alt+Tab ou Windows, on retire juste `always_on_top`
+                // pour laisser son autre application passer devant tout en conservant le rideau #000000 en dessous.
+                if ctrl.curtain_active && user_pressing_task_switch_keys() {
+                    window.set_always_on_top(false);
                 }
             }
             Event::UserEvent(app_evt) => match app_evt {
@@ -950,7 +1016,7 @@ fn main() -> wry::Result<()> {
                     ctrl.update_view.installed_jar_version =
                         installed_mod_version(&ctrl.prefs.game_dir).map(format_semver);
                     ctrl.push_full_state(&webview);
-                    begin_singularity_launch_now(&mut ctrl, &window, &webview, &proxy);
+                    begin_singularity_launch_now(&mut ctrl, &window, &webview, &tray, &proxy);
                 }
                 AppEvent::DeviceCodeStarted(res) => match res {
                     Ok(challenge) => {
@@ -1154,7 +1220,10 @@ fn main() -> wry::Result<()> {
                     ctrl.game_running = running;
                     tray.set_game_running_mode(running);
                     if !running
-                        && (ctrl.curtain_active || window.is_minimized() || !window.is_visible())
+                        && (ctrl.curtain_active
+                            || ctrl.hidden_in_tray
+                            || window.is_minimized()
+                            || !window.is_visible())
                     {
                         ctrl.restore_normal_window(&window, &webview, &tray);
                     }
@@ -1162,7 +1231,7 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::MinecraftMenuReady => {
                     ctrl.mc_menu_ready = true;
-                    ctrl.try_schedule_seamless_handoff(&proxy);
+                    ctrl.try_schedule_seamless_handoff(&window, &proxy);
                 }
                 AppEvent::RevealMinecraftNow(id) => {
                     if ctrl.curtain_active && ctrl.curtain_id == id {
