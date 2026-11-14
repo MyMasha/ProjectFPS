@@ -6,7 +6,6 @@ import dev.purefps.client.ui.SmoothFontRenderer;
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.BlackHoleEmergenceRenderer;
 import dev.purefps.module.MashModules;
-import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.gui.GuiMultiplayer;
 import net.minecraft.client.gui.GuiOptions;
 import net.minecraft.client.gui.GuiScreen;
@@ -15,14 +14,14 @@ import net.minecraft.client.multiplayer.GuiConnecting;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraftforge.fml.client.GuiModList;
+import org.lwjgl.opengl.Display;
 
 import java.io.IOException;
 
 /**
- * Menu principal MashClient épuré :
- * - Espace 3D dégagé autour du trou noir, sans barres lourdes ni texte superflu.
- * - Icônes 100 % vectorielles SDF + logo haute définition mash_mark.png.
- * - Effets sonores tactiles discrets (survol, clic, ouverture des modules).
+ * Menu principal MashClient 4.4 :
+ * - Colonne compacte style Lunar Client avec icônes vectorielles SDF.
+ * - Trou noir 3D dégagé et ambiance sonore gravitationnelle activable/désactivable.
  */
 public class GuiPureMainMenu extends GuiScreen {
 
@@ -36,9 +35,18 @@ public class GuiPureMainMenu extends GuiScreen {
     private static final int ACT_MODS = 6;
     private static final int ACT_SOUND = 7;
     private static final int ACT_QUIT = 8;
+    private static final int ACT_BH_SOUND = 9;
 
-    private static final float STACK_X = 54.0F;
-    private static final float STACK_W = 236.0F;
+    private static final float STACK_X = 50.0F;
+    private static final float STACK_W = 188.0F;
+    private static final float MULTI_H = 34.0F;
+    private static final float SOLO_H = 30.0F;
+    private static final float MOD_H = 30.0F;
+    private static final float SUB_H = 26.0F;
+    private static final float SUB_GAP = 6.0F;
+
+    private static final float TOP_Y = 20.0F;
+    private static final float TOP_BTN_SZ = 26.0F;
 
     private float lastUiAlpha = 1.0F;
     private int lastHoveredAction = -1;
@@ -60,7 +68,14 @@ public class GuiPureMainMenu extends GuiScreen {
     }
 
     @Override
+    public void onGuiClosed() {
+        MashAudioEngine.updateMenuAmbientLoop(false);
+    }
+
+    @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        MashAudioEngine.updateMenuAmbientLoop(!Display.isCreated() || Display.isActive());
+
         float uiAlpha = BlackHoleEmergenceRenderer.renderMenuBackground(this.mc, this.width, this.height, mouseX, mouseY);
         this.lastUiAlpha = uiAlpha;
         if (uiAlpha <= 0.015F) {
@@ -75,7 +90,7 @@ public class GuiPureMainMenu extends GuiScreen {
         boolean interactive = uiAlpha > 0.45F;
 
         if (interactive) {
-            int hov = hitTestDesktopAction(dw, dh, mx, my, this.SessionWidthCached());
+            int hov = hitTestDesktopAction(dw, dh, mx, my);
             if (hov != this.lastHoveredAction) {
                 if (hov > 0) {
                     MashAudioEngine.playHover();
@@ -86,7 +101,7 @@ public class GuiPureMainMenu extends GuiScreen {
 
         NanoUiRenderer.beginDesktopViewport(this.mc);
         try {
-            renderMinimalMenu(dw, dh, mx, my, interactive, uiAlpha);
+            renderCompactMenu(dw, dh, mx, my, interactive, uiAlpha);
         } finally {
             NanoUiRenderer.endDesktopViewport();
         }
@@ -101,160 +116,168 @@ public class GuiPureMainMenu extends GuiScreen {
                 : "Player";
     }
 
-    private float SessionWidthCached() {
-        String sessionName = getSessionName();
-        return Math.max(96.0F, SmoothFontRenderer.uiBody().getStringWidth(sessionName) + 36.0F);
-    }
-
     private static float computeStackTopY(float dh) {
-        // Ensemble total : titre (54px) + 4 boutons (~182px) = ~236px, centré légèrement sous la médiane
-        return Math.max(150.0F, dh * 0.50F - 62.0F);
+        return Math.max(146.0F, dh * 0.50F - 46.0F);
     }
 
-    private void renderMinimalMenu(float dw, float dh, float mx, float my, boolean interactive, float uiAlpha) {
+    private void renderCompactMenu(float dw, float dh, float mx, float my, boolean interactive, float uiAlpha) {
         SmoothFontRenderer heroF = SmoothFontRenderer.uiHero();
-        SmoothFontRenderer cardTitleF = SmoothFontRenderer.uiCardTitle();
         SmoothFontRenderer bodyF = SmoothFontRenderer.uiBody();
         SmoothFontRenderer smallF = SmoothFontRenderer.uiSmall();
         SmoothFontRenderer boldSmallF = SmoothFontRenderer.uiBoldSmall();
 
         String sessionName = getSessionName();
-        float sessW = Math.max(96.0F, bodyF.getStringWidth(sessionName) + 36.0F);
+        float sessW = Math.max(88.0F, smallF.getStringWidth(sessionName) + 32.0F);
 
-        // Contrôles flottants haut-droite
-        float topY = 22.0F;
-        float quitX = dw - 58.0F;
-        float soundX = quitX - 38.0F;
-        float sessX = soundX - sessW - 10.0F;
+        float quitX = dw - 48.0F;
+        float soundX = quitX - 32.0F;
+        float bhSoundX = soundX - 32.0F;
+        float sessX = bhSoundX - sessW - 8.0F;
 
-        // Pile principale à gauche
         float stackTopY = computeStackTopY(dh);
         float multiY = stackTopY;
-        float multiH = 42.0F;
+        float soloY = multiY + MULTI_H + 7.0F;
+        float modY = soloY + SOLO_H + 7.0F;
+        float subY = modY + MOD_H + 8.0F;
+        float subW = (STACK_W - SUB_GAP * 2.0F) / 3.0F;
 
-        float soloY = multiY + multiH + 10.0F;
-        float soloH = 38.0F;
+        boolean multiHov = interactive && inside(mx, my, STACK_X, multiY, STACK_W, MULTI_H);
+        boolean soloHov = interactive && inside(mx, my, STACK_X, soloY, STACK_W, SOLO_H);
+        boolean modHov = interactive && inside(mx, my, STACK_X, modY, STACK_W, MOD_H);
+        boolean hypHov = interactive && inside(mx, my, STACK_X, subY, subW, SUB_H);
+        boolean optHov = interactive && inside(mx, my, STACK_X + subW + SUB_GAP, subY, subW, SUB_H);
+        boolean fmlHov = interactive && inside(mx, my, STACK_X + (subW + SUB_GAP) * 2.0F, subY, subW, SUB_H);
+        boolean bhSoundHov = interactive && inside(mx, my, bhSoundX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ);
+        boolean soundHov = interactive && inside(mx, my, soundX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ);
+        boolean quitHov = interactive && inside(mx, my, quitX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ);
 
-        float modY = soloY + soloH + 9.0F;
-        float modH = 38.0F;
-
-        float subY = modY + modH + 10.0F;
-        float subH = 33.0F;
-        float subGap = 7.0F;
-        float subW = (STACK_W - subGap * 2.0F) / 3.0F;
-
-        boolean multiHov = interactive && inside(mx, my, STACK_X, multiY, STACK_W, multiH);
-        boolean soloHov = interactive && inside(mx, my, STACK_X, soloY, STACK_W, soloH);
-        boolean modHov = interactive && inside(mx, my, STACK_X, modY, STACK_W, modH);
-        boolean hypHov = interactive && inside(mx, my, STACK_X, subY, subW, subH);
-        boolean optHov = interactive && inside(mx, my, STACK_X + subW + subGap, subY, subW, subH);
-        boolean fmlHov = interactive && inside(mx, my, STACK_X + (subW + subGap) * 2.0F, subY, subW, subH);
-        boolean soundHov = interactive && inside(mx, my, soundX, topY, 30.0F, 30.0F);
-        boolean quitHov = interactive && inside(mx, my, quitX, topY, 30.0F, 30.0F);
-
-        // =====================================================================
-        // PASSE 1 : SURFACES VERRE FUMÉ, BOUTON OR & ICÔNES VECTORIELLES
-        // =====================================================================
         NanoUiRenderer.beginBatch();
 
-        // Légère ombre douce derrière la colonne gauche uniquement (n'altère pas le trou noir à droite)
+        // Halo sombre discret sous la colonne gauche
         NanoUiRenderer.drawRoundedGradient(
-                STACK_X - 28.0F, stackTopY - 78.0F, STACK_W + 56.0F, 286.0F, 26.0F,
-                mulAlpha(0x00020306, uiAlpha), mulAlpha(0x52020306, uiAlpha), 0, 0.0F
+                STACK_X - 22.0F, stackTopY - 68.0F, STACK_W + 44.0F, 240.0F, 22.0F,
+                mulAlpha(0x00020306, uiAlpha), mulAlpha(0x4C020306, uiAlpha), 0, 0.0F
         );
 
-        // Logo haut-gauche haute définition
-        NanoUiRenderer.drawBrandLogo(this.mc, 44.0F, 37.0F, 26.0F, uiAlpha);
+        // Logo haut-gauche
+        NanoUiRenderer.drawBrandLogo(this.mc, 40.0F, 33.0F, 22.0F, uiAlpha);
 
         // Pilule pseudo haut-droite
         NanoUiRenderer.drawRoundedRect(
-                sessX, topY, sessW, 30.0F, 15.0F,
+                sessX, TOP_Y, sessW, TOP_BTN_SZ, 13.0F,
                 mulAlpha(0xB80A0D14, uiAlpha), mulAlpha(0x1FFFFFFF, uiAlpha), 1.0F
         );
-        NanoUiRenderer.drawCircle(sessX + 14.0F, topY + 15.0F, 3.0F, mulAlpha(0xFF34D399, uiAlpha));
+        NanoUiRenderer.drawCircle(sessX + 12.0F, TOP_Y + 13.0F, 2.7F, mulAlpha(0xFF34D399, uiAlpha));
 
-        // Bouton Son ON/OFF
+        // Bouton Son du Trou Noir ON/OFF
+        boolean bhOn = PureFPSConfig.blackHoleMenuSound && PureFPSConfig.sfxEnabled;
         NanoUiRenderer.drawRoundedRect(
-                soundX, topY, 30.0F, 30.0F, 15.0F,
+                bhSoundX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ, 13.0F,
+                mulAlpha(bhSoundHov ? 0xDC151A26 : 0xB80A0D14, uiAlpha),
+                mulAlpha(PureFPSConfig.blackHoleMenuSound ? (bhSoundHov ? 0x72F5B85C : 0x34F5B85C) : 0x22FFFFFF, uiAlpha),
+                1.0F
+        );
+        NanoUiRenderer.drawVortexIcon(
+                bhSoundX + 13.0F, TOP_Y + 13.0F, 12.0F,
+                PureFPSConfig.blackHoleMenuSound,
+                mulAlpha(bhOn ? 0xFFF5C878 : 0xFF6E778C, uiAlpha)
+        );
+
+        // Bouton Sons UI ON/OFF
+        NanoUiRenderer.drawRoundedRect(
+                soundX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ, 13.0F,
                 mulAlpha(soundHov ? 0xDC151A26 : 0xB80A0D14, uiAlpha),
-                mulAlpha(PureFPSConfig.sfxEnabled ? (soundHov ? 0x66F5B85C : 0x28FFFFFF) : 0x22FFFFFF, uiAlpha),
+                mulAlpha(PureFPSConfig.sfxEnabled ? (soundHov ? 0x66F5B85C : 0x26FFFFFF) : 0x22FFFFFF, uiAlpha),
                 1.0F
         );
         NanoUiRenderer.drawSoundIcon(
-                soundX + 15.0F, topY + 15.0F, 13.0F,
+                soundX + 13.0F, TOP_Y + 13.0F, 11.5F,
                 PureFPSConfig.sfxEnabled,
                 mulAlpha(PureFPSConfig.sfxEnabled ? 0xFFECEFF6 : 0xFF6E778C, uiAlpha)
         );
 
         // Bouton Quitter
         NanoUiRenderer.drawRoundedRect(
-                quitX, topY, 30.0F, 30.0F, 15.0F,
+                quitX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ, 13.0F,
                 mulAlpha(quitHov ? 0xDD3B1720 : 0xB80A0D14, uiAlpha),
                 mulAlpha(quitHov ? 0x88F87171 : 0x24FFFFFF, uiAlpha),
                 1.0F
         );
         NanoUiRenderer.drawCloseIcon(
-                quitX + 15.0F, topY + 15.0F, 12.0F,
+                quitX + 13.0F, TOP_Y + 13.0F, 10.5F,
                 mulAlpha(quitHov ? 0xFFFF9B9B : 0xFFD4DCEB, uiAlpha)
         );
 
-        // 1. Bouton principal : MULTIJOUEUR (Or chaud + icône Play vectorielle)
-        NanoUiRenderer.drawShadow(STACK_X, multiY, STACK_W, multiH, 10.0F, 15.0F, mulAlpha(multiHov ? 0x5CF5B85C : 0x36F5B85C, uiAlpha));
+        // 1. MULTIJOUEUR (compact 34px)
+        NanoUiRenderer.drawShadow(STACK_X, multiY, STACK_W, MULTI_H, 8.5F, 12.0F, mulAlpha(multiHov ? 0x54F5B85C : 0x30F5B85C, uiAlpha));
         NanoUiRenderer.drawRoundedGradient(
-                STACK_X, multiY, STACK_W, multiH, 10.0F,
+                STACK_X, multiY, STACK_W, MULTI_H, 8.5F,
                 mulAlpha(multiHov ? 0xFFFAD38A : 0xFFF2C26D, uiAlpha),
                 mulAlpha(multiHov ? 0xFFE4A03D : 0xFFD58E2F, uiAlpha),
                 mulAlpha(0xB8FFE9BE, uiAlpha),
-                1.15F
+                1.0F
         );
-        float multiLabelW = cardTitleF.getStringWidth("MULTIJOUEUR");
-        float playIconX = STACK_X + (STACK_W - (multiLabelW + 18.0F)) * 0.5F + 4.0F;
-        NanoUiRenderer.drawPlayIcon(playIconX, multiY + multiH * 0.5F, 10.5F, mulAlpha(0xFF0A0B0E, uiAlpha));
+        NanoUiRenderer.drawPlayIcon(STACK_X + 18.0F, multiY + MULTI_H * 0.5F, 9.5F, mulAlpha(0xFF0A0B0E, uiAlpha));
 
-        // 2. SOLO
-        drawGlassButton(STACK_X, soloY, STACK_W, soloH, 9.5F, soloHov, false, uiAlpha);
+        // 2. SOLO (compact 30px + icône joueur)
+        drawGlassButton(STACK_X, soloY, STACK_W, SOLO_H, 8.0F, soloHov, false, uiAlpha);
+        NanoUiRenderer.drawUserIcon(STACK_X + 18.0F, soloY + SOLO_H * 0.5F, 10.5F, mulAlpha(soloHov ? 0xFFFFFFFF : 0xFFB8C2D6, uiAlpha));
 
-        // 3. MODULES
-        drawGlassButton(STACK_X, modY, STACK_W, modH, 9.5F, modHov, true, uiAlpha);
+        // 3. MODULES (compact 30px + icône grille)
+        drawGlassButton(STACK_X, modY, STACK_W, MOD_H, 8.0F, modHov, true, uiAlpha);
+        NanoUiRenderer.drawGridIcon(STACK_X + 18.0F, modY + MOD_H * 0.5F, 10.0F, mulAlpha(modHov ? 0xFFFFDF9E : 0xFFF2C879, uiAlpha));
 
-        // 4. Ligne secondaire épurée : Hypixel · Options · Mods
-        drawGlassButton(STACK_X, subY, subW, subH, 8.5F, hypHov, false, uiAlpha);
-        drawGlassButton(STACK_X + subW + subGap, subY, subW, subH, 8.5F, optHov, false, uiAlpha);
-        drawGlassButton(STACK_X + (subW + subGap) * 2.0F, subY, subW, subH, 8.5F, fmlHov, false, uiAlpha);
+        // 4. Ligne secondaire compacte (26px) : Hypixel · Options · Mods
+        drawGlassButton(STACK_X, subY, subW, SUB_H, 7.0F, hypHov, false, uiAlpha);
+        drawGlassButton(STACK_X + subW + SUB_GAP, subY, subW, SUB_H, 7.0F, optHov, false, uiAlpha);
+        drawGlassButton(STACK_X + (subW + SUB_GAP) * 2.0F, subY, subW, SUB_H, 7.0F, fmlHov, false, uiAlpha);
+
+        // Infobulle discrète au survol des contrôles audio haut-droite
+        String topHint = null;
+        float hintCenterX = 0.0F;
+        if (bhSoundHov) {
+            topHint = PureFPSConfig.blackHoleMenuSound ? "Son trou noir : Activé" : "Son trou noir : Désactivé";
+            hintCenterX = bhSoundX + TOP_BTN_SZ * 0.5F;
+        } else if (soundHov) {
+            topHint = PureFPSConfig.sfxEnabled ? "Sons interface : Activés" : "Sons interface : Coupés";
+            hintCenterX = soundX + TOP_BTN_SZ * 0.5F;
+        }
+        float hintW = 0.0F;
+        float hintX = 0.0F;
+        if (topHint != null) {
+            hintW = smallF.getStringWidth(topHint) + 16.0F;
+            hintX = Math.min(dw - hintW - 14.0F, Math.max(14.0F, hintCenterX - hintW * 0.5F));
+            NanoUiRenderer.drawRoundedRect(
+                    hintX, TOP_Y + TOP_BTN_SZ + 6.0F, hintW, 20.0F, 6.0F,
+                    mulAlpha(0xEA090C14, uiAlpha), mulAlpha(0x30FFFFFF, uiAlpha), 1.0F
+            );
+        }
 
         NanoUiRenderer.endBatch();
 
-        // =====================================================================
-        // PASSE 2 : TYPOGRAPHIE ÉPURÉE
-        // =====================================================================
-        heroF.drawStringWithShadow("MASHCLIENT", STACK_X - 1.0F, stackTopY - 52.0F, mulAlpha(0xFFFFFFFF, uiAlpha));
+        heroF.drawStringWithShadow("MASHCLIENT", STACK_X - 1.0F, stackTopY - 46.0F, mulAlpha(0xFFFFFFFF, uiAlpha));
 
         boldSmallF.beginBatch();
-        boldSmallF.drawString("MASHCLIENT", 63.0F, 31.5F, mulAlpha(0xFFF5F3EE, uiAlpha));
+        boldSmallF.drawString("MASHCLIENT", 56.0F, 28.0F, mulAlpha(0xFFF5F3EE, uiAlpha));
         float topBrandW = boldSmallF.getStringWidth("MASHCLIENT");
-        boldSmallF.drawString("1.8.9", 63.0F + topBrandW + 8.0F, 31.5F, mulAlpha(0xFF7D869C, uiAlpha));
+        boldSmallF.drawString("4.4  \u00B7  1.8.9", 56.0F + topBrandW + 7.0F, 28.0F, mulAlpha(0xFF7D869C, uiAlpha));
+        boldSmallF.drawCentered("MULTIJOUEUR", STACK_X + STACK_W * 0.5F + 4.0F, multiY + (MULTI_H - boldSmallF.getHeight()) * 0.5F + 0.5F, mulAlpha(0xFF0A0B0E, uiAlpha), false);
         boldSmallF.endBatch();
 
-        cardTitleF.beginBatch();
-        cardTitleF.drawString(
-                "MULTIJOUEUR",
-                playIconX + 13.0F,
-                multiY + (multiH - cardTitleF.getHeight()) * 0.5F + 0.5F,
-                mulAlpha(0xFF0A0B0E, uiAlpha)
-        );
-        cardTitleF.endBatch();
-
         bodyF.beginBatch();
-        bodyF.drawString(sessionName, sessX + 24.0F, topY + 9.5F, mulAlpha(0xFFECEFF6, uiAlpha));
-        bodyF.drawCentered("SOLO", STACK_X + STACK_W * 0.5F, soloY + (soloH - bodyF.getHeight()) * 0.5F + 0.5F, mulAlpha(soloHov ? 0xFFFFFFFF : 0xFFE6EAF4, uiAlpha), false);
-        bodyF.drawCentered("MODULES", STACK_X + STACK_W * 0.5F, modY + (modH - bodyF.getHeight()) * 0.5F + 0.5F, mulAlpha(modHov ? 0xFFFFDF9E : 0xFFF2C879, uiAlpha), false);
+        bodyF.drawString("Solo", STACK_X + 32.0F, soloY + (SOLO_H - bodyF.getHeight()) * 0.5F + 0.5F, mulAlpha(soloHov ? 0xFFFFFFFF : 0xFFE6EAF4, uiAlpha));
+        bodyF.drawString("Modules", STACK_X + 32.0F, modY + (MOD_H - bodyF.getHeight()) * 0.5F + 0.5F, mulAlpha(modHov ? 0xFFFFDF9E : 0xFFF2C879, uiAlpha));
         bodyF.endBatch();
 
         smallF.beginBatch();
-        smallF.drawString("RSHIFT", STACK_X + STACK_W - smallF.getStringWidth("RSHIFT") - 12.0F, modY + (modH - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(0xFF7D869C, uiAlpha));
-        smallF.drawCentered("Hypixel", STACK_X + subW * 0.5F, subY + (subH - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(hypHov ? 0xFFFFDF9E : 0xFFB8C1D4, uiAlpha), false);
-        smallF.drawCentered("Options", STACK_X + subW + subGap + subW * 0.5F, subY + (subH - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(optHov ? 0xFFFFFFFF : 0xFFB8C1D4, uiAlpha), false);
-        smallF.drawCentered("Mods", STACK_X + (subW + subGap) * 2.0F + subW * 0.5F, subY + (subH - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(fmlHov ? 0xFFFFFFFF : 0xFFB8C1D4, uiAlpha), false);
+        smallF.drawString(sessionName, sessX + 21.0F, TOP_Y + 8.0F, mulAlpha(0xFFECEFF6, uiAlpha));
+        smallF.drawString("RSHIFT", STACK_X + STACK_W - smallF.getStringWidth("RSHIFT") - 10.0F, modY + (MOD_H - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(0xFF7D869C, uiAlpha));
+        smallF.drawCentered("Hypixel", STACK_X + subW * 0.5F, subY + (SUB_H - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(hypHov ? 0xFFFFDF9E : 0xFFB8C1D4, uiAlpha), false);
+        smallF.drawCentered("Options", STACK_X + subW + SUB_GAP + subW * 0.5F, subY + (SUB_H - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(optHov ? 0xFFFFFFFF : 0xFFB8C1D4, uiAlpha), false);
+        smallF.drawCentered("Mods", STACK_X + (subW + SUB_GAP) * 2.0F + subW * 0.5F, subY + (SUB_H - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(fmlHov ? 0xFFFFFFFF : 0xFFB8C1D4, uiAlpha), false);
+        if (topHint != null) {
+            smallF.drawCentered(topHint, hintX + hintW * 0.5F, TOP_Y + TOP_BTN_SZ + 11.0F, mulAlpha(0xFFECEFF6, uiAlpha), false);
+        }
         smallF.endBatch();
     }
 
@@ -276,7 +299,7 @@ public class GuiPureMainMenu extends GuiScreen {
         float mx = NanoUiRenderer.desktopEventMouseX(this.mc);
         float my = NanoUiRenderer.desktopEventMouseY(this.mc);
 
-        int act = hitTestDesktopAction(dw, dh, mx, my, this.SessionWidthCached());
+        int act = hitTestDesktopAction(dw, dh, mx, my);
         if (act < 0) {
             super.mouseClicked(mouseX, mouseY, mouseButton);
             return;
@@ -308,6 +331,15 @@ public class GuiPureMainMenu extends GuiScreen {
                 MashAudioEngine.playClick();
                 this.mc.displayGuiScreen(new GuiModList(this));
                 break;
+            case ACT_BH_SOUND:
+                PureFPSConfig.blackHoleMenuSound = !PureFPSConfig.blackHoleMenuSound;
+                MashModules.syncFromPureConfig();
+                MashModules.markDirty();
+                MashModules.saveAsyncIfDirty();
+                PureFPSConfig.save();
+                MashAudioEngine.playToggle(PureFPSConfig.blackHoleMenuSound);
+                MashAudioEngine.updateMenuAmbientLoop(!Display.isCreated() || Display.isActive());
+                break;
             case ACT_SOUND:
                 boolean next = !PureFPSConfig.sfxEnabled;
                 PureFPSConfig.sfxEnabled = next;
@@ -315,8 +347,10 @@ public class GuiPureMainMenu extends GuiScreen {
                 if (next) {
                     MashAudioEngine.playToggle(true);
                 }
+                MashAudioEngine.updateMenuAmbientLoop(!Display.isCreated() || Display.isActive());
                 break;
             case ACT_QUIT:
+                MashAudioEngine.updateMenuAmbientLoop(false);
                 MashAudioEngine.playClick();
                 this.mc.shutdown();
                 break;
@@ -325,33 +359,29 @@ public class GuiPureMainMenu extends GuiScreen {
         }
     }
 
-    private static int hitTestDesktopAction(float dw, float dh, float mx, float my, float sessW) {
-        float topY = 22.0F;
-        float quitX = dw - 58.0F;
-        float soundX = quitX - 38.0F;
-        if (inside(mx, my, quitX, topY, 30.0F, 30.0F)) return ACT_QUIT;
-        if (inside(mx, my, soundX, topY, 30.0F, 30.0F)) return ACT_SOUND;
+    private static int hitTestDesktopAction(float dw, float dh, float mx, float my) {
+        float quitX = dw - 48.0F;
+        float soundX = quitX - 32.0F;
+        float bhSoundX = soundX - 32.0F;
+        if (inside(mx, my, quitX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ)) return ACT_QUIT;
+        if (inside(mx, my, soundX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ)) return ACT_SOUND;
+        if (inside(mx, my, bhSoundX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ)) return ACT_BH_SOUND;
 
         float stackTopY = computeStackTopY(dh);
         float multiY = stackTopY;
-        float multiH = 42.0F;
-        if (inside(mx, my, STACK_X, multiY, STACK_W, multiH)) return ACT_MULTI;
+        if (inside(mx, my, STACK_X, multiY, STACK_W, MULTI_H)) return ACT_MULTI;
 
-        float soloY = multiY + multiH + 10.0F;
-        float soloH = 38.0F;
-        if (inside(mx, my, STACK_X, soloY, STACK_W, soloH)) return ACT_SOLO;
+        float soloY = multiY + MULTI_H + 7.0F;
+        if (inside(mx, my, STACK_X, soloY, STACK_W, SOLO_H)) return ACT_SOLO;
 
-        float modY = soloY + soloH + 9.0F;
-        float modH = 38.0F;
-        if (inside(mx, my, STACK_X, modY, STACK_W, modH)) return ACT_MODULES;
+        float modY = soloY + SOLO_H + 7.0F;
+        if (inside(mx, my, STACK_X, modY, STACK_W, MOD_H)) return ACT_MODULES;
 
-        float subY = modY + modH + 10.0F;
-        float subH = 33.0F;
-        float subGap = 7.0F;
-        float subW = (STACK_W - subGap * 2.0F) / 3.0F;
-        if (inside(mx, my, STACK_X, subY, subW, subH)) return ACT_HYPIXEL;
-        if (inside(mx, my, STACK_X + subW + subGap, subY, subW, subH)) return ACT_OPTIONS;
-        if (inside(mx, my, STACK_X + (subW + subGap) * 2.0F, subY, subW, subH)) return ACT_MODS;
+        float subY = modY + MOD_H + 8.0F;
+        float subW = (STACK_W - SUB_GAP * 2.0F) / 3.0F;
+        if (inside(mx, my, STACK_X, subY, subW, SUB_H)) return ACT_HYPIXEL;
+        if (inside(mx, my, STACK_X + subW + SUB_GAP, subY, subW, SUB_H)) return ACT_OPTIONS;
+        if (inside(mx, my, STACK_X + (subW + SUB_GAP) * 2.0F, subY, subW, SUB_H)) return ACT_MODS;
 
         return -1;
     }

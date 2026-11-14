@@ -98,6 +98,11 @@ public final class MashFlags {
     public static boolean uhcGoldScale = false;
     public static float uhcGoldScaleFactor = 1.35F;
 
+    // TNT Timer 3D (vis_tnt_timer)
+    public static boolean tntTimerEnabled = true;
+    public static boolean tntTimerDynamicColor = true;
+    public static int tntTimerFuseMode = 0; // 0=Auto (BedWars 2.6s / Vanilla 4.0s), 1=Vanilla 4.0s, 2=BedWars 2.6s
+
     private MashFlags() {
     }
 }

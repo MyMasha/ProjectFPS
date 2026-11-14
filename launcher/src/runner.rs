@@ -1,5 +1,5 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.0.0.
-//! - Synchronise automatiquement `purefps-4.0.0.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.4.0.
+//! - Synchronise automatiquement `purefps-4.4.0.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
 //! - Détecte instantanément l'ouverture de la fenêtre OpenGL (`DISPLAY_CREATED` / `.purefps_display_ready`)
 //!   pour réduire le Launcher en bas à droite (System Tray) à l'instant exact où Minecraft prend sa place.
@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.3.0.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.0.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -492,10 +492,13 @@ pub fn run_direct_jvm_blocking(
 
     let mut cmd = Command::new(&prefs.java_path);
     cmd.current_dir(&prefs.game_dir)
+        .env("__GL_THREADED_OPTIMIZATIONS", "1")
+        .env("SHIM_MCCOMPAT", "0x800000001")
         .arg(format!("-Xms{}M", prefs.ram_mb))
         .arg(format!("-Xmx{}M", prefs.ram_mb))
         .arg("-XX:+UnlockExperimentalVMOptions")
         .arg("-XX:+UseG1GC")
+        .arg("-XX:+AlwaysPreTouch")
         .arg("-XX:G1NewSizePercent=20")
         .arg("-XX:G1ReservePercent=20")
         .arg("-XX:MaxGCPauseMillis=25")
@@ -665,12 +668,15 @@ pub fn spawn_prism_bridge_now(
     let pre_existing_lwjgl = current_visible_lwjgl_hwnd();
 
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[MashClient] Pont Singularity Prism : lancement de '{}' ({} MiB RAM)...",
+        "[MashClient] PrismLauncher : lancement de '{}' ({} Mo RAM)...",
         instance_id, prefs.ram_mb
     )));
 
     let mut cmd = Command::new(&prefs.prism_exe);
-    cmd.arg("--launch").arg(instance_id);
+    cmd.env("__GL_THREADED_OPTIMIZATIONS", "1")
+        .env("SHIM_MCCOMPAT", "0x800000001")
+        .arg("--launch")
+        .arg(instance_id);
     if prefs.quick_join_hypixel {
         cmd.arg("--server").arg("mc.hypixel.net");
     }

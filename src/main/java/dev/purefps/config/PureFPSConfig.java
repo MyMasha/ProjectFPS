@@ -85,13 +85,15 @@ public final class PureFPSConfig {
     // Fenêtre & Économie GPU
     public static boolean borderlessFullscreen = true;
     public static boolean unfocusedFpsLimiter = true;
-    public static int unfocusedFpsLimit = 15;
+    public static int unfocusedFpsLimit = 30;
     public static boolean showF3Stats = true;
 
     // Modules MashClient (synchronisés avec MashModules)
     public static boolean customMainMenu = true;
     public static boolean smoothClientFont = true;
     public static boolean sfxEnabled = true;
+    public static boolean blackHoleMenuSound = true;
+    public static boolean tntTimer = true;
     public static boolean hudEnabled = true;
     public static boolean hudFpsCps = true;
     public static boolean hudPing = true;
@@ -139,6 +141,7 @@ public final class PureFPSConfig {
     public static int throttledStaticUpdatesTotal = 0;
 
     private static File configFile;
+    private static long loadedFileLastModified = 0L;
     private static volatile boolean dirty = false;
     private static final java.util.concurrent.ExecutorService SAVE_EXECUTOR =
             java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
@@ -222,7 +225,7 @@ public final class PureFPSConfig {
                 maxParticlesPerLayer = 250;
                 fastBlockBreakParticles = true;
                 skipClientSkylightUpdates = true;
-                unfocusedFpsLimit = 10;
+                unfocusedFpsLimit = 30;
                 break;
 
             case BALANCED:
@@ -249,7 +252,7 @@ public final class PureFPSConfig {
                 maxParticlesPerLayer = 1000;
                 fastBlockBreakParticles = true;
                 skipClientSkylightUpdates = false;
-                unfocusedFpsLimit = 15;
+                unfocusedFpsLimit = 30;
                 break;
 
             case QUALITY:
@@ -386,7 +389,7 @@ public final class PureFPSConfig {
                     && fastPlayerRendering && fastSignText && tileEntityDistanceCulling
                     && maxTileEntityRenderDistance == 32 && fastNametags && nametagDistanceCulling && maxNametagDistance == 24
                     && fastParticlePhysics && maxParticlesPerLayer == 250 && fastBlockBreakParticles
-                    && skipClientSkylightUpdates && unfocusedFpsLimit == 10) {
+                    && skipClientSkylightUpdates && unfocusedFpsLimit == 30) {
                 activeProfile = PureFPSProfile.FPS;
                 return;
             }
@@ -396,7 +399,7 @@ public final class PureFPSConfig {
                     && fastPlayerRendering && fastSignText && tileEntityDistanceCulling
                     && maxTileEntityRenderDistance == 48 && fastNametags && nametagDistanceCulling && maxNametagDistance == 32
                     && fastParticlePhysics && maxParticlesPerLayer == 1000 && fastBlockBreakParticles
-                    && !skipClientSkylightUpdates && unfocusedFpsLimit == 15) {
+                    && !skipClientSkylightUpdates && unfocusedFpsLimit == 30) {
                 activeProfile = PureFPSProfile.BALANCED;
                 return;
             }
@@ -456,12 +459,17 @@ public final class PureFPSConfig {
         return Math.min(auto, maxSafeForRam);
     }
 
+    public static long getLoadedFileLastModified() {
+        return loadedFileLastModified;
+    }
+
     public static void init(File mcDataDir) {
         File configDir = new File(mcDataDir, "config");
         if (!configDir.exists()) {
             configDir.mkdirs();
         }
         configFile = new File(configDir, "purefps.properties");
+        loadedFileLastModified = configFile.isFile() ? configFile.lastModified() : 0L;
         load();
         save();
     }
@@ -555,6 +563,8 @@ public final class PureFPSConfig {
             staticFov = getBool(props, "staticFov", staticFov);
             transparentChat = getBool(props, "transparentChat", transparentChat);
             sfxEnabled = getBool(props, "sfxEnabled", sfxEnabled);
+            blackHoleMenuSound = getBool(props, "blackHoleMenuSound", blackHoleMenuSound);
+            tntTimer = getBool(props, "tntTimer", tntTimer);
 
             hudFpsX = clamp(getInt(props, "hudFpsX", hudFpsX), 2, 3840);
             hudFpsY = clamp(getInt(props, "hudFpsY", hudFpsY), 2, 2160);
@@ -645,6 +655,8 @@ public final class PureFPSConfig {
         props.setProperty("customMainMenu", Boolean.toString(customMainMenu));
         props.setProperty("smoothClientFont", Boolean.toString(smoothClientFont));
         props.setProperty("sfxEnabled", Boolean.toString(sfxEnabled));
+        props.setProperty("blackHoleMenuSound", Boolean.toString(blackHoleMenuSound));
+        props.setProperty("tntTimer", Boolean.toString(tntTimer));
         props.setProperty("hudEnabled", Boolean.toString(hudEnabled));
         props.setProperty("hudFpsCps", Boolean.toString(hudFpsCps));
         props.setProperty("hudPing", Boolean.toString(hudPing));
@@ -672,7 +684,7 @@ public final class PureFPSConfig {
         props.setProperty("hudKeystrokesY", Integer.toString(hudKeystrokesY));
 
         try (FileOutputStream out = new FileOutputStream(configFile)) {
-            props.store(out, "MashClient 4.0.0 Configuration");
+            props.store(out, "MashClient 4.4.0 Configuration");
         } catch (IOException ignored) {
         }
     }

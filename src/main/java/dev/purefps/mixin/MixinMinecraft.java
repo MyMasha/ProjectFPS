@@ -78,13 +78,18 @@ public abstract class MixinMinecraft {
 
     /**
      * @author MashClient
-     * @reason Menus fluides 144 FPS (vs 30 FPS Vanilla) + limiteur FPS automatique hors focus
+     * @reason Menus fluides 240 FPS + limiteur hors focus intelligent (préserve 100 % des FPS lors d'une capture Win+Shift+S en jeu)
      */
     @Overwrite
     public int getLimitFramerate() {
         if (PureFPSConfig.enabled && PureFPSConfig.unfocusedFpsLimiter) {
             if (Display.isCreated() && !Display.isActive()) {
-                return PureFPSConfig.unfocusedFpsLimit;
+                if (!Display.isVisible()) {
+                    return PureFPSConfig.unfocusedFpsLimit;
+                }
+                if (this.theWorld == null || this.currentScreen != null) {
+                    return Math.max(30, PureFPSConfig.unfocusedFpsLimit);
+                }
             }
         }
         if (this.theWorld == null && this.currentScreen != null) {
@@ -167,9 +172,12 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "startGame", at = @At("RETURN"))
     private void purefps$syncStartupSettings(CallbackInfo ci) {
+        if (SeamlessLaunchTransition.isActive()) {
+            BlackHoleEmergenceRenderer.renderStartupCheckpoint((Minecraft) (Object) this, 0.88F, true);
+        }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle("MashClient 4.3 | Minecraft 1.8.9");
+            Display.setTitle("MashClient 4.4 | Minecraft 1.8.9");
         }
     }
 
@@ -247,6 +255,9 @@ public abstract class MixinMinecraft {
             at = @At("HEAD")
     )
     private void purefps$clearCachesOnWorldChange(WorldClient worldClientIn, String loadingMessage, CallbackInfo ci) {
+        if (worldClientIn != null) {
+            dev.purefps.client.audio.MashAudioEngine.updateMenuAmbientLoop(false);
+        }
         MenuUnloadManager.onWorldChangeOrUnload();
         dev.purefps.module.MashModules.saveAsyncIfDirty();
         PureFPSConfig.saveIfDirty();

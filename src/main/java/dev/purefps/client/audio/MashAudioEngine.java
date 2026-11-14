@@ -12,10 +12,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Moteur audio autonome MashClient (44.1 kHz, 16-bit stéréo PCM via javax.sound.sampled) :
+ * Moteur audio autonome MashClient 4.4 (44.1 kHz, 16-bit stéréo PCM via javax.sound.sampled) :
  * - Fonctionne dès la toute première milliseconde de l'émergence du Trou Noir (avant même l'init de SoundManager).
+ * - Inclut la boucle gravitationnelle spatiale du Trou Noir sur le menu principal (activable/désactivable).
  * - Synthèse pré-calculée en arrière-plan sur thread démon : 0 ms de blocage sur le thread de rendu OpenGL.
- * - Ignoré silencieusement dans les environnements sans périphérique audio (tests unitaires CI).
  */
 public final class MashAudioEngine {
 
@@ -26,6 +26,7 @@ public final class MashAudioEngine {
     private static final AtomicBoolean EMERGENCE_PLAYED = new AtomicBoolean(false);
 
     private static volatile byte[] pcmEmergence;
+    private static volatile byte[] pcmAmbientLoop;
     private static volatile byte[] pcmHover;
     private static volatile byte[] pcmClick;
     private static volatile byte[] pcmToggleOn;
@@ -34,6 +35,9 @@ public final class MashAudioEngine {
     private static volatile byte[] pcmJoin;
 
     private static volatile long lastHoverNs = 0L;
+    private static volatile boolean menuAmbientDesired = false;
+    private static volatile boolean menuAmbientLastDispatched = false;
+    private static Clip activeAmbientClip = null;
 
     private static final ExecutorService AUDIO_EXEC = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MashClient-Audio");
@@ -54,6 +58,67 @@ public final class MashAudioEngine {
     public static void resetBootState() {
         EMERGENCE_PLAYED.set(false);
         ensurePrewarmed();
+    }
+
+    /**
+     * Pilote la boucle sonore gravitationnelle du Trou Noir sur le menu principal.
+     * Zéro allocation par frame : ne réveille le thread audio que lors d'une transition d'état.
+     */
+    public static void updateMenuAmbientLoop(boolean onBlackHoleMenu) {
+        boolean shouldPlay = onBlackHoleMenu
+                && PureFPSConfig.enabled
+                && PureFPSConfig.sfxEnabled
+                && PureFPSConfig.blackHoleMenuSound;
+        menuAmbientDesired = shouldPlay;
+        if (shouldPlay == menuAmbientLastDispatched) {
+            return;
+        }
+        menuAmbientLastDispatched = shouldPlay;
+        ensurePrewarmed();
+        AUDIO_EXEC.execute(MashAudioEngine::syncAmbientClipOnAudioThread);
+    }
+
+    private static void syncAmbientClipOnAudioThread() {
+        boolean want = menuAmbientDesired
+                && PureFPSConfig.enabled
+                && PureFPSConfig.sfxEnabled
+                && PureFPSConfig.blackHoleMenuSound;
+        if (!want) {
+            if (activeAmbientClip != null) {
+                try {
+                    activeAmbientClip.stop();
+                    activeAmbientClip.close();
+                } catch (Throwable ignored) {
+                }
+                activeAmbientClip = null;
+            }
+            return;
+        }
+        if (activeAmbientClip != null && activeAmbientClip.isOpen() && activeAmbientClip.isRunning()) {
+            return;
+        }
+        if (activeAmbientClip != null) {
+            try {
+                activeAmbientClip.close();
+            } catch (Throwable ignored) {
+            }
+            activeAmbientClip = null;
+        }
+        if (pcmAmbientLoop == null) {
+            bakeAllClips();
+        }
+        byte[] data = pcmAmbientLoop;
+        if (data == null || data.length == 0) {
+            return;
+        }
+        try {
+            Clip clip = AudioSystem.getClip();
+            clip.open(STEREO_16, data, 0, data.length);
+            clip.loop(Clip.LOOP_CONTINUOUSLY);
+            activeAmbientClip = clip;
+        } catch (Throwable ignored) {
+            activeAmbientClip = null;
+        }
     }
 
     public static void playBlackHoleEmergenceOnce() {
@@ -141,7 +206,7 @@ public final class MashAudioEngine {
     }
 
     private static synchronized void bakeAllClips() {
-        if (pcmClick != null) {
+        if (pcmClick != null && pcmAmbientLoop != null) {
             return;
         }
         pcmHover = synthHover();
@@ -151,6 +216,7 @@ public final class MashAudioEngine {
         pcmMenuOpen = synthMenuOpen();
         pcmJoin = synthJoin();
         pcmEmergence = synthBlackHoleEmergence();
+        pcmAmbientLoop = synthBlackHoleAmbientLoop();
     }
 
     private static void playPcmNow(byte[] pcm) {
@@ -170,13 +236,81 @@ public final class MashAudioEngine {
             clip.open(STEREO_16, pcm, 0, pcm.length);
             clip.start();
         } catch (Throwable ignored) {
-            // Aucun périphérique audio (ex: serveur CI headless) : ignoré sans erreur
         }
     }
 
     /**
-     * Émergence cinématique hors de l'Horizon des Événements (3.05 s, stéréo spatiale) :
-     * grondement sub-grave gravitationnel + ouverture progressive du filtre + accord harmonique chaud (Ré majeur 9 / quinte).
+     * Boucle gravitationnelle spatiale du Trou Noir (6.00 s, stéréo sans couture — phase exacte sur multiples entiers) :
+     * - Onde sub-grave d'horizon (36 Hz / 54 Hz) + résonance chaude du disque d'accrétion (72 Hz / 108 Hz / 162 Hz)
+     * - Souffle relativiste filtré circulaire garantissant 0 clic lors du bouclage continu.
+     */
+    public static byte[] synthBlackHoleAmbientLoop() {
+        final int frames = 44100 * 6; // Exactement 6.00 secondes = 264 600 échantillons
+        byte[] out = new byte[frames * 4];
+        Random rng = new Random(0x47415247414E54L);
+
+        float[] noiseL = new float[frames];
+        float[] noiseR = new float[frames];
+        for (int i = 0; i < frames; i++) {
+            noiseL[i] = (float) (rng.nextDouble() * 2.0 - 1.0);
+            noiseR[i] = (float) (rng.nextDouble() * 2.0 - 1.0);
+        }
+
+        double twoPiOverN = (2.0 * Math.PI) / (double) frames;
+        double dt = 1.0 / SAMPLE_RATE;
+
+        // Pré-chauffage circulaire du filtre passe-bas sur les 4 096 derniers échantillons pour zéro discontinuité
+        double lp1L = 0.0, lp1R = 0.0;
+        double lp2L = 0.0, lp2R = 0.0;
+        for (int w = frames - 4096; w < frames; w++) {
+            double lfo = 0.5 + 0.5 * Math.sin(twoPiOverN * w);
+            double cutoff = 115.0 + 95.0 * lfo;
+            double rc = 1.0 / (2.0 * Math.PI * cutoff);
+            double alpha = dt / (rc + dt);
+            lp1L += alpha * (noiseL[w] * 0.16 - lp1L);
+            lp1R += alpha * (noiseR[w] * 0.16 - lp1R);
+            lp2L += alpha * (lp1L - lp2L);
+            lp2R += alpha * (lp1R - lp2R);
+        }
+
+        for (int i = 0; i < frames; i++) {
+            double u = twoPiOverN * i;
+
+            // LFO lents de respiration gravitationnelle (1 et 2 cycles exacts sur 6 secondes)
+            double breath1 = 0.78 + 0.22 * Math.sin(u);
+            double breath2 = 0.82 + 0.18 * Math.cos(2.0 * u);
+
+            // Harmoniques exactes (k cycles sur 6.0 s -> continuité C-infinie au point de bouclage)
+            // 216/6 = 36 Hz, 324/6 = 54 Hz, 432/6 = 72 Hz, 648/6 = 108 Hz, 972/6 = 162 Hz
+            double subL = Math.sin(216.0 * u) * 0.068 + Math.sin(324.0 * u) * 0.036;
+            double subR = Math.sin(217.0 * u) * 0.068 + Math.sin(323.0 * u) * 0.036;
+
+            double droneL = (Math.sin(432.0 * u) * 0.044
+                    + Math.sin(648.0 * u) * 0.025 * breath2
+                    + Math.sin(972.0 * u) * 0.011 * (1.0 - 0.5 * Math.cos(u))) * breath1;
+            double droneR = (Math.sin(433.0 * u) * 0.044
+                    + Math.sin(647.0 * u) * 0.025 * breath2
+                    + Math.sin(971.0 * u) * 0.011 * (1.0 - 0.5 * Math.cos(u))) * breath1;
+
+            double lfoFilter = 0.5 + 0.5 * Math.sin(u);
+            double cutoff = 115.0 + 95.0 * lfoFilter;
+            double rc = 1.0 / (2.0 * Math.PI * cutoff);
+            double alpha = dt / (rc + dt);
+
+            lp1L += alpha * (noiseL[i] * 0.16 - lp1L);
+            lp1R += alpha * (noiseR[i] * 0.16 - lp1R);
+            lp2L += alpha * (lp1L - lp2L);
+            lp2R += alpha * (lp1R - lp2R);
+
+            double mixL = subL + droneL + lp2L * 0.52;
+            double mixR = subR + droneR + lp2R * 0.52;
+            writeStereoFrame(out, i, mixL, mixR);
+        }
+        return out;
+    }
+
+    /**
+     * Émergence cinématique hors de l'Horizon des Événements (3.05 s, stéréo spatiale).
      */
     public static byte[] synthBlackHoleEmergence() {
         int frames = (int) (SAMPLE_RATE * 3.05F);
@@ -195,17 +329,14 @@ public final class MashAudioEngine {
             double t = i / (double) SAMPLE_RATE;
             double p = i / (double) frames;
 
-            // Enveloppe globale douce sans clic (fade-in 0.28s, maintien ample, extinction cosinus sur la dernière seconde)
             double envIn = smoothstep(0.0, 0.30, t);
             double envOut = 1.0 - smoothstep(1.85, 3.05, t);
             double masterEnv = envIn * envOut;
 
-            // 1. Onde gravitationnelle sub-basse (31 Hz -> 55 Hz)
             double subFreq = 31.0 + 24.0 * smoothstep(0.0, 1.8, t);
             subPhase += (2.0 * Math.PI * subFreq) / SAMPLE_RATE;
             double sub = Math.sin(subPhase) * 0.24 * (1.0 - 0.35 * p);
 
-            // 2. Accord spatial chaud (D2 73.42 Hz, A2 110 Hz, E3 164.81 Hz, F#3 185.0 Hz) avec léger désaccord stéréo
             double swell = smoothstep(0.18, 1.35, t);
             h1L += (2.0 * Math.PI * 73.42) / SAMPLE_RATE;
             h1R += (2.0 * Math.PI * 73.68) / SAMPLE_RATE;
@@ -219,7 +350,6 @@ public final class MashAudioEngine {
             double padL = (Math.sin(h1L) * 0.14 + Math.sin(h2L) * 0.11 + Math.sin(h3L) * 0.065 + Math.sin(h4L) * 0.045) * swell;
             double padR = (Math.sin(h1R) * 0.14 + Math.sin(h2R) * 0.11 + Math.sin(h3R) * 0.065 + Math.sin(h4R) * 0.045) * swell;
 
-            // 3. Souffle relativiste filtré (décompression à la sortie du trou noir)
             double airBell = Math.exp(-Math.pow((t - 0.82) / 0.58, 2.0));
             double whiteL = (rng.nextDouble() * 2.0 - 1.0) * 0.13 * airBell;
             double whiteR = (rng.nextDouble() * 2.0 - 1.0) * 0.13 * airBell;

@@ -100,8 +100,9 @@ public final class SeamlessLaunchTransition {
     }
 
     /**
-     * Active le thread dédié SplashProgress de Forge avec fond #000000 afin que MixinSplashProgressThread
-     * pilote l'animation du Trou Noir à 100 FPS constants sans aucun blocage du thread principal !
+     * Désactive le thread SharedDrawable (wglShareLists) de Forge SplashProgress afin de préserver
+     * 100 % des optimisations multithreadées du pilote NVIDIA (nvoglv64.dll) sur toute la session !
+     * L'animation du Trou Noir reste pilotée sur le contexte OpenGL principal via MixinMinecraft.
      */
     public static void ensureForgeSplashConfiguredDark(File mcDataDir) {
         if (mcDataDir == null) {
@@ -114,8 +115,8 @@ public final class SeamlessLaunchTransition {
                 cfgDir.mkdirs();
             }
             File splashFile = new File(cfgDir, "splash.properties");
-            String content = "# MashClient 4.0 — 100 FPS SharedGL Black Hole Emergence\n"
-                    + "enabled=true\n"
+            String content = "# MashClient 4.4 — Single-Context NVIDIA Threaded GL Fast Boot\n"
+                    + "enabled=false\n"
                     + "background=0x000000\n"
                     + "font=0x000000\n"
                     + "barBackground=0x000000\n"

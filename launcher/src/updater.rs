@@ -1,4 +1,4 @@
-//! Auto-Updater GitHub Releases natif pour MashClient 4.0 — Singularity Edition.
+//! Auto-Updater GitHub Releases natif pour MashClient 4.4.
 //! - Compatible dépôts publics ET privés (`MyMasha/ProjectFPS`) via Fine-Grained PAT Read-Only (`Contents: Read`)
 //! - Téléchargement binaire en 2 étapes (`Accept: application/octet-stream` sans redirection auto -> URL signée S3/Blob sans en-tête Authorization)
 //! - Vérification d'intégrité des en-têtes binaires (`PK\x03\x04` pour le mod `.jar`, `MZ` pour le launcher `MashClient.exe`)
@@ -16,7 +16,7 @@ use std::time::Duration;
 use tao::event_loop::EventLoopProxy;
 
 pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const USER_AGENT: &str = "MashClient-Updater/4.3";
+const USER_AGENT: &str = "MashClient-Updater/4.4";
 const GH_API_VERSION: &str = "2022-11-28";
 
 #[derive(Debug, Clone)]

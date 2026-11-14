@@ -1,4 +1,4 @@
-//! Configuration unifiée PureClient 3.5 (`purefps.properties` + `launcher.json` + `account.json`).
+//! Configuration unifiée MashClient 4.4 (`purefps.properties` + `launcher.json` + `account.json`).
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -257,8 +257,12 @@ pub struct PureClientSettings {
     pub active_profile: PureProfile,
     pub enabled: bool,
 
-    // Modules MashClient 4.0
+    // Modules MashClient 4.4
     pub custom_main_menu: bool,
+    #[serde(default = "default_true")]
+    pub black_hole_menu_sound: bool,
+    #[serde(default = "default_true")]
+    pub tnt_timer: bool,
     #[serde(default = "default_true")]
     pub borderless_fullscreen: bool,
     pub smooth_client_font: bool,
@@ -322,6 +326,8 @@ impl Default for PureClientSettings {
             active_profile: PureProfile::Balanced,
             enabled: true,
             custom_main_menu: true,
+            black_hole_menu_sound: true,
+            tnt_timer: true,
             borderless_fullscreen: true,
             smooth_client_font: true,
             hud_enabled: true,
@@ -364,7 +370,7 @@ impl Default for PureClientSettings {
             max_tile_entity_render_distance: 48,
             max_particles_per_layer: 1000,
             skip_client_skylight_updates: false,
-            unfocused_fps_limit: 15,
+            unfocused_fps_limit: 30,
             island_core_culling: true,
             smart_chunk_updates: true,
             menu_world_unload: true,
@@ -408,7 +414,7 @@ impl PureClientSettings {
                 self.max_tile_entity_render_distance = 32;
                 self.max_particles_per_layer = 250;
                 self.skip_client_skylight_updates = true;
-                self.unfocused_fps_limit = 10;
+                self.unfocused_fps_limit = 30;
                 self.island_core_culling = true;
                 self.smart_chunk_updates = true;
                 self.menu_world_unload = true;
@@ -425,7 +431,7 @@ impl PureClientSettings {
                 self.max_tile_entity_render_distance = 48;
                 self.max_particles_per_layer = 1000;
                 self.skip_client_skylight_updates = false;
-                self.unfocused_fps_limit = 15;
+                self.unfocused_fps_limit = 30;
                 self.island_core_culling = true;
                 self.smart_chunk_updates = true;
                 self.menu_world_unload = true;
@@ -460,6 +466,8 @@ impl PureClientSettings {
         match key {
             "enabled" => { self.enabled = as_bool; engine_edited = true; }
             "custom_main_menu" => self.custom_main_menu = as_bool,
+            "black_hole_menu_sound" => self.black_hole_menu_sound = as_bool,
+            "tnt_timer" => self.tnt_timer = as_bool,
             "borderless_fullscreen" => self.borderless_fullscreen = as_bool,
             "smooth_client_font" => self.smooth_client_font = as_bool,
             "hud_enabled" => self.hud_enabled = as_bool,
@@ -563,6 +571,8 @@ impl PureClientSettings {
         }
         s.enabled = b(&map, "enabled", s.enabled);
         s.custom_main_menu = b(&map, "customMainMenu", s.custom_main_menu);
+        s.black_hole_menu_sound = b(&map, "blackHoleMenuSound", s.black_hole_menu_sound);
+        s.tnt_timer = b(&map, "tntTimer", s.tnt_timer);
         s.borderless_fullscreen = b(&map, "borderlessFullscreen", s.borderless_fullscreen);
         s.smooth_client_font = b(&map, "smoothClientFont", s.smooth_client_font);
         s.hud_enabled = b(&map, "hudEnabled", s.hud_enabled);
@@ -626,6 +636,11 @@ impl PureClientSettings {
         map.insert("activeProfile".into(), self.active_profile.id().into());
         map.insert("enabled".into(), self.enabled.to_string());
         map.insert("customMainMenu".into(), self.custom_main_menu.to_string());
+        map.insert(
+            "blackHoleMenuSound".into(),
+            self.black_hole_menu_sound.to_string(),
+        );
+        map.insert("tntTimer".into(), self.tnt_timer.to_string());
         map.insert("borderlessFullscreen".into(), self.borderless_fullscreen.to_string());
         map.insert("smoothClientFont".into(), self.smooth_client_font.to_string());
         map.insert("hudEnabled".into(), self.hud_enabled.to_string());
@@ -680,7 +695,7 @@ impl PureClientSettings {
         map.insert("smartChunkUpdates".into(), self.smart_chunk_updates.to_string());
         map.insert("menuWorldUnload".into(), self.menu_world_unload.to_string());
 
-        let mut out = String::from("# MashClient 4.3.0 Configuration\n");
+        let mut out = String::from("# MashClient 4.4.0 Configuration\n");
         for (k, v) in &map {
             out.push_str(k);
             out.push('=');
@@ -902,8 +917,8 @@ pub fn effective_github_token() -> Option<String> {
 }
 
 /// Prépare les fichiers de synchronisation sans couture entre MashClient (rideau noir Trou Noir)
-/// et Minecraft 1.8.9 : active le thread dédié Forge `SplashProgress$3` sur fond noir (`#000000`)
-/// pour que `MixinSplashProgressThread` anime l'émergence du Trou Noir à 100 FPS constants sans aucun freeze !
+/// et Minecraft 1.8.9 : désactive `SplashProgress` (`enabled=false`) pour éviter que Forge ne crée
+/// un `SharedDrawable` (`wglShareLists`) qui désactive la Threaded Optimization du pilote NVIDIA.
 pub fn prepare_seamless_launch_files(game_dir: &str) {
     let cfg_dir = Path::new(game_dir).join("config");
     let _ = std::fs::create_dir_all(&cfg_dir);
@@ -916,8 +931,8 @@ pub fn prepare_seamless_launch_files(game_dir: &str) {
 
     let splash_path = cfg_dir.join("splash.properties");
     let splash_black = "\
-# MashClient 4.0 — 100 FPS SharedGL Black Hole Emergence\n\
-enabled=true\n\
+# MashClient 4.4 — NVIDIA Threaded GL (No SharedDrawable)\n\
+enabled=false\n\
 background=0x000000\n\
 font=0x000000\n\
 barBackground=0x000000\n\
@@ -946,10 +961,15 @@ mod tests {
 
         let mut cfg = PureClientSettings::default();
         cfg.apply_profile(PureProfile::Fps);
+        cfg.black_hole_menu_sound = false;
+        cfg.tnt_timer = true;
         cfg.save_to_game_dir(&tmp.to_string_lossy()).unwrap();
 
         let reloaded = PureClientSettings::load_from_game_dir(&tmp.to_string_lossy());
         assert_eq!(reloaded.active_profile, PureProfile::Fps);
+        assert!(!reloaded.black_hole_menu_sound);
+        assert!(reloaded.tnt_timer);
+        assert_eq!(reloaded.unfocused_fps_limit, 30);
         assert!(reloaded.borderless_fullscreen);
         assert!(reloaded.fast_baked_item_models);
         assert!(reloaded.fast_item_frames);
@@ -968,7 +988,7 @@ mod tests {
 
         prepare_seamless_launch_files(&tmp.to_string_lossy());
         let splash = std::fs::read_to_string(tmp.join("config").join("splash.properties")).unwrap();
-        assert!(splash.contains("enabled=true"));
+        assert!(splash.contains("enabled=false"));
         assert!(splash.contains("background=0x000000"));
 
         let _ = std::fs::remove_dir_all(&tmp);

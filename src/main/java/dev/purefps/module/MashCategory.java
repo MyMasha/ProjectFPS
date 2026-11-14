@@ -7,7 +7,7 @@ public enum MashCategory {
     VISUAL("Visuel", 0xFFA78BFA),
     HYPIXEL("Hypixel", 0xFFFBBF24),
     WORLD("Monde", 0xFF34D399),
-    ENGINE("Moteur FPS", 0xFF60A5FA);
+    ENGINE("Performance", 0xFF60A5FA);
 
     private final String displayName;
     private final int accentArgb;

@@ -28,9 +28,9 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Menu de modules MashClient (touche RSHIFT) :
- * - Interface épurée en viewport Bureau (~1280x720) avec icônes vectorielles SDF et logo haute définition.
- * - Recherche bilingue FR + EN, sous-paramètres en clic droit et éditeur HUD magnétique intégré.
+ * Menu des modules MashClient 4.4 (touche RSHIFT) :
+ * - Grille compacte 3 colonnes style Lunar Client avec badges d'icônes vectorielles SDF.
+ * - Recherche FR/EN instantanée, tiroir de réglages clic droit et éditeur HUD magnétique.
  */
 public class GuiMashClientMenu extends GuiScreen {
 
@@ -66,7 +66,6 @@ public class GuiMashClientMenu extends GuiScreen {
     private boolean searchFocused = false;
     private List<MashModule> filteredModules = new ArrayList<>();
 
-    // Défilement fluide (en pixels Bureau)
     private float gridScroll = 0.0F;
     private float gridScrollTarget = 0.0F;
     private float gridMaxScroll = 0.0F;
@@ -75,20 +74,18 @@ public class GuiMashClientMenu extends GuiScreen {
     private float inspectorScrollTarget = 0.0F;
     private float inspectorMaxScroll = 0.0F;
 
-    // Inspecteur de sous-paramètres (clic droit sur n'importe quel module)
     private MashModule inspectedModule = null;
     private MashSetting.NumberSetting activeDraggingSlider = null;
     private float activeSliderX = 0.0F;
     private float activeSliderW = 120.0F;
 
     private MashSetting.ColorSetting expandedColorSetting = null;
-    private int activeColorDragChannel = -1; // 0=Hue, 1=Sat, 2=Bri, 3=Alpha
+    private int activeColorDragChannel = -1;
     private float activeColorBarX = 0.0F;
     private float activeColorBarW = 120.0F;
 
     private MashSetting.KeybindSetting listeningKeybind = null;
 
-    // Sélection & Aimantation Magnétique HUD en direct (en coordonnées ScaledResolution)
     private boolean magneticSnapEnabled = true;
     private boolean hudCanvasMode = false;
     private MashModule selectedHud = null;
@@ -103,7 +100,6 @@ public class GuiMashClientMenu extends GuiScreen {
     private HudSnapEngine.SnapResult activeSnap = null;
     private final List<HudSnapEngine.Box> snapScratchBoxes = new ArrayList<>(68);
 
-    // Géométrie du panneau Studio (en coordonnées Bureau ~1280x720)
     private float panelX;
     private float panelY;
     private float panelW;
@@ -111,10 +107,14 @@ public class GuiMashClientMenu extends GuiScreen {
     private float panelAlpha = 1.0F;
     private int lastHoveredCard = -1;
 
-    private static final float TOP_BAR_H = 54.0F;
-    private static final float SUB_HEADER_H = 58.0F;
-    private static final float FOOTER_H = 42.0F;
-    private static final float INSPECTOR_W = 376.0F;
+    private static final float TOP_BAR_H = 46.0F;
+    private static final float SUB_HEADER_H = 46.0F;
+    private static final float FOOTER_H = 36.0F;
+    private static final float INSPECTOR_W = 336.0F;
+
+    private static final float CARD_H = 50.0F;
+    private static final float CARD_GAP_X = 9.0F;
+    private static final float CARD_GAP_Y = 8.0F;
 
     public GuiMashClientMenu(GuiScreen parentScreen) {
         this.parentScreen = parentScreen;
@@ -162,10 +162,45 @@ public class GuiMashClientMenu extends GuiScreen {
     }
 
     private void computeDesktopLayout(float dw, float dh) {
-        this.panelW = Math.min(1052.0F, Math.max(760.0F, dw - 76.0F));
-        this.panelH = Math.min(616.0F, Math.max(460.0F, dh - 64.0F));
+        this.panelW = Math.min(1040.0F, Math.max(760.0F, dw - 84.0F));
+        this.panelH = Math.min(596.0F, Math.max(450.0F, dh - 72.0F));
         this.panelX = (dw - this.panelW) * 0.5F;
         this.panelY = (dh - this.panelH) * 0.5F;
+    }
+
+    private static float computeTabWidth(NavTab tab, SmoothFontRenderer smallF) {
+        return smallF.getStringWidth(tab.pillLabel) + 30.0F;
+    }
+
+    private static void drawNavTabIcon(NavTab tab, float cx, float cy, float size, int argb) {
+        switch (tab) {
+            case ALL:
+            case HUD:
+                NanoUiRenderer.drawGridIcon(cx, cy, size, argb);
+                break;
+            case ACTIVE:
+            case HYPIXEL:
+                NanoUiRenderer.drawBoltIcon(cx, cy, size, argb);
+                break;
+            case FAVORITES:
+                NanoUiRenderer.drawStarIcon(cx, cy, size, true, argb);
+                break;
+            case PVP:
+                NanoUiRenderer.drawCrosshairIcon(cx, cy, size, argb);
+                break;
+            case VISUAL:
+                NanoUiRenderer.drawEyeIcon(cx, cy, size, argb);
+                break;
+            case WORLD:
+                NanoUiRenderer.drawGlobeIcon(cx, cy, size, argb);
+                break;
+            case ENGINE:
+                NanoUiRenderer.drawCpuIcon(cx, cy, size, argb);
+                break;
+            default:
+                NanoUiRenderer.drawGridIcon(cx, cy, size, argb);
+                break;
+        }
     }
 
     @Override
@@ -178,7 +213,7 @@ public class GuiMashClientMenu extends GuiScreen {
             computeDesktopLayout(dw, dh);
             float dmx = NanoUiRenderer.desktopEventMouseX(this.mc);
             float dmy = NanoUiRenderer.desktopEventMouseY(this.mc);
-            float delta = (wheel > 0 ? -56.0F : 56.0F);
+            float delta = (wheel > 0 ? -52.0F : 52.0F);
 
             float bodyTop = panelY + TOP_BAR_H + SUB_HEADER_H;
             float bodyBot = panelY + panelH - FOOTER_H;
@@ -201,7 +236,6 @@ public class GuiMashClientMenu extends GuiScreen {
         float dmy = NanoUiRenderer.desktopMouseY(this.mc);
         computeDesktopLayout(dw, dh);
 
-        // 1. Mise à jour du glisser-déposer HUD en direct (coordonnées ScaledResolution)
         if (selectedHud != null && !selectedHud.isEnabled()) {
             selectedHud = null;
             draggingHud = false;
@@ -215,7 +249,6 @@ public class GuiMashClientMenu extends GuiScreen {
             selectedHud.hudScale.set(resizeStartScale + dx);
         }
 
-        // 2. Mise à jour continue des curseurs de sous-paramètres (coordonnées Bureau)
         if (activeDraggingSlider != null) {
             float frac = (dmx - activeSliderX) / Math.max(1.0F, activeSliderW);
             activeDraggingSlider.setFraction(frac);
@@ -239,20 +272,15 @@ public class GuiMashClientMenu extends GuiScreen {
         float targetAlpha = hudCanvasMode ? 0.0F : ((draggingHud || resizingHud || Keyboard.isKeyDown(Keyboard.KEY_TAB)) ? 0.10F : 1.0F);
         panelAlpha += (targetAlpha - panelAlpha) * 0.30F;
 
-        // 3. Voile d'ambiance en arrière-plan
         NanoUiRenderer.beginBatch();
         int backdropAlpha = canvasPeek ? 0x2404060B : 0x7204060B;
         NanoUiRenderer.drawRoundedRect(-2.0F, -2.0F, this.width + 4.0F, this.height + 4.0F, 0.0F, backdropAlpha, 0, 0.0F);
         NanoUiRenderer.endBatch();
 
-        // 4. Rendu en direct des 65 widgets HUD (l'élément sélectionné devient translucide !)
         String selId = selectedHud != null ? selectedHud.getId() : null;
         MashHudRenderer.renderOverlay(this.mc, sr, true, selId, draggingHud || resizingHud);
-
-        // 5. Lignes magnétiques d'alignement / collage & cadres de sélection HUD
         renderHudInteractiveSelectionAndSnapGuides(mouseX, mouseY, canvasPeek);
 
-        // 6. Fenêtre Studio ou barre flottante de mode Édition HUD (en viewport Bureau 1280x720)
         NanoUiRenderer.beginDesktopViewport(this.mc);
         try {
             if (panelAlpha > 0.025F) {
@@ -270,24 +298,24 @@ public class GuiMashClientMenu extends GuiScreen {
     }
 
     private void renderHudCanvasFloatingBar(float dw, float dmx, float dmy) {
-        float bw = 468.0F;
-        float bh = 38.0F;
+        float bw = 428.0F;
+        float bh = 34.0F;
         float bx = (dw - bw) * 0.5F;
         float by = 14.0F;
-        boolean backHov = inside(dmx, dmy, bx + 6.0F, by + 5.0F, 96.0F, 28.0F);
-        boolean snapHov = inside(dmx, dmy, bx + bw - 142.0F, by + 5.0F, 136.0F, 28.0F);
+        boolean backHov = inside(dmx, dmy, bx + 5.0F, by + 4.0F, 84.0F, 26.0F);
+        boolean snapHov = inside(dmx, dmy, bx + bw - 128.0F, by + 4.0F, 123.0F, 26.0F);
 
         NanoUiRenderer.beginBatch();
-        NanoUiRenderer.drawShadow(bx, by, bw, bh, 19.0F, 16.0F, 0xAA000000);
-        NanoUiRenderer.drawRoundedRect(bx, by, bw, bh, 19.0F, 0xE8080A11, 0x34FFFFFF, 1.0F);
+        NanoUiRenderer.drawShadow(bx, by, bw, bh, 17.0F, 14.0F, 0xAA000000);
+        NanoUiRenderer.drawRoundedRect(bx, by, bw, bh, 17.0F, 0xE8080A11, 0x34FFFFFF, 1.0F);
         NanoUiRenderer.drawRoundedGradient(
-                bx + 6.0F, by + 5.0F, 96.0F, 28.0F, 14.0F,
+                bx + 5.0F, by + 4.0F, 84.0F, 26.0F, 13.0F,
                 backHov ? 0xFFF7CB7B : 0xFFEBB65B,
                 backHov ? 0xFFDF9938 : 0xFFCE8B2E,
                 0x88FFE6B3, 1.0F
         );
         NanoUiRenderer.drawRoundedRect(
-                bx + bw - 142.0F, by + 5.0F, 136.0F, 28.0F, 14.0F,
+                bx + bw - 128.0F, by + 4.0F, 123.0F, 26.0F, 13.0F,
                 magneticSnapEnabled ? 0x2238BDF8 : 0xFF121622,
                 magneticSnapEnabled ? (snapHov ? 0x9938BDF8 : 0x5838BDF8) : 0x24FFFFFF,
                 1.0F
@@ -296,11 +324,11 @@ public class GuiMashClientMenu extends GuiScreen {
 
         SmoothFontRenderer boldSmallF = SmoothFontRenderer.uiBoldSmall();
         SmoothFontRenderer smallF = SmoothFontRenderer.uiSmall();
-        boldSmallF.drawCentered("Retour", bx + 54.0F, by + 13.5F, 0xFF0A0B0E, false);
-        smallF.drawCentered("Glisser HUD  \u2022  SHIFT : Axe", bx + 214.0F, by + 13.5F, 0xFFC5CEE0, false);
+        boldSmallF.drawCentered("Retour", bx + 47.0F, by + 11.5F, 0xFF0A0B0E, false);
+        smallF.drawCentered("Glisser les éléments  \u00B7  SHIFT : Axe", bx + 194.0F, by + 11.5F, 0xFFC5CEE0, false);
         smallF.drawCentered(
                 magneticSnapEnabled ? "Aimantation : ON" : "Aimantation : OFF",
-                bx + bw - 74.0F, by + 13.5F,
+                bx + bw - 66.5F, by + 11.5F,
                 magneticSnapEnabled ? 0xFF7DD3FC : 0xFF949CB0, false
         );
     }
@@ -355,7 +383,6 @@ public class GuiMashClientMenu extends GuiScreen {
 
         NanoUiRenderer.beginBatch();
 
-        // Lignes magnétiques d'alignement & de collage bord-à-bord
         if ((draggingHud || resizingHud) && activeSnap != null) {
             if (activeSnap.hasVerticalGuide) {
                 int glow = activeSnap.verticalIsGlueOrCenter ? 0x44F5B85C : 0x3A38BDF8;
@@ -427,7 +454,7 @@ public class GuiMashClientMenu extends GuiScreen {
             NanoUiRenderer.drawCircle(sx + sw + 1.5F, sy + sh + 1.5F, 3.3F, 0xFFF5B85C);
             NanoUiRenderer.drawCircle(sx + sw + 1.5F, sy + sh + 1.5F, 1.4F, 0xFF0A0B0E);
 
-            coordBadge = selectedHud.getName() + "  \u2022  X:" + Math.round(sx) + " Y:" + Math.round(sy)
+            coordBadge = selectedHud.getName() + "  \u00B7  " + Math.round(sx) + ", " + Math.round(sy)
                     + String.format(Locale.US, "  (%.2fx)", selectedHud.getScale());
             badgeW = SmoothFontRenderer.small().getStringWidth(coordBadge) + 12.0F;
             badgeX = clamp(sx + sw * 0.5F - badgeW * 0.5F, 4.0F, this.width - badgeW - 4.0F);
@@ -460,127 +487,122 @@ public class GuiMashClientMenu extends GuiScreen {
         SmoothFontRenderer smallF = SmoothFontRenderer.uiSmall();
         SmoothFontRenderer boldSmallF = SmoothFontRenderer.uiBoldSmall();
 
-        // Calcul des largeurs des 9 onglets de la pilule supérieure
         NavTab[] tabs = NavTab.values();
         float[] tabWidths = new float[tabs.length];
-        float tabsTotalW = 10.0F;
+        float tabsTotalW = 8.0F;
         for (int i = 0; i < tabs.length; i++) {
-            float tw = bodyF.getStringWidth(tabs[i].pillLabel) + 22.0F;
+            float tw = computeTabWidth(tabs[i], smallF);
             tabWidths[i] = tw;
             tabsTotalW += tw;
         }
-        float closeBtnX = px + pw - 44.0F;
-        float tabsPillX = closeBtnX - tabsTotalW - 14.0F;
-        float tabsPillY = py + 10.0F;
+        float closeBtnX = px + pw - 38.0F;
+        float tabsPillX = closeBtnX - tabsTotalW - 10.0F;
+        float tabsPillY = py + 8.0F;
 
-        // Barre de recherche & bouton Éditer HUD dans le sous-en-tête
         float subY = py + TOP_BAR_H;
-        float hudBtnW = 122.0F;
-        float hudBtnX = px + pw - hudBtnW - 22.0F;
-        float hudBtnY = subY + 11.0F;
-        float searchW = 356.0F;
-        float searchX = hudBtnX - searchW - 10.0F;
-        float searchY = subY + 11.0F;
+        float hudBtnW = 106.0F;
+        float hudBtnX = px + pw - hudBtnW - 18.0F;
+        float hudBtnY = subY + 8.0F;
+        float searchW = 276.0F;
+        float searchX = hudBtnX - searchW - 8.0F;
+        float searchY = subY + 8.0F;
 
-        // =====================================================================
-        // 1. CADRE PRINCIPAL EN VERRE FUMÉ, BARRE D'ONGLETS & RECHERCHE
-        // =====================================================================
         NanoUiRenderer.beginBatch();
 
-        NanoUiRenderer.drawShadow(px, py, pw, ph, 16.0F, 28.0F, mulAlpha(0xC8000000, alpha));
+        NanoUiRenderer.drawShadow(px, py, pw, ph, 14.0F, 24.0F, mulAlpha(0xC8000000, alpha));
         NanoUiRenderer.drawRoundedGradient(
-                px, py, pw, ph, 16.0F,
+                px, py, pw, ph, 14.0F,
                 mulAlpha(0xEA090B11, alpha),
                 mulAlpha(0xF206080D, alpha),
-                mulAlpha(0x24FFFFFF, alpha),
+                mulAlpha(0x22FFFFFF, alpha),
                 1.0F
         );
 
-        // Séparateurs horizontaux subtils (style Launcher)
         NanoUiRenderer.drawLine(px + 1.0F, py + TOP_BAR_H, px + pw - 1.0F, py + TOP_BAR_H, 1.0F, mulAlpha(0x16FFFFFF, alpha));
-        NanoUiRenderer.drawLine(px + 22.0F, subY + SUB_HEADER_H, px + pw - 22.0F, subY + SUB_HEADER_H, 1.0F, mulAlpha(0x14FFFFFF, alpha));
+        NanoUiRenderer.drawLine(px + 18.0F, subY + SUB_HEADER_H, px + pw - 18.0F, subY + SUB_HEADER_H, 1.0F, mulAlpha(0x14FFFFFF, alpha));
         NanoUiRenderer.drawLine(px + 1.0F, py + ph - FOOTER_H, px + pw - 1.0F, py + ph - FOOTER_H, 1.0F, mulAlpha(0x16FFFFFF, alpha));
 
-        // Marque haut-gauche épurée : Logo haute définition + MASHCLIENT
-        NanoUiRenderer.drawBrandLogo(this.mc, px + 32.0F, py + 27.0F, 22.0F, alpha);
-        String brandTxt = "MASHCLIENT";
+        NanoUiRenderer.drawBrandLogo(this.mc, px + 27.0F, py + 23.0F, 19.0F, alpha);
 
-        // Pilule horizontale des catégories
+        // Barre d'onglets compacte avec icônes vectorielles
         NanoUiRenderer.drawRoundedRect(
-                tabsPillX, tabsPillY, tabsTotalW, 34.0F, 17.0F,
-                mulAlpha(0xD80C0F17, alpha), mulAlpha(0x20FFFFFF, alpha), 1.0F
+                tabsPillX, tabsPillY, tabsTotalW, 30.0F, 15.0F,
+                mulAlpha(0xD80C0F17, alpha), mulAlpha(0x1EFFFFFF, alpha), 1.0F
         );
-        float curTabX = tabsPillX + 5.0F;
+        float curTabX = tabsPillX + 4.0F;
         for (int i = 0; i < tabs.length; i++) {
             float tw = tabWidths[i];
             boolean sel = currentTab == tabs[i];
-            boolean hov = interactive && inside(dmx, dmy, curTabX, tabsPillY + 4.0F, tw, 26.0F);
+            boolean hov = interactive && inside(dmx, dmy, curTabX, tabsPillY + 3.0F, tw, 24.0F);
             if (sel || hov) {
                 NanoUiRenderer.drawRoundedRect(
-                        curTabX, tabsPillY + 4.0F, tw, 26.0F, 13.0F,
+                        curTabX, tabsPillY + 3.0F, tw, 24.0F, 12.0F,
                         mulAlpha(sel ? 0x2AF5B85C : 0x16FFFFFF, alpha),
                         mulAlpha(sel ? 0x6EF5B85C : 0x00000000, alpha),
                         sel ? 1.0F : 0.0F
                 );
             }
+            int iconCol = sel ? 0xFFFFDF9E : (hov ? 0xFFF2F4F8 : 0xFF7F889E);
+            drawNavTabIcon(tabs[i], curTabX + 11.5F, tabsPillY + 15.0F, 9.5F, mulAlpha(iconCol, alpha));
             curTabX += tw;
         }
 
-        // Bouton Fermer vectoriel
-        boolean closeHov = interactive && inside(dmx, dmy, closeBtnX, py + 12.0F, 28.0F, 28.0F);
+        // Bouton Fermer compact (24x24)
+        boolean closeHov = interactive && inside(dmx, dmy, closeBtnX, py + 11.0F, 24.0F, 24.0F);
         NanoUiRenderer.drawRoundedRect(
-                closeBtnX, py + 12.0F, 28.0F, 28.0F, 14.0F,
+                closeBtnX, py + 11.0F, 24.0F, 24.0F, 12.0F,
                 mulAlpha(closeHov ? 0xDD3C1820 : 0xFF10131C, alpha),
                 mulAlpha(closeHov ? 0x88F87171 : 0x24FFFFFF, alpha),
                 1.0F
         );
-        NanoUiRenderer.drawCloseIcon(closeBtnX + 14.0F, py + 26.0F, 11.5F, mulAlpha(closeHov ? 0xFFFFB4B4 : 0xFFB4BCD0, alpha));
+        NanoUiRenderer.drawCloseIcon(closeBtnX + 12.0F, py + 23.0F, 10.0F, mulAlpha(closeHov ? 0xFFFFB4B4 : 0xFFB4BCD0, alpha));
 
-        // Barre de recherche FR / EN
-        boolean searchHov = interactive && inside(dmx, dmy, searchX, searchY, searchW, 36.0F);
+        // Barre de recherche compacte (30px)
+        boolean searchHov = interactive && inside(dmx, dmy, searchX, searchY, searchW, 30.0F);
         NanoUiRenderer.drawRoundedRect(
-                searchX, searchY, searchW, 36.0F, 9.0F,
+                searchX, searchY, searchW, 30.0F, 8.0F,
                 mulAlpha(0xFF0D1018, alpha),
                 mulAlpha(searchFocused ? 0xBBF5B85C : (searchHov ? 0x42FFFFFF : 0x22FFFFFF), alpha),
-                1.1F
+                1.0F
         );
-        NanoUiRenderer.drawRing(searchX + 16.5F, searchY + 16.5F, 4.8F, 1.45F, mulAlpha(searchFocused ? 0xFFF5B85C : 0xFF7D869C, alpha));
-        NanoUiRenderer.drawLine(searchX + 20.0F, searchY + 20.0F, searchX + 23.8F, searchY + 23.8F, 1.5F, mulAlpha(searchFocused ? 0xFFF5B85C : 0xFF7D869C, alpha));
+        NanoUiRenderer.drawRing(searchX + 14.0F, searchY + 13.8F, 4.2F, 1.35F, mulAlpha(searchFocused ? 0xFFF5B85C : 0xFF7D869C, alpha));
+        NanoUiRenderer.drawLine(searchX + 17.2F, searchY + 17.0F, searchX + 20.5F, searchY + 20.3F, 1.4F, mulAlpha(searchFocused ? 0xFFF5B85C : 0xFF7D869C, alpha));
 
         if (!searchQuery.isEmpty()) {
-            boolean clrHov = interactive && inside(dmx, dmy, searchX + searchW - 28.0F, searchY + 7.0F, 22.0F, 22.0F);
+            boolean clrHov = interactive && inside(dmx, dmy, searchX + searchW - 24.0F, searchY + 5.0F, 20.0F, 20.0F);
             NanoUiRenderer.drawRoundedRect(
-                    searchX + searchW - 28.0F, searchY + 7.0F, 22.0F, 22.0F, 11.0F,
+                    searchX + searchW - 24.0F, searchY + 5.0F, 20.0F, 20.0F, 10.0F,
                     mulAlpha(clrHov ? 0x36FFFFFF : 0x1AFFFFFF, alpha), 0, 0.0F
             );
-            NanoUiRenderer.drawCloseIcon(searchX + searchW - 17.0F, searchY + 18.0F, 9.5F, mulAlpha(0xFFD5DCEB, alpha));
+            NanoUiRenderer.drawCloseIcon(searchX + searchW - 14.0F, searchY + 15.0F, 8.5F, mulAlpha(0xFFD5DCEB, alpha));
         }
 
-        // Bouton Éditer HUD
-        boolean hudHov = interactive && inside(dmx, dmy, hudBtnX, hudBtnY, hudBtnW, 36.0F);
+        // Bouton Éditer HUD compact (30px + icône grille)
+        boolean hudHov = interactive && inside(dmx, dmy, hudBtnX, hudBtnY, hudBtnW, 30.0F);
         NanoUiRenderer.drawRoundedRect(
-                hudBtnX, hudBtnY, hudBtnW, 36.0F, 9.0F,
+                hudBtnX, hudBtnY, hudBtnW, 30.0F, 8.0F,
                 mulAlpha(hudHov ? 0x2C38BDF8 : 0x1838BDF8, alpha),
                 mulAlpha(hudHov ? 0x8838BDF8 : 0x4C38BDF8, alpha),
                 1.0F
         );
+        NanoUiRenderer.drawGridIcon(hudBtnX + 15.0F, hudBtnY + 15.0F, 9.5F, mulAlpha(0xFF93DDFF, alpha));
 
-        // Pied de page minimaliste : Profils + Aimantation HUD + FPS
+        // Pied de page compact (36px)
         float footY = py + ph - FOOTER_H;
         PureFPSProfile activeProf = PureFPSConfig.activeProfile;
         PureFPSProfile[] profs = {PureFPSProfile.FPS, PureFPSProfile.BALANCED, PureFPSProfile.QUALITY};
         NanoUiRenderer.drawRoundedRect(
-                px + 22.0F, footY + 6.0F, 246.0F, 30.0F, 8.0F,
+                px + 18.0F, footY + 5.0F, 214.0F, 26.0F, 7.0F,
                 mulAlpha(0xFF0C0F17, alpha), mulAlpha(0x1EFFFFFF, alpha), 1.0F
         );
-        float fpW = 78.0F;
+        float fpW = 68.0F;
         for (int i = 0; i < 3; i++) {
-            float bx = px + 26.0F + i * (fpW + 2.0F);
+            float bx = px + 21.0F + i * (fpW + 2.0F);
             boolean sel = activeProf == profs[i];
-            boolean hov = interactive && inside(dmx, dmy, bx, footY + 9.0F, fpW, 24.0F);
+            boolean hov = interactive && inside(dmx, dmy, bx, footY + 7.5F, fpW, 21.0F);
             if (sel || hov) {
                 NanoUiRenderer.drawRoundedRect(
-                        bx, footY + 9.0F, fpW, 24.0F, 6.0F,
+                        bx, footY + 7.5F, fpW, 21.0F, 5.5F,
                         mulAlpha(sel ? 0x2EF5B85C : 0x16FFFFFF, alpha),
                         mulAlpha(sel ? 0x6EEAB354 : 0x00000000, alpha),
                         sel ? 1.0F : 0.0F
@@ -588,10 +610,10 @@ public class GuiMashClientMenu extends GuiScreen {
             }
         }
 
-        float snapPillX = px + 278.0F;
-        boolean snapHov = interactive && inside(dmx, dmy, snapPillX, footY + 6.0F, 144.0F, 30.0F);
+        float snapPillX = px + 240.0F;
+        boolean snapHov = interactive && inside(dmx, dmy, snapPillX, footY + 5.0F, 126.0F, 26.0F);
         NanoUiRenderer.drawRoundedRect(
-                snapPillX, footY + 6.0F, 144.0F, 30.0F, 8.0F,
+                snapPillX, footY + 5.0F, 126.0F, 26.0F, 7.0F,
                 mulAlpha(magneticSnapEnabled ? 0x1C38BDF8 : 0xFF0C0F17, alpha),
                 mulAlpha(magneticSnapEnabled ? (snapHov ? 0x8838BDF8 : 0x4E38BDF8) : 0x20FFFFFF, alpha),
                 1.0F
@@ -608,76 +630,66 @@ public class GuiMashClientMenu extends GuiScreen {
 
         NanoUiRenderer.endBatch();
 
-        // =====================================================================
-        // TEXTES ÉPURÉS EN-TÊTE & PIED DE PAGE
-        // =====================================================================
         String secTitle = currentTab.headerTitle + "  \u00B7  " + filteredModules.size();
-        headerF.drawString(secTitle, px + 26.0F, subY + 18.0F, mulAlpha(0xFFF7F4EC, alpha));
+        headerF.drawString(secTitle, px + 20.0F, subY + 13.5F, mulAlpha(0xFFF7F4EC, alpha));
 
         boldSmallF.beginBatch();
-        boldSmallF.drawString(brandTxt, px + 50.0F, py + 21.5F, mulAlpha(0xFFF7F4EC, alpha));
+        boldSmallF.drawString("MASHCLIENT", px + 43.0F, py + 17.5F, mulAlpha(0xFFF7F4EC, alpha));
         boldSmallF.endBatch();
 
-        bodyF.beginBatch();
-        curTabX = tabsPillX + 5.0F;
+        smallF.beginBatch();
+        curTabX = tabsPillX + 4.0F;
         for (int i = 0; i < tabs.length; i++) {
             float tw = tabWidths[i];
             boolean sel = currentTab == tabs[i];
-            boolean hov = interactive && inside(dmx, dmy, curTabX, tabsPillY + 4.0F, tw, 26.0F);
+            boolean hov = interactive && inside(dmx, dmy, curTabX, tabsPillY + 3.0F, tw, 24.0F);
             int col = sel ? 0xFFFFDF9E : (hov ? 0xFFF7F4EC : 0xFF9AA3B8);
-            bodyF.drawCentered(tabs[i].pillLabel, curTabX + tw * 0.5F, tabsPillY + 10.5F, mulAlpha(col, alpha), false);
+            smallF.drawString(tabs[i].pillLabel, curTabX + 21.0F, tabsPillY + 9.5F, mulAlpha(col, alpha));
             curTabX += tw;
         }
 
         String searchDisplay;
         int searchCol;
         if (searchQuery.isEmpty() && !searchFocused) {
-            searchDisplay = "Rechercher...";
+            searchDisplay = "Rechercher un module...";
             searchCol = 0xFF6E778D;
         } else {
             String caret = (searchFocused && ((System.currentTimeMillis() / 450L) & 1L) == 0L) ? "|" : "";
             searchDisplay = searchQuery + caret;
             searchCol = 0xFFF2F4F8;
         }
-        float maxSearchTxtW = searchW - (searchQuery.isEmpty() ? 42.0F : 66.0F);
-        bodyF.drawString(bodyF.trimToWidth(searchDisplay, maxSearchTxtW), searchX + 32.0F, searchY + 11.5F, mulAlpha(searchCol, alpha));
+        float maxSearchTxtW = searchW - (searchQuery.isEmpty() ? 36.0F : 58.0F);
+        smallF.drawString(smallF.trimToWidth(searchDisplay, maxSearchTxtW), searchX + 27.0F, searchY + 9.5F, mulAlpha(searchCol, alpha));
 
-        bodyF.drawCentered("Éditer HUD", hudBtnX + hudBtnW * 0.5F, hudBtnY + 11.5F, mulAlpha(0xFF93DDFF, alpha), false);
-        bodyF.endBatch();
+        smallF.drawString("Éditer HUD", hudBtnX + 27.0F, hudBtnY + 9.5F, mulAlpha(0xFF93DDFF, alpha));
 
-        smallF.beginBatch();
         String[] profNames = {"FPS", "Équilibré", "Qualité"};
         for (int i = 0; i < 3; i++) {
-            float bx = px + 26.0F + i * (fpW + 2.0F);
+            float bx = px + 21.0F + i * (fpW + 2.0F);
             boolean sel = activeProf == profs[i];
-            smallF.drawCentered(profNames[i], bx + fpW * 0.5F, footY + 15.5F, mulAlpha(sel ? 0xFFFFDF9E : 0xFF949CB0, alpha), false);
+            smallF.drawCentered(profNames[i], bx + fpW * 0.5F, footY + 13.0F, mulAlpha(sel ? 0xFFFFDF9E : 0xFF949CB0, alpha), false);
         }
 
         smallF.drawCentered(
                 magneticSnapEnabled ? "Aimantation : ON" : "Aimantation : OFF",
-                snapPillX + 72.0F, footY + 15.5F,
+                snapPillX + 63.0F, footY + 13.0F,
                 mulAlpha(magneticSnapEnabled ? 0xFF7DD3FC : 0xFF8E96AA, alpha), false
         );
 
-        String rightTele = Minecraft.getDebugFPS() + " FPS";
-        smallF.drawString(rightTele, px + pw - smallF.getStringWidth(rightTele) - 24.0F, footY + 15.5F, mulAlpha(0xFF7D869C, alpha));
+        String rightTele = MashModules.getActiveCount() + " actifs  \u00B7  " + Minecraft.getDebugFPS() + " FPS";
+        smallF.drawString(rightTele, px + pw - smallF.getStringWidth(rightTele) - 20.0F, footY + 13.0F, mulAlpha(0xFF7D869C, alpha));
         smallF.endBatch();
 
-        // =====================================================================
-        // 2. GRILLE 2 COLONNES DE CARTES HORIZONTALES
-        // =====================================================================
-        float gridX = px + 22.0F;
-        float gridY = subY + SUB_HEADER_H + 10.0F;
-        float gridW = pw - inspectorW - (hasInspector ? 34.0F : 44.0F);
-        float gridH = ph - TOP_BAR_H - SUB_HEADER_H - FOOTER_H - 18.0F;
+        // Grille 3 colonnes compacte (2 colonnes lorsque le tiroir d'options est ouvert)
+        float gridX = px + 18.0F;
+        float gridY = subY + SUB_HEADER_H + 8.0F;
+        float gridW = pw - inspectorW - (hasInspector ? 28.0F : 36.0F);
+        float gridH = ph - TOP_BAR_H - SUB_HEADER_H - FOOTER_H - 14.0F;
 
         NanoUiRenderer.enableDesktopScissor(this.mc, gridX - 2.0F, gridY, gridW + 4.0F, gridH);
-        renderModuleCardsGrid(gridX, gridY, gridW, gridH, dmx, dmy, alpha, cardTitleF, bodyF, smallF);
+        renderModuleCardsGrid(gridX, gridY, gridW, gridH, dmx, dmy, alpha, boldSmallF, bodyF, smallF);
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
 
-        // =====================================================================
-        // 3. TIROIR LATÉRAL DES SOUS-PARAMÈTRES (CLIC DROIT SUR UN MODULE)
-        // =====================================================================
         if (hasInspector) {
             float ix = getInspectorX();
             float iy = subY + SUB_HEADER_H + 4.0F;
@@ -697,23 +709,20 @@ public class GuiMashClientMenu extends GuiScreen {
             float dmx,
             float dmy,
             float alpha,
-            SmoothFontRenderer cardTitleF,
+            SmoothFontRenderer boldSmallF,
             SmoothFontRenderer bodyF,
             SmoothFontRenderer smallF
     ) {
-        int cols = (inspectedModule != null) ? 1 : 2;
-        float gapX = 12.0F;
-        float gapY = 10.0F;
-        float cardW = (gw - gapX * (cols - 1)) / (float) cols;
-        float cardH = 66.0F;
+        int cols = (inspectedModule != null) ? 2 : 3;
+        float cardW = (gw - CARD_GAP_X * (cols - 1)) / (float) cols;
 
         int total = filteredModules.size();
         int rows = (total + cols - 1) / cols;
-        float contentH = rows * (cardH + gapY);
+        float contentH = rows * (CARD_H + CARD_GAP_Y);
         gridMaxScroll = Math.max(0.0F, contentH - gh + 6.0F);
         gridScroll = clamp(gridScroll, 0.0F, gridMaxScroll);
 
-        float rowStride = cardH + gapY;
+        float rowStride = CARD_H + CARD_GAP_Y;
         int firstRow = Math.max(0, (int) Math.floor((gridScroll - 2.0F) / rowStride));
         int lastRow = Math.min(Math.max(0, rows - 1), (int) Math.ceil((gridScroll + gh + 2.0F) / rowStride));
         int startIdx = Math.min(total, firstRow * cols);
@@ -726,54 +735,64 @@ public class GuiMashClientMenu extends GuiScreen {
         for (int i = startIdx; i < endIdx; i++) {
             int col = i % cols;
             int row = i / cols;
-            float cx = gx + col * (cardW + gapX);
-            float cy = gy + row * (cardH + gapY) - gridScroll;
-            if (cy + cardH < gy - 2.0F || cy > gy + gh + 2.0F) {
+            float cx = gx + col * (cardW + CARD_GAP_X);
+            float cy = gy + row * rowStride - gridScroll;
+            if (cy + CARD_H < gy - 2.0F || cy > gy + gh + 2.0F) {
                 continue;
             }
 
             MashModule m = filteredModules.get(i);
             boolean on = m.isEnabled();
             boolean inspected = inspectedModule == m;
-            boolean hov = mouseInViewport && inside(dmx, dmy, cx, cy, cardW, cardH);
+            boolean hov = mouseInViewport && inside(dmx, dmy, cx, cy, cardW, CARD_H);
             if (hov) {
                 hoveredIdx = i;
             }
 
             int topBg = inspected ? 0xEE18161E : (on ? (hov ? 0xEA151822 : 0xE210131C) : (hov ? 0xE411141D : 0xD80B0E15));
             int botBg = inspected ? 0xEE121118 : (on ? 0xE20C0F17 : 0xD8090B11);
-            int border = inspected ? 0xEEF5B85C : (on ? (hov ? 0x7AEAB354 : 0x4CEAB354) : (hov ? 0x38FFFFFF : 0x1EFFFFFF));
+            int border = inspected ? 0xEEF5B85C : (on ? (hov ? 0x7AEAB354 : 0x44EAB354) : (hov ? 0x36FFFFFF : 0x1BFFFFFF));
 
             NanoUiRenderer.drawRoundedGradient(
-                    cx, cy, cardW, cardH, 10.0F,
-                    mulAlpha(topBg, alpha), mulAlpha(botBg, alpha), mulAlpha(border, alpha), 1.1F
+                    cx, cy, cardW, CARD_H, 8.5F,
+                    mulAlpha(topBg, alpha), mulAlpha(botBg, alpha), mulAlpha(border, alpha), 1.0F
             );
 
-            // Étoile favori vectorielle SDF
-            boolean starHov = hov && inside(dmx, dmy, cx + cardW - 114.0F, cy + 18.0F, 24.0F, 30.0F);
-            NanoUiRenderer.drawStarIcon(
-                    cx + cardW - 102.0F, cy + 33.0F, 12.0F,
-                    m.isFavorite(),
-                    mulAlpha(m.isFavorite() ? 0xFFF5B85C : (starHov ? 0xFFAAB4C8 : 0xFF566075), alpha)
-            );
-
-            // Bouton réglages vectoriel (2 curseurs opposés, zéro caractère Unicode)
-            float gearX = cx + cardW - 86.0F;
-            float gearY = cy + 21.0F;
-            boolean gearHov = hov && inside(dmx, dmy, gearX, gearY, 26.0F, 24.0F);
+            // Badge icône de catégorie à gauche (28x28)
+            int badgeBg = on ? 0x26F5B85C : 0xFF10141F;
+            int badgeBrd = on ? 0x4CF5B85C : 0x1FFFFFFF;
+            int iconCol = on ? 0xFFFFDF9E : (hov ? 0xFFD5DCEB : 0xFF7E889E);
             NanoUiRenderer.drawRoundedRect(
-                    gearX, gearY, 26.0F, 24.0F, 6.5F,
+                    cx + 9.0F, cy + 11.0F, 28.0F, 28.0F, 7.0F,
+                    mulAlpha(badgeBg, alpha), mulAlpha(badgeBrd, alpha), 1.0F
+            );
+            NanoUiRenderer.drawCategoryIcon(m.getCategory(), cx + 23.0F, cy + 25.0F, 12.0F, mulAlpha(iconCol, alpha));
+
+            // Étoile favori compacte
+            boolean starHov = hov && inside(dmx, dmy, cx + cardW - 86.0F, cy + 13.0F, 20.0F, 24.0F);
+            NanoUiRenderer.drawStarIcon(
+                    cx + cardW - 76.0F, cy + 25.0F, 10.5F,
+                    m.isFavorite(),
+                    mulAlpha(m.isFavorite() ? 0xFFF5B85C : (starHov ? 0xFFAAB4C8 : 0xFF4E576B), alpha)
+            );
+
+            // Bouton réglages compact (22x20)
+            float gearX = cx + cardW - 62.0F;
+            float gearY = cy + 15.0F;
+            boolean gearHov = hov && inside(dmx, dmy, gearX, gearY, 22.0F, 20.0F);
+            NanoUiRenderer.drawRoundedRect(
+                    gearX, gearY, 22.0F, 20.0F, 5.5F,
                     mulAlpha(gearHov || inspected ? 0x36F5B85C : 0xFF131722, alpha),
-                    mulAlpha(gearHov || inspected ? 0x88F5B85C : 0x22FFFFFF, alpha),
+                    mulAlpha(gearHov || inspected ? 0x88F5B85C : 0x20FFFFFF, alpha),
                     1.0F
             );
             NanoUiRenderer.drawSlidersIcon(
-                    gearX + 13.0F, gearY + 12.0F, 12.5F,
-                    mulAlpha(inspected || gearHov ? 0xFFFFDF9E : 0xFFAAB4C8, alpha)
+                    gearX + 11.0F, gearY + 10.0F, 10.5F,
+                    mulAlpha(inspected || gearHov ? 0xFFFFDF9E : 0xFF9AA3B8, alpha)
             );
 
-            // Interrupteur pilule or chaud
-            NanoUiRenderer.drawLauncherSwitch(cx + cardW - 50.0F, cy + 23.5F, on, hov, alpha);
+            // Interrupteur compact style Lunar (28x15)
+            NanoUiRenderer.drawCompactSwitch(cx + cardW - 36.0F, cy + 17.5F, on, hov, alpha);
         }
 
         if (hoveredIdx != this.lastHoveredCard) {
@@ -785,69 +804,46 @@ public class GuiMashClientMenu extends GuiScreen {
 
         if (gridMaxScroll > 4.0F) {
             float sbTrackX = gx + gw + 1.0F;
-            float thumbH = Math.max(28.0F, gh * (gh / (contentH + 1.0F)));
+            float thumbH = Math.max(24.0F, gh * (gh / (contentH + 1.0F)));
             float thumbY = gy + (gh - thumbH) * (gridScroll / gridMaxScroll);
             NanoUiRenderer.drawRoundedRect(sbTrackX, thumbY, 3.0F, thumbH, 1.5F, mulAlpha(0x66F5B85C, alpha), 0, 0.0F);
         }
         NanoUiRenderer.endBatch();
 
-        cardTitleF.beginBatch();
+        boldSmallF.beginBatch();
         for (int i = startIdx; i < endIdx; i++) {
             int col = i % cols;
             int row = i / cols;
-            float cx = gx + col * (cardW + gapX);
-            float cy = gy + row * (cardH + gapY) - gridScroll;
-            if (cy + cardH < gy - 2.0F || cy > gy + gh + 2.0F) {
+            float cx = gx + col * (cardW + CARD_GAP_X);
+            float cy = gy + row * rowStride - gridScroll;
+            if (cy + CARD_H < gy - 2.0F || cy > gy + gh + 2.0F) {
                 continue;
             }
             MashModule m = filteredModules.get(i);
-            String frTitle = cardTitleF.trimToWidth(m.getName(), cardW - 185.0F);
-            cardTitleF.drawString(frTitle, cx + 15.0F, cy + 12.5F, mulAlpha(m.isEnabled() ? 0xFFFFFFFF : 0xFFD5DCEB, alpha));
+            String frTitle = boldSmallF.trimToWidth(m.getName(), cardW - 134.0F);
+            boldSmallF.drawString(frTitle, cx + 44.0F, cy + 11.0F, mulAlpha(m.isEnabled() ? 0xFFFFFFFF : 0xFFD8DFEC, alpha));
         }
-        cardTitleF.endBatch();
+        boldSmallF.endBatch();
 
-        bodyF.beginBatch();
         if (total == 0) {
             bodyF.drawCentered(
                     "Aucun résultat pour \"" + searchQuery + "\"",
                     gx + gw * 0.5F, gy + gh * 0.44F, mulAlpha(0xFF949CB0, alpha), false
             );
         }
-        for (int i = startIdx; i < endIdx; i++) {
-            int col = i % cols;
-            int row = i / cols;
-            float cx = gx + col * (cardW + gapX);
-            float cy = gy + row * (cardH + gapY) - gridScroll;
-            if (cy + cardH < gy - 2.0F || cy > gy + gh + 2.0F) {
-                continue;
-            }
-            MashModule m = filteredModules.get(i);
-            String desc = bodyF.trimToWidth(m.getDescription(), cardW - 132.0F);
-            bodyF.drawString(desc, cx + 15.0F, cy + 36.5F, mulAlpha(0xFF8C96AD, alpha));
-        }
-        bodyF.endBatch();
 
-        // Sous-titre anglais discret à droite du nom français
         smallF.beginBatch();
         for (int i = startIdx; i < endIdx; i++) {
             int col = i % cols;
             int row = i / cols;
-            float cx = gx + col * (cardW + gapX);
-            float cy = gy + row * (cardH + gapY) - gridScroll;
-            if (cy + cardH < gy - 2.0F || cy > gy + gh + 2.0F) {
+            float cx = gx + col * (cardW + CARD_GAP_X);
+            float cy = gy + row * rowStride - gridScroll;
+            if (cy + CARD_H < gy - 2.0F || cy > gy + gh + 2.0F) {
                 continue;
             }
             MashModule m = filteredModules.get(i);
-            String frTitle = cardTitleF.trimToWidth(m.getName(), cardW - 185.0F);
-            float frW = cardTitleF.getStringWidth(frTitle);
-            String enName = m.getEnglishName();
-            if (enName != null && !enName.equalsIgnoreCase(m.getName())) {
-                float availEn = (cx + cardW - 118.0F) - (cx + 22.0F + frW);
-                if (availEn > 42.0F) {
-                    String badge = "\u00B7  " + smallF.trimToWidth(enName, availEn);
-                    smallF.drawString(badge, cx + 22.0F + frW, cy + 14.5F, mulAlpha(0xFFC89B54, alpha));
-                }
-            }
+            String desc = smallF.trimToWidth(m.getDescription(), cardW - 134.0F);
+            smallF.drawString(desc, cx + 44.0F, cy + 28.0F, mulAlpha(0xFF848EA4, alpha));
         }
         smallF.endBatch();
     }
@@ -870,54 +866,53 @@ public class GuiMashClientMenu extends GuiScreen {
         }
 
         boolean isCrosshair = (mod == MashModules.MOD_CROSSHAIR);
-        float headerBlockH = isCrosshair ? 114.0F : 72.0F;
+        float headerBlockH = isCrosshair ? 108.0F : 66.0F;
         float listY = iy + headerBlockH;
-        float listH = ih - headerBlockH - 42.0F;
+        float listH = ih - headerBlockH - 38.0F;
 
         NanoUiRenderer.beginBatch();
-        NanoUiRenderer.drawLauncherSwitch(
-                ix + iw - 74.0F, iy + 12.0F, mod.isEnabled(),
-                inside(dmx, dmy, ix + iw - 74.0F, iy + 12.0F, 36.0F, 19.0F), alpha
+        NanoUiRenderer.drawCompactSwitch(
+                ix + iw - 64.0F, iy + 11.5F, mod.isEnabled(),
+                inside(dmx, dmy, ix + iw - 66.0F, iy + 9.0F, 32.0F, 20.0F), alpha
         );
-        boolean clsHov = inside(dmx, dmy, ix + iw - 30.0F, iy + 9.0F, 24.0F, 24.0F);
+        boolean clsHov = inside(dmx, dmy, ix + iw - 28.0F, iy + 8.0F, 22.0F, 22.0F);
         NanoUiRenderer.drawRoundedRect(
-                ix + iw - 30.0F, iy + 9.0F, 24.0F, 24.0F, 12.0F,
+                ix + iw - 28.0F, iy + 8.0F, 22.0F, 22.0F, 11.0F,
                 mulAlpha(clsHov ? 0xDD3A1820 : 0xFF141824, alpha),
                 mulAlpha(clsHov ? 0x88F87171 : 0x28FFFFFF, alpha), 1.0F
         );
-        NanoUiRenderer.drawCloseIcon(ix + iw - 18.0F, iy + 21.0F, 10.0F, mulAlpha(clsHov ? 0xFFFFB4B4 : 0xFFB8C0D4, alpha));
+        NanoUiRenderer.drawCloseIcon(ix + iw - 17.0F, iy + 19.0F, 9.0F, mulAlpha(clsHov ? 0xFFFFB4B4 : 0xFFB8C0D4, alpha));
 
         if (isCrosshair) {
-            float prevX = ix + 14.0F;
-            float prevY = iy + 68.0F;
-            float prevW = iw - 24.0F;
-            float prevH = 38.0F;
-            NanoUiRenderer.drawRoundedRect(prevX, prevY, prevW, prevH, 8.0F, mulAlpha(0xFF0E121C, alpha), mulAlpha(0x28FFFFFF, alpha), 1.0F);
+            float prevX = ix + 12.0F;
+            float prevY = iy + 64.0F;
+            float prevW = iw - 20.0F;
+            float prevH = 36.0F;
+            NanoUiRenderer.drawRoundedRect(prevX, prevY, prevW, prevH, 7.5F, mulAlpha(0xFF0E121C, alpha), mulAlpha(0x28FFFFFF, alpha), 1.0F);
             drawMiniCrosshairPreview(prevX + prevW * 0.5F, prevY + prevH * 0.5F, alpha);
         }
 
-        NanoUiRenderer.drawLine(ix + 14.0F, listY - 3.0F, ix + iw - 10.0F, listY - 3.0F, 1.0F, mulAlpha(0x1EFFFFFF, alpha));
+        NanoUiRenderer.drawLine(ix + 12.0F, listY - 3.0F, ix + iw - 8.0F, listY - 3.0F, 1.0F, mulAlpha(0x1EFFFFFF, alpha));
         NanoUiRenderer.endBatch();
 
         cardTitleF.drawString(
-                cardTitleF.trimToWidth(mod.getName(), iw - 96.0F),
-                ix + 14.0F, iy + 11.0F, mulAlpha(0xFFFFDF9E, alpha)
+                cardTitleF.trimToWidth(mod.getName(), iw - 84.0F),
+                ix + 12.0F, iy + 9.5F, mulAlpha(0xFFFFDF9E, alpha)
         );
         smallF.drawString(
-                smallF.trimToWidth(mod.getEnglishName() + "  \u2022  " + mod.getCategory().getDisplayName(), iw - 96.0F),
-                ix + 14.0F, iy + 30.0F, mulAlpha(0xFFC89B54, alpha)
+                smallF.trimToWidth(mod.getEnglishName() + "  \u00B7  " + mod.getCategory().getDisplayName(), iw - 84.0F),
+                ix + 12.0F, iy + 27.5F, mulAlpha(0xFFC89B54, alpha)
         );
         smallF.drawString(
-                smallF.trimToWidth(mod.getDescription(), iw - 24.0F),
-                ix + 14.0F, iy + 47.0F, mulAlpha(0xFF8E97AC, alpha)
+                smallF.trimToWidth(mod.getDescription(), iw - 20.0F),
+                ix + 12.0F, iy + 43.5F, mulAlpha(0xFF8E97AC, alpha)
         );
 
-        // Liste déroulante des sous-paramètres
         NanoUiRenderer.enableDesktopScissor(this.mc, ix, listY, iw, listH);
 
         List<MashSetting> settings = mod.getSettings();
-        float curY = listY + 6.0F - inspectorScroll;
-        float totalH = 12.0F;
+        float curY = listY + 5.0F - inspectorScroll;
+        float totalH = 10.0F;
 
         NanoUiRenderer.beginBatch();
         for (int i = 0; i < settings.size(); i++) {
@@ -925,10 +920,10 @@ public class GuiMashClientMenu extends GuiScreen {
             float rowH = getSettingRowHeight(s);
             if (curY + rowH >= listY - 4.0F && curY <= listY + listH + 4.0F) {
                 NanoUiRenderer.drawRoundedRect(
-                        ix + 14.0F, curY, iw - 22.0F, rowH - 6.0F, 8.0F,
-                        mulAlpha(0xFF0E111B, alpha), mulAlpha(0x1EFFFFFF, alpha), 1.0F
+                        ix + 12.0F, curY, iw - 18.0F, rowH - 5.0F, 7.0F,
+                        mulAlpha(0xFF0E111B, alpha), mulAlpha(0x1DFFFFFF, alpha), 1.0F
                 );
-                drawSettingShapes(s, ix + 14.0F, curY, iw - 22.0F, dmx, dmy, alpha);
+                drawSettingShapes(s, ix + 12.0F, curY, iw - 18.0F, dmx, dmy, alpha);
             }
             curY += rowH;
             totalH += rowH;
@@ -938,34 +933,33 @@ public class GuiMashClientMenu extends GuiScreen {
         inspectorMaxScroll = Math.max(0.0F, totalH - listH);
         inspectorScroll = clamp(inspectorScroll, 0.0F, inspectorMaxScroll);
 
-        bodyF.beginBatch();
-        curY = listY + 6.0F - inspectorScroll;
+        smallF.beginBatch();
+        curY = listY + 5.0F - inspectorScroll;
         for (int i = 0; i < settings.size(); i++) {
             MashSetting s = settings.get(i);
             float rowH = getSettingRowHeight(s);
             if (curY + rowH >= listY - 4.0F && curY <= listY + listH + 4.0F) {
-                drawSettingLabels(bodyF, s, ix + 14.0F, curY, iw - 22.0F, alpha);
+                drawSettingLabels(smallF, s, ix + 12.0F, curY, iw - 18.0F, alpha);
             }
             curY += rowH;
         }
-        bodyF.endBatch();
+        smallF.endBatch();
 
-        // Bouton Réinitialiser en bas du tiroir
         NanoUiRenderer.enableDesktopScissor(this.mc, ix, iy, iw, ih);
-        float resetY = iy + ih - 34.0F;
-        boolean resetHov = alpha > 0.72F && inside(dmx, dmy, ix + 14.0F, resetY, iw - 22.0F, 28.0F);
+        float resetY = iy + ih - 31.0F;
+        boolean resetHov = alpha > 0.72F && inside(dmx, dmy, ix + 12.0F, resetY, iw - 18.0F, 25.0F);
         NanoUiRenderer.beginBatch();
         NanoUiRenderer.drawRoundedRect(
-                ix + 14.0F, resetY, iw - 22.0F, 28.0F, 8.0F,
+                ix + 12.0F, resetY, iw - 18.0F, 25.0F, 7.0F,
                 mulAlpha(resetHov ? 0xFF281720 : 0xFF101420, alpha),
-                mulAlpha(resetHov ? 0x88F87171 : 0x26FFFFFF, alpha),
+                mulAlpha(resetHov ? 0x88F87171 : 0x24FFFFFF, alpha),
                 1.0F
         );
         NanoUiRenderer.endBatch();
 
-        bodyF.drawCentered(
+        smallF.drawCentered(
                 "Réinitialiser",
-                ix + 14.0F + (iw - 22.0F) * 0.5F, resetY + 7.5F,
+                ix + 12.0F + (iw - 18.0F) * 0.5F, resetY + 7.5F,
                 mulAlpha(resetHov ? 0xFFFFB4B4 : 0xFFA2AABF, alpha), false
         );
     }
@@ -998,40 +992,40 @@ public class GuiMashClientMenu extends GuiScreen {
 
     private float getSettingRowHeight(MashSetting s) {
         if (s instanceof MashSetting.NumberSetting) {
-            return 52.0F;
+            return 46.0F;
         }
         if (s instanceof MashSetting.ColorSetting) {
-            return (expandedColorSetting == s) ? 126.0F : 42.0F;
+            return (expandedColorSetting == s) ? 118.0F : 36.0F;
         }
-        return 42.0F;
+        return 36.0F;
     }
 
     private void drawSettingShapes(MashSetting s, float rx, float ry, float rw, float dmx, float dmy, float alpha) {
         if (s instanceof MashSetting.BooleanSetting) {
             MashSetting.BooleanSetting bs = (MashSetting.BooleanSetting) s;
-            NanoUiRenderer.drawLauncherSwitch(rx + rw - 46.0F, ry + 8.5F, bs.get(), inside(dmx, dmy, rx, ry, rw, 36.0F), alpha);
+            NanoUiRenderer.drawCompactSwitch(rx + rw - 36.0F, ry + 8.0F, bs.get(), inside(dmx, dmy, rx, ry, rw, 31.0F), alpha);
         } else if (s instanceof MashSetting.NumberSetting) {
             MashSetting.NumberSetting ns = (MashSetting.NumberSetting) s;
-            float sx = rx + 12.0F;
-            float sw = rw - 24.0F;
-            boolean hov = inside(dmx, dmy, sx - 4.0F, ry + 24.0F, sw + 8.0F, 18.0F);
-            NanoUiRenderer.drawSlider(sx, ry + 31.0F, sw, ns.getFraction(), mulAlpha(0xFFEBB65B, alpha), hov || activeDraggingSlider == ns);
+            float sx = rx + 10.0F;
+            float sw = rw - 20.0F;
+            boolean hov = inside(dmx, dmy, sx - 4.0F, ry + 21.0F, sw + 8.0F, 16.0F);
+            NanoUiRenderer.drawSlider(sx, ry + 27.5F, sw, ns.getFraction(), mulAlpha(0xFFEBB65B, alpha), hov || activeDraggingSlider == ns);
         } else if (s instanceof MashSetting.ModeSetting) {
-            float pillW = Math.min(138.0F, rw * 0.46F);
-            float pillX = rx + rw - pillW - 10.0F;
-            boolean hov = inside(dmx, dmy, pillX, ry + 6.0F, pillW, 24.0F);
+            float pillW = Math.min(126.0F, rw * 0.46F);
+            float pillX = rx + rw - pillW - 8.0F;
+            boolean hov = inside(dmx, dmy, pillX, ry + 5.0F, pillW, 21.0F);
             NanoUiRenderer.drawRoundedRect(
-                    pillX, ry + 6.0F, pillW, 24.0F, 6.5F,
+                    pillX, ry + 5.0F, pillW, 21.0F, 5.5F,
                     mulAlpha(hov ? 0xFF1B2030 : 0xFF141824, alpha),
                     mulAlpha(0x44F5B85C, alpha), 1.0F
             );
         } else if (s instanceof MashSetting.KeybindSetting) {
             MashSetting.KeybindSetting ks = (MashSetting.KeybindSetting) s;
             boolean listening = listeningKeybind == ks;
-            float pillW = 96.0F;
-            float pillX = rx + rw - pillW - 10.0F;
+            float pillW = 86.0F;
+            float pillX = rx + rw - pillW - 8.0F;
             NanoUiRenderer.drawRoundedRect(
-                    pillX, ry + 6.0F, pillW, 24.0F, 6.5F,
+                    pillX, ry + 5.0F, pillW, 21.0F, 5.5F,
                     mulAlpha(listening ? 0x44F5B85C : 0xFF141824, alpha),
                     mulAlpha(listening ? 0xEEF5B85C : 0x2CFFFFFF, alpha),
                     1.0F
@@ -1039,54 +1033,54 @@ public class GuiMashClientMenu extends GuiScreen {
         } else if (s instanceof MashSetting.ColorSetting) {
             MashSetting.ColorSetting cs = (MashSetting.ColorSetting) s;
             int resolved = mulAlpha(cs.resolveArgb(System.currentTimeMillis(), 0), alpha);
-            float chX = rx + rw - 92.0F;
+            float chX = rx + rw - 84.0F;
             NanoUiRenderer.drawRoundedRect(
-                    chX, ry + 6.5F, 54.0F, 23.0F, 6.0F,
+                    chX, ry + 5.5F, 48.0F, 20.0F, 5.5F,
                     mulAlpha(cs.isChroma() ? 0x38F5B85C : 0xFF141824, alpha),
                     mulAlpha(cs.isChroma() ? 0xAAF5B85C : 0x24FFFFFF, alpha),
                     1.0F
             );
-            NanoUiRenderer.drawRoundedRect(rx + rw - 32.0F, ry + 6.5F, 22.0F, 23.0F, 6.0F, resolved, mulAlpha(0x88FFFFFF, alpha), 1.0F);
+            NanoUiRenderer.drawRoundedRect(rx + rw - 30.0F, ry + 5.5F, 20.0F, 20.0F, 5.5F, resolved, mulAlpha(0x88FFFFFF, alpha), 1.0F);
 
             if (expandedColorSetting == cs) {
-                float bx = rx + 12.0F;
-                float bw = rw - 24.0F;
+                float bx = rx + 10.0F;
+                float bw = rw - 20.0F;
                 int pureHue = Color.HSBtoRGB(cs.getHue(), 1.0F, 1.0F) | 0xFF000000;
-                NanoUiRenderer.drawSlider(bx, ry + 44.0F, bw, cs.getHue(), mulAlpha(pureHue, alpha), activeColorDragChannel == 0);
-                NanoUiRenderer.drawSlider(bx, ry + 64.0F, bw, cs.getSaturation(), mulAlpha(0xFF38BDF8, alpha), activeColorDragChannel == 1);
-                NanoUiRenderer.drawSlider(bx, ry + 84.0F, bw, cs.getBrightness(), mulAlpha(0xFFEBB65B, alpha), activeColorDragChannel == 2);
-                NanoUiRenderer.drawSlider(bx, ry + 104.0F, bw, cs.getAlpha() / 255.0F, mulAlpha(0xFFE2E8F0, alpha), activeColorDragChannel == 3);
+                NanoUiRenderer.drawSlider(bx, ry + 40.0F, bw, cs.getHue(), mulAlpha(pureHue, alpha), activeColorDragChannel == 0);
+                NanoUiRenderer.drawSlider(bx, ry + 59.0F, bw, cs.getSaturation(), mulAlpha(0xFF38BDF8, alpha), activeColorDragChannel == 1);
+                NanoUiRenderer.drawSlider(bx, ry + 78.0F, bw, cs.getBrightness(), mulAlpha(0xFFEBB65B, alpha), activeColorDragChannel == 2);
+                NanoUiRenderer.drawSlider(bx, ry + 97.0F, bw, cs.getAlpha() / 255.0F, mulAlpha(0xFFE2E8F0, alpha), activeColorDragChannel == 3);
             }
         }
     }
 
-    private void drawSettingLabels(SmoothFontRenderer bodyF, MashSetting s, float rx, float ry, float rw, float alpha) {
+    private void drawSettingLabels(SmoothFontRenderer smallF, MashSetting s, float rx, float ry, float rw, float alpha) {
         if (s instanceof MashSetting.BooleanSetting) {
-            bodyF.drawString(bodyF.trimToWidth(s.getName(), rw - 64.0F), rx + 12.0F, ry + 11.5F, mulAlpha(0xFFECEFF6, alpha));
+            smallF.drawString(smallF.trimToWidth(s.getName(), rw - 52.0F), rx + 10.0F, ry + 10.0F, mulAlpha(0xFFECEFF6, alpha));
         } else if (s instanceof MashSetting.NumberSetting) {
             MashSetting.NumberSetting ns = (MashSetting.NumberSetting) s;
             String val = ns.formatValue();
-            float vw = bodyF.getStringWidth(val);
-            bodyF.drawString(bodyF.trimToWidth(s.getName(), rw - vw - 28.0F), rx + 12.0F, ry + 8.5F, mulAlpha(0xFFECEFF6, alpha));
-            bodyF.drawString(val, rx + rw - vw - 12.0F, ry + 8.5F, mulAlpha(0xFFFFDF9E, alpha));
+            float vw = smallF.getStringWidth(val);
+            smallF.drawString(smallF.trimToWidth(s.getName(), rw - vw - 24.0F), rx + 10.0F, ry + 7.5F, mulAlpha(0xFFECEFF6, alpha));
+            smallF.drawString(val, rx + rw - vw - 10.0F, ry + 7.5F, mulAlpha(0xFFFFDF9E, alpha));
         } else if (s instanceof MashSetting.ModeSetting) {
             MashSetting.ModeSetting ms = (MashSetting.ModeSetting) s;
-            float pillW = Math.min(138.0F, rw * 0.46F);
-            float pillX = rx + rw - pillW - 10.0F;
-            bodyF.drawString(bodyF.trimToWidth(s.getName(), rw - pillW - 24.0F), rx + 12.0F, ry + 11.5F, mulAlpha(0xFFECEFF6, alpha));
-            bodyF.drawCentered(bodyF.trimToWidth(ms.getMode(), pillW - 12.0F), pillX + pillW * 0.5F, ry + 11.5F, mulAlpha(0xFFFFDF9E, alpha), false);
+            float pillW = Math.min(126.0F, rw * 0.46F);
+            float pillX = rx + rw - pillW - 8.0F;
+            smallF.drawString(smallF.trimToWidth(s.getName(), rw - pillW - 20.0F), rx + 10.0F, ry + 10.0F, mulAlpha(0xFFECEFF6, alpha));
+            smallF.drawCentered(smallF.trimToWidth(ms.getMode(), pillW - 10.0F), pillX + pillW * 0.5F, ry + 10.0F, mulAlpha(0xFFFFDF9E, alpha), false);
         } else if (s instanceof MashSetting.KeybindSetting) {
             MashSetting.KeybindSetting ks = (MashSetting.KeybindSetting) s;
             boolean listening = listeningKeybind == ks;
-            float pillW = 96.0F;
-            float pillX = rx + rw - pillW - 10.0F;
-            bodyF.drawString(bodyF.trimToWidth(s.getName(), rw - pillW - 24.0F), rx + 12.0F, ry + 11.5F, mulAlpha(0xFFECEFF6, alpha));
+            float pillW = 86.0F;
+            float pillX = rx + rw - pillW - 8.0F;
+            smallF.drawString(smallF.trimToWidth(s.getName(), rw - pillW - 20.0F), rx + 10.0F, ry + 10.0F, mulAlpha(0xFFECEFF6, alpha));
             String txt = listening ? "Touche..." : ks.getDisplayString();
-            bodyF.drawCentered(txt, pillX + pillW * 0.5F, ry + 11.5F, mulAlpha(listening ? 0xFFFFF4DC : 0xFFECEFF6, alpha), false);
+            smallF.drawCentered(txt, pillX + pillW * 0.5F, ry + 10.0F, mulAlpha(listening ? 0xFFFFF4DC : 0xFFECEFF6, alpha), false);
         } else if (s instanceof MashSetting.ColorSetting) {
             MashSetting.ColorSetting cs = (MashSetting.ColorSetting) s;
-            bodyF.drawString(bodyF.trimToWidth(s.getName(), rw - 108.0F), rx + 12.0F, ry + 11.5F, mulAlpha(0xFFECEFF6, alpha));
-            bodyF.drawCentered("Chroma", rx + rw - 65.0F, ry + 11.5F, mulAlpha(cs.isChroma() ? 0xFFFFDF9E : 0xFF8E96AA, alpha), false);
+            smallF.drawString(smallF.trimToWidth(s.getName(), rw - 98.0F), rx + 10.0F, ry + 10.0F, mulAlpha(0xFFECEFF6, alpha));
+            smallF.drawCentered("Chroma", rx + rw - 60.0F, ry + 10.0F, mulAlpha(cs.isChroma() ? 0xFFFFDF9E : 0xFF8E96AA, alpha), false);
         }
     }
 
@@ -1106,17 +1100,16 @@ public class GuiMashClientMenu extends GuiScreen {
         float dmy = NanoUiRenderer.desktopEventMouseY(this.mc);
         computeDesktopLayout(dw, dh);
 
-        // Mode Édition HUD Plein Écran : barre flottante supérieure
         if (hudCanvasMode) {
-            float bw = 468.0F;
+            float bw = 428.0F;
             float bx = (dw - bw) * 0.5F;
             float by = 14.0F;
-            if (mouseButton == 0 && inside(dmx, dmy, bx + 6.0F, by + 5.0F, 96.0F, 28.0F)) {
+            if (mouseButton == 0 && inside(dmx, dmy, bx + 5.0F, by + 4.0F, 84.0F, 26.0F)) {
                 hudCanvasMode = false;
                 playClick();
                 return;
             }
-            if (mouseButton == 0 && inside(dmx, dmy, bx + bw - 142.0F, by + 5.0F, 136.0F, 28.0F)) {
+            if (mouseButton == 0 && inside(dmx, dmy, bx + bw - 128.0F, by + 4.0F, 123.0F, 26.0F)) {
                 magneticSnapEnabled = !magneticSnapEnabled;
                 MashAudioEngine.playToggle(magneticSnapEnabled);
                 return;
@@ -1131,7 +1124,6 @@ public class GuiMashClientMenu extends GuiScreen {
         boolean overStudio = !Keyboard.isKeyDown(Keyboard.KEY_TAB)
                 && inside(dmx, dmy, panelX, panelY, panelW, panelH);
 
-        // 1. Clic sur n'importe quel élément HUD visible en dehors de la fenêtre (ou avec TAB maintenu) !
         if (!overStudio) {
             if (handleHudCanvasClick(mouseX, mouseY, mouseButton)) {
                 return;
@@ -1140,35 +1132,32 @@ public class GuiMashClientMenu extends GuiScreen {
             return;
         }
 
-        // 2. Clics dans la fenêtre Studio (coordonnées Bureau)
         float px = panelX;
         float py = panelY;
         float pw = panelW;
         float ph = panelH;
         float subY = py + TOP_BAR_H;
 
-        // Bouton Fermer
-        float closeBtnX = px + pw - 44.0F;
-        if (mouseButton == 0 && inside(dmx, dmy, closeBtnX, py + 12.0F, 28.0F, 28.0F)) {
+        float closeBtnX = px + pw - 38.0F;
+        if (mouseButton == 0 && inside(dmx, dmy, closeBtnX, py + 11.0F, 24.0F, 24.0F)) {
             playClick();
             this.mc.displayGuiScreen(this.parentScreen);
             return;
         }
 
-        // Onglets de la pilule supérieure
-        SmoothFontRenderer bodyF = SmoothFontRenderer.uiBody();
+        SmoothFontRenderer smallF = SmoothFontRenderer.uiSmall();
         NavTab[] tabs = NavTab.values();
         float[] tabWidths = new float[tabs.length];
-        float tabsTotalW = 10.0F;
+        float tabsTotalW = 8.0F;
         for (int i = 0; i < tabs.length; i++) {
-            tabWidths[i] = bodyF.getStringWidth(tabs[i].pillLabel) + 22.0F;
+            tabWidths[i] = computeTabWidth(tabs[i], smallF);
             tabsTotalW += tabWidths[i];
         }
-        float tabsPillX = closeBtnX - tabsTotalW - 14.0F;
-        float curTabX = tabsPillX + 5.0F;
+        float tabsPillX = closeBtnX - tabsTotalW - 10.0F;
+        float curTabX = tabsPillX + 4.0F;
         for (int i = 0; i < tabs.length; i++) {
             float tw = tabWidths[i];
-            if (mouseButton == 0 && inside(dmx, dmy, curTabX, py + 14.0F, tw, 26.0F)) {
+            if (mouseButton == 0 && inside(dmx, dmy, curTabX, py + 11.0F, tw, 24.0F)) {
                 this.currentTab = tabs[i];
                 rebuildFilteredList();
                 playClick();
@@ -1177,90 +1166,81 @@ public class GuiMashClientMenu extends GuiScreen {
             curTabX += tw;
         }
 
-        // Bouton Éditer HUD Plein Écran
-        float hudBtnW = 122.0F;
-        float hudBtnX = px + pw - hudBtnW - 22.0F;
-        float hudBtnY = subY + 11.0F;
-        if (mouseButton == 0 && inside(dmx, dmy, hudBtnX, hudBtnY, hudBtnW, 36.0F)) {
+        float hudBtnW = 106.0F;
+        float hudBtnX = px + pw - hudBtnW - 18.0F;
+        float hudBtnY = subY + 8.0F;
+        if (mouseButton == 0 && inside(dmx, dmy, hudBtnX, hudBtnY, hudBtnW, 30.0F)) {
             hudCanvasMode = true;
             searchFocused = false;
             playClick();
             return;
         }
 
-        // Barre de recherche FR / EN
-        float searchW = 356.0F;
-        float searchX = hudBtnX - searchW - 10.0F;
-        float searchY = subY + 11.0F;
-        if (!searchQuery.isEmpty() && mouseButton == 0 && inside(dmx, dmy, searchX + searchW - 28.0F, searchY + 7.0F, 22.0F, 22.0F)) {
+        float searchW = 276.0F;
+        float searchX = hudBtnX - searchW - 8.0F;
+        float searchY = subY + 8.0F;
+        if (!searchQuery.isEmpty() && mouseButton == 0 && inside(dmx, dmy, searchX + searchW - 24.0F, searchY + 5.0F, 20.0F, 20.0F)) {
             this.searchQuery = "";
             this.searchFocused = true;
             rebuildFilteredList();
             playClick();
             return;
         }
-        this.searchFocused = inside(dmx, dmy, searchX, searchY, searchW, 36.0F);
+        this.searchFocused = inside(dmx, dmy, searchX, searchY, searchW, 30.0F);
         if (this.searchFocused && mouseButton == 1) {
             this.searchQuery = "";
             rebuildFilteredList();
             return;
         }
 
-        // Pied de page : Profils + Aimantation
         float footY = py + ph - FOOTER_H;
         PureFPSProfile[] profs = {PureFPSProfile.FPS, PureFPSProfile.BALANCED, PureFPSProfile.QUALITY};
-        float fpW = 78.0F;
+        float fpW = 68.0F;
         for (int i = 0; i < 3; i++) {
-            float bx = px + 26.0F + i * (fpW + 2.0F);
-            if (mouseButton == 0 && inside(dmx, dmy, bx, footY + 9.0F, fpW, 24.0F)) {
+            float bx = px + 21.0F + i * (fpW + 2.0F);
+            if (mouseButton == 0 && inside(dmx, dmy, bx, footY + 7.5F, fpW, 21.0F)) {
                 PureFPSConfig.applyProfile(profs[i], true);
                 MashModules.syncFromPureConfig();
                 playClick();
                 return;
             }
         }
-        float snapPillX = px + 278.0F;
-        if (mouseButton == 0 && inside(dmx, dmy, snapPillX, footY + 6.0F, 144.0F, 30.0F)) {
+        float snapPillX = px + 240.0F;
+        if (mouseButton == 0 && inside(dmx, dmy, snapPillX, footY + 5.0F, 126.0F, 26.0F)) {
             magneticSnapEnabled = !magneticSnapEnabled;
             MashAudioEngine.playToggle(magneticSnapEnabled);
             return;
         }
 
-        // Tiroir de Sous-Paramètres
         if (inspectedModule != null && dmx >= getInspectorX() && dmy >= subY + SUB_HEADER_H && dmy <= py + ph - FOOTER_H) {
             handleInspectorClick(dmx, dmy, mouseButton);
             return;
         }
 
-        // Grille 2 colonnes de cartes de modules
         float inspectorW = inspectedModule != null ? INSPECTOR_W : 0.0F;
-        float gx = px + 22.0F;
-        float gy = subY + SUB_HEADER_H + 10.0F;
-        float gw = pw - inspectorW - (inspectedModule != null ? 34.0F : 44.0F);
-        float gh = ph - TOP_BAR_H - SUB_HEADER_H - FOOTER_H - 18.0F;
+        float gx = px + 18.0F;
+        float gy = subY + SUB_HEADER_H + 8.0F;
+        float gw = pw - inspectorW - (inspectedModule != null ? 28.0F : 36.0F);
+        float gh = ph - TOP_BAR_H - SUB_HEADER_H - FOOTER_H - 14.0F;
 
         if (inside(dmx, dmy, gx, gy, gw, gh)) {
-            int cols = (inspectedModule != null) ? 1 : 2;
-            float gapX = 12.0F;
-            float gapY = 10.0F;
-            float cardW = (gw - gapX * (cols - 1)) / (float) cols;
-            float cardH = 66.0F;
+            int cols = (inspectedModule != null) ? 2 : 3;
+            float cardW = (gw - CARD_GAP_X * (cols - 1)) / (float) cols;
+            float rowStride = CARD_H + CARD_GAP_Y;
 
             for (int i = 0; i < filteredModules.size(); i++) {
                 int col = i % cols;
                 int row = i / cols;
-                float cx = gx + col * (cardW + gapX);
-                float cy = gy + row * (cardH + gapY) - gridScroll;
-                if (inside(dmx, dmy, cx, cy, cardW, cardH)) {
+                float cx = gx + col * (cardW + CARD_GAP_X);
+                float cy = gy + row * rowStride - gridScroll;
+                if (inside(dmx, dmy, cx, cy, cardW, CARD_H)) {
                     MashModule m = filteredModules.get(i);
-                    // Clic étoile favori
-                    if (mouseButton == 0 && inside(dmx, dmy, cx + cardW - 114.0F, cy + 18.0F, 24.0F, 30.0F)) {
+                    if (mouseButton == 0 && inside(dmx, dmy, cx + cardW - 86.0F, cy + 13.0F, 20.0F, 24.0F)) {
                         m.toggleFavorite();
                         MashAudioEngine.playToggle(m.isFavorite());
                         return;
                     }
-                    // Clic Droit OU Clic sur l'icône réglages -> Ouvre le tiroir de Sous-Paramètres
-                    boolean gearClick = mouseButton == 0 && inside(dmx, dmy, cx + cardW - 88.0F, cy + 19.0F, 30.0F, 28.0F);
+                    boolean gearClick = mouseButton == 0 && inside(dmx, dmy, cx + cardW - 64.0F, cy + 13.0F, 25.0F, 24.0F);
                     if (mouseButton == 1 || gearClick) {
                         inspectedModule = (inspectedModule == m && gearClick) ? null : m;
                         inspectorScroll = 0.0F;
@@ -1272,7 +1252,6 @@ public class GuiMashClientMenu extends GuiScreen {
                         playClick();
                         return;
                     }
-                    // Clic Gauche -> Active / Désactive le module
                     if (mouseButton == 0) {
                         m.toggle();
                         if (m.isHudWidget()) {
@@ -1333,43 +1312,40 @@ public class GuiMashClientMenu extends GuiScreen {
         float iw = INSPECTOR_W - 6.0F;
         float ih = panelH - TOP_BAR_H - SUB_HEADER_H - FOOTER_H - 8.0F;
 
-        // Interrupteur maître en haut de l'inspecteur
-        if (btn == 0 && inside(dmx, dmy, ix + iw - 76.0F, iy + 10.0F, 40.0F, 24.0F)) {
+        if (btn == 0 && inside(dmx, dmy, ix + iw - 66.0F, iy + 9.0F, 32.0F, 20.0F)) {
             mod.toggle();
             MashAudioEngine.playToggle(mod.isEnabled());
             return;
         }
-        // Fermer l'inspecteur
-        if (btn == 0 && inside(dmx, dmy, ix + iw - 32.0F, iy + 8.0F, 26.0F, 26.0F)) {
+        if (btn == 0 && inside(dmx, dmy, ix + iw - 29.0F, iy + 7.0F, 24.0F, 24.0F)) {
             inspectedModule = null;
             expandedColorSetting = null;
             playClick();
             return;
         }
-        // Réinitialiser ce module
-        float resetY = iy + ih - 34.0F;
-        if (btn == 0 && inside(dmx, dmy, ix + 14.0F, resetY, iw - 22.0F, 28.0F)) {
+        float resetY = iy + ih - 31.0F;
+        if (btn == 0 && inside(dmx, dmy, ix + 12.0F, resetY, iw - 18.0F, 25.0F)) {
             mod.resetDefaults();
             playClick();
             return;
         }
 
-        float headerBlockH = (mod == MashModules.MOD_CROSSHAIR) ? 114.0F : 72.0F;
+        float headerBlockH = (mod == MashModules.MOD_CROSSHAIR) ? 108.0F : 66.0F;
         float listY = iy + headerBlockH;
-        float listH = ih - headerBlockH - 42.0F;
+        float listH = ih - headerBlockH - 38.0F;
         if (!inside(dmx, dmy, ix, listY, iw, listH)) {
             return;
         }
 
         List<MashSetting> settings = mod.getSettings();
-        float curY = listY + 6.0F - inspectorScroll;
-        float rx = ix + 14.0F;
-        float rw = iw - 22.0F;
+        float curY = listY + 5.0F - inspectorScroll;
+        float rx = ix + 12.0F;
+        float rw = iw - 18.0F;
 
         for (int i = 0; i < settings.size(); i++) {
             MashSetting s = settings.get(i);
             float rowH = getSettingRowHeight(s);
-            if (inside(dmx, dmy, rx, curY, rw, rowH - 6.0F)) {
+            if (inside(dmx, dmy, rx, curY, rw, rowH - 5.0F)) {
                 if (s instanceof MashSetting.BooleanSetting && btn == 0) {
                     MashSetting.BooleanSetting bs = (MashSetting.BooleanSetting) s;
                     bs.toggle();
@@ -1379,8 +1355,8 @@ public class GuiMashClientMenu extends GuiScreen {
                 if (s instanceof MashSetting.NumberSetting && btn == 0) {
                     MashSetting.NumberSetting ns = (MashSetting.NumberSetting) s;
                     activeDraggingSlider = ns;
-                    activeSliderX = rx + 12.0F;
-                    activeSliderW = rw - 24.0F;
+                    activeSliderX = rx + 10.0F;
+                    activeSliderW = rw - 20.0F;
                     ns.setFraction((dmx - activeSliderX) / Math.max(1.0F, activeSliderW));
                     return;
                 }
@@ -1398,23 +1374,23 @@ public class GuiMashClientMenu extends GuiScreen {
                 }
                 if (s instanceof MashSetting.ColorSetting) {
                     MashSetting.ColorSetting cs = (MashSetting.ColorSetting) s;
-                    if (btn == 0 && inside(dmx, dmy, rx + rw - 94.0F, curY + 4.0F, 56.0F, 28.0F)) {
+                    if (btn == 0 && inside(dmx, dmy, rx + rw - 86.0F, curY + 4.0F, 52.0F, 24.0F)) {
                         cs.setChroma(!cs.isChroma());
                         playClick();
                         return;
                     }
-                    if (inside(dmx, dmy, rx, curY, rw, 36.0F)) {
+                    if (inside(dmx, dmy, rx, curY, rw, 31.0F)) {
                         expandedColorSetting = (expandedColorSetting == cs) ? null : cs;
                         playClick();
                         return;
                     }
                     if (expandedColorSetting == cs && btn == 0) {
-                        activeColorBarX = rx + 12.0F;
-                        activeColorBarW = rw - 24.0F;
-                        if (dmy >= curY + 38.0F && dmy < curY + 58.0F) activeColorDragChannel = 0;
-                        else if (dmy >= curY + 58.0F && dmy < curY + 78.0F) activeColorDragChannel = 1;
-                        else if (dmy >= curY + 78.0F && dmy < curY + 98.0F) activeColorDragChannel = 2;
-                        else if (dmy >= curY + 98.0F) activeColorDragChannel = 3;
+                        activeColorBarX = rx + 10.0F;
+                        activeColorBarW = rw - 20.0F;
+                        if (dmy >= curY + 34.0F && dmy < curY + 53.0F) activeColorDragChannel = 0;
+                        else if (dmy >= curY + 53.0F && dmy < curY + 72.0F) activeColorDragChannel = 1;
+                        else if (dmy >= curY + 72.0F && dmy < curY + 91.0F) activeColorDragChannel = 2;
+                        else if (dmy >= curY + 91.0F) activeColorDragChannel = 3;
                         return;
                     }
                 }
@@ -1463,7 +1439,6 @@ public class GuiMashClientMenu extends GuiScreen {
             return;
         }
 
-        // Déplacement précis 1 px au clavier de l'élément HUD sélectionné
         if (!searchFocused && selectedHud != null && selectedHud.isEnabled()) {
             float step = isShiftKeyDown() ? 5.0F : 1.0F;
             if (keyCode == Keyboard.KEY_LEFT) {
@@ -1484,7 +1459,6 @@ public class GuiMashClientMenu extends GuiScreen {
             }
         }
 
-        // Recherche instantanée bilingue FR + EN au clavier
         if (!hudCanvasMode) {
             if (keyCode == Keyboard.KEY_BACK) {
                 if (!searchQuery.isEmpty()) {

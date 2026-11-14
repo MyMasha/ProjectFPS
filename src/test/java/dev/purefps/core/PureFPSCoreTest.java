@@ -658,7 +658,7 @@ public class PureFPSCoreTest {
             try (java.io.FileInputStream fis = new java.io.FileInputStream(splash)) {
                 props.load(fis);
             }
-            assertEquals("true", props.getProperty("enabled"));
+            assertEquals("false", props.getProperty("enabled"));
             assertEquals("0x000000", props.getProperty("background"));
 
             // 2. Continuité monotone de la sortie du Trou Noir (SplashProgress$3 -> GuiPureMainMenu 120 FPS)
@@ -1011,5 +1011,72 @@ public class PureFPSCoreTest {
                 SmartChunkUpdateScheduler.shouldAllowLightRebuild(960, 64, 960, now + 500L));
 
         SmartChunkUpdateScheduler.clear();
+    }
+
+    @Test
+    public void testTntTimerBedWarsAndVanillaCountdownAndColors() {
+        // Vanilla 80 ticks = 4.00s
+        assertEquals(4.00F, TntTimerRenderer.computeRemainingSeconds(80, 0, 0.0F, 0, false), 1e-4F);
+        assertEquals(2.00F, TntTimerRenderer.computeRemainingSeconds(40, 40, 0.0F, 0, false), 1e-4F);
+        assertEquals("4.00s", TntTimerRenderer.formatSeconds(4.00F));
+        assertEquals("0.05s", TntTimerRenderer.formatSeconds(0.05F));
+
+        // Hypixel BedWars 52 ticks (serveur envoie fuse=80 au spawn puis explose à 52 ticks = 2.60s)
+        assertEquals(2.60F, TntTimerRenderer.computeRemainingSeconds(80, 0, 0.0F, 0, true), 1e-4F);
+        assertEquals(0.00F, TntTimerRenderer.computeRemainingSeconds(28, 52, 0.0F, 0, true), 1e-4F);
+        assertEquals(2.60F, TntTimerRenderer.resolveMaxFuseSeconds(80, 0, 0, true), 1e-4F);
+        assertEquals(4.00F, TntTimerRenderer.resolveMaxFuseSeconds(80, 0, 1, true), 1e-4F);
+
+        // Dégradé de couleur dynamique
+        assertEquals(0xFF34D399, TntTimerRenderer.computeFuseColor(3.50F, 4.00F, true));
+        assertEquals(0xFFFBBF24, TntTimerRenderer.computeFuseColor(2.00F, 4.00F, true));
+        assertEquals(0xFFFB923C, TntTimerRenderer.computeFuseColor(1.00F, 4.00F, true));
+        assertEquals(0xFFF87171, TntTimerRenderer.computeFuseColor(0.30F, 4.00F, true));
+        assertEquals(0xFFF4F6FA, TntTimerRenderer.computeFuseColor(0.30F, 4.00F, false));
+    }
+
+    @Test
+    public void testBlackHoleMenuAmbientSoundAndCleanCopywriting44() throws Exception {
+        byte[] loopPcm = dev.purefps.client.audio.MashAudioEngine.synthBlackHoleAmbientLoop();
+        assertNotNull(loopPcm);
+        assertEquals(44100 * 6 * 4, loopPcm.length);
+
+        boolean nonZero = false;
+        for (int i = 0; i < loopPcm.length; i += 128) {
+            if (loopPcm[i] != 0 || loopPcm[i + 1] != 0) {
+                nonZero = true;
+                break;
+            }
+        }
+        assertTrue("Boucle ambiante trou noir muette", nonZero);
+
+        java.io.File tempDir = java.nio.file.Files.createTempDirectory("purefps-v44-copy").toFile();
+        tempDir.deleteOnExit();
+        PureFPSConfig.blackHoleMenuSound = true;
+        dev.purefps.module.MashModules.init(tempDir);
+
+        dev.purefps.module.MashModule mainMenuMod = dev.purefps.module.MashModules.getById("wld_custom_main_menu");
+        assertNotNull(mainMenuMod);
+        dev.purefps.module.MashSetting.BooleanSetting bhSoundSet =
+                (dev.purefps.module.MashSetting.BooleanSetting) mainMenuMod.findSetting("black_hole_sound");
+        assertNotNull(bhSoundSet);
+        assertTrue(bhSoundSet.get());
+        bhSoundSet.set(false);
+        assertFalse(PureFPSConfig.blackHoleMenuSound);
+        bhSoundSet.set(true);
+        assertTrue(PureFPSConfig.blackHoleMenuSound);
+
+        dev.purefps.module.MashModule tntMod = dev.purefps.module.MashModules.getById("vis_tnt_timer");
+        assertNotNull(tntMod);
+        assertNotNull(tntMod.findSetting("color_code"));
+        assertNotNull(tntMod.findSetting("fuse_mode"));
+
+        for (dev.purefps.module.MashModule mod : dev.purefps.module.MashModules.getAll()) {
+            String combined = mod.getName() + " " + mod.getDescription();
+            assertFalse("Point d'exclamation résiduel sur " + mod.getId(), combined.contains("!"));
+            assertFalse("Suffixe ' Pro' artificiel résiduel sur " + mod.getId(), mod.getName().endsWith(" Pro"));
+            assertFalse("Jargon IA 'Obsidienne'/'Cinétique' sur " + mod.getId(),
+                    combined.contains("Obsidienne") || combined.contains("Cinétique"));
+        }
     }
 }

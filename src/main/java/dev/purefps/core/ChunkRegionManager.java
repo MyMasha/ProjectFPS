@@ -175,9 +175,11 @@ public final class ChunkRegionManager {
         boolean menuDimmed = MenuUnloadManager.isWorldDimmedByMenu();
         float menuMaxDistSq = (layerOrd == 0) ? 2304.0F : 1024.0F;
         boolean indexSupported = QuadIndexBuffer.isSupported();
+        int ushortEbo = -1;
         int boundEbo = -1;
         if (indexSupported) {
-            boundEbo = QuadIndexBuffer.ensureIndexBufferReady(QuadIndexBuffer.MAX_USHORT_VERTICES);
+            ushortEbo = QuadIndexBuffer.ensureIndexBufferReady(QuadIndexBuffer.MAX_USHORT_VERTICES);
+            boundEbo = ushortEbo;
             GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, boundEbo);
         }
 
@@ -186,6 +188,8 @@ public final class ChunkRegionManager {
         float prevY = 0.0F;
         float prevZ = 0.0F;
         int drawnSections = 0;
+        boolean onLightmapUnit = false;
+        OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
 
         for (int i = 0; i < count; i++) {
             RenderChunk rc = renderChunks.get(i);
@@ -223,11 +227,23 @@ public final class ChunkRegionManager {
             }
 
             OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, glBuf);
-            setupBlockArrayPointers();
+            GL11.glVertexPointer(3, GL11.GL_FLOAT, 28, 0L);
+            GL11.glColorPointer(4, GL11.GL_UNSIGNED_BYTE, 28, 12L);
+            if (!onLightmapUnit) {
+                GL11.glTexCoordPointer(2, GL11.GL_FLOAT, 28, 16L);
+                OpenGlHelper.setClientActiveTexture(OpenGlHelper.lightmapTexUnit);
+                GL11.glTexCoordPointer(2, GL11.GL_SHORT, 28, 24L);
+                onLightmapUnit = true;
+            } else {
+                GL11.glTexCoordPointer(2, GL11.GL_SHORT, 28, 24L);
+                OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
+                GL11.glTexCoordPointer(2, GL11.GL_FLOAT, 28, 16L);
+                onLightmapUnit = false;
+            }
 
             if (indexSupported && (vCount & 3) == 0) {
                 int neededEbo = vCount <= QuadIndexBuffer.MAX_USHORT_VERTICES
-                        ? QuadIndexBuffer.ensureIndexBufferReady(QuadIndexBuffer.MAX_USHORT_VERTICES)
+                        ? ushortEbo
                         : QuadIndexBuffer.ensureIndexBufferReady(vCount);
                 if (neededEbo != boundEbo) {
                     boundEbo = neededEbo;
@@ -248,7 +264,9 @@ public final class ChunkRegionManager {
         if (boundEbo >= 0) {
             GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
         }
-        OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
+        if (onLightmapUnit) {
+            OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
+        }
         GlStateManager.popMatrix();
 
         if (drawnSections > 0) {

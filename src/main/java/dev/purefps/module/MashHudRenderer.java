@@ -209,10 +209,11 @@ public final class MashHudRenderer {
             return;
         }
 
-        // Sourdine automatique hors focus (wld_mute_unfocused)
+        // Sourdine automatique hors focus (wld_mute_unfocused) + arrêt son du Trou Noir hors menu principal
         if (mc.gameSettings != null && Display.isCreated()) {
             boolean active = Display.isActive();
             if (PureFPSConfig.enabled && MashFlags.muteUnfocusedAudio && !active) {
+                dev.purefps.client.audio.MashAudioEngine.updateMenuAmbientLoop(false);
                 if (!mutedByFocusLoss) {
                     savedMasterVolume = mc.gameSettings.getSoundLevel(SoundCategory.MASTER);
                     if (savedMasterVolume > 0.001F) {
@@ -224,6 +225,9 @@ public final class MashHudRenderer {
                 mc.gameSettings.setSoundLevel(SoundCategory.MASTER, savedMasterVolume);
                 mutedByFocusLoss = false;
             }
+        }
+        if (!(mc.currentScreen instanceof dev.purefps.gui.GuiPureMainMenu)) {
+            dev.purefps.client.audio.MashAudioEngine.updateMenuAmbientLoop(false);
         }
 
         long now = System.currentTimeMillis();
@@ -418,13 +422,17 @@ public final class MashHudRenderer {
         NanoUiRenderer.setScaleFactor(sr.getScaleFactor());
 
         long nowNano = System.nanoTime();
-        if (lastFrameNano != 0L) {
-            float dtMs = (nowNano - lastFrameNano) * 1.0e-6F;
-            if (dtMs > 0.05F && dtMs < 250.0F) {
-                smoothedFrameMs = smoothedFrameMs * 0.90F + dtMs * 0.10F;
+        if (!Display.isCreated() || Display.isActive()) {
+            if (lastFrameNano != 0L) {
+                float dtMs = (nowNano - lastFrameNano) * 1.0e-6F;
+                if (dtMs > 0.05F && dtMs < 200.0F) {
+                    smoothedFrameMs = smoothedFrameMs * 0.90F + dtMs * 0.10F;
+                }
             }
+            lastFrameNano = nowNano;
+        } else {
+            lastFrameNano = 0L;
         }
-        lastFrameNano = nowNano;
 
         long nowMs = System.currentTimeMillis();
         int fps = Minecraft.getDebugFPS();

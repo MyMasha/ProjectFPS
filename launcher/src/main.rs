@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! MashClient 4.1 — Singularity Edition Native Desktop Launcher (`MashClient.exe`, WebView2 `tao` + `wry`)
+//! MashClient 4.4 — Native Desktop Launcher (`MashClient.exe`, WebView2 `tao` + `wry`)
 //! - Rendu temps-réel WebGL2 3D Gargantua de Schwarzschild (texture FBM pré-calculée + RK2 adaptatif 120+ FPS)
 //! - Transition cinématique sans changement de fenêtre visible et sans jamais rétrécir la fenêtre :
 //!   aspiration dans l'Horizon des Événements -> écran noir #000000 maintenu jusqu'à l'ouverture OpenGL de Minecraft ->
@@ -29,6 +29,7 @@ use runner::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::VecDeque;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -297,6 +298,7 @@ struct Controller {
     update_view: UiUpdateView,
     pending_update: Option<PendingUpdate>,
     startup_update_checked: bool,
+    deferred_logs: VecDeque<String>,
 }
 
 impl Controller {
@@ -325,6 +327,7 @@ impl Controller {
             update_view,
             pending_update: None,
             startup_update_checked: false,
+            deferred_logs: VecDeque::with_capacity(200),
         }
     }
 
@@ -385,6 +388,31 @@ impl Controller {
         if let Ok(serialized) = serde_json::to_string(&msg) {
             let _ = webview.evaluate_script(&format!("window.__purePush({serialized});"));
         }
+    }
+
+    fn append_or_buffer_log(&mut self, webview: &wry::WebView, line: String) {
+        if self.hidden_in_tray {
+            if self.deferred_logs.len() >= 200 {
+                self.deferred_logs.pop_front();
+            }
+            self.deferred_logs.push_back(line);
+        } else {
+            Self::push_log(webview, &line);
+        }
+    }
+
+    fn flush_deferred_logs(&mut self, webview: &wry::WebView) {
+        if self.deferred_logs.is_empty() {
+            return;
+        }
+        let mut combined = String::new();
+        while let Some(line) = self.deferred_logs.pop_front() {
+            if !combined.is_empty() {
+                combined.push('\n');
+            }
+            combined.push_str(&line);
+        }
+        Self::push_log(webview, &combined);
     }
 
     fn push_log(webview: &wry::WebView, line: &str) {
@@ -456,6 +484,8 @@ impl Controller {
         window.set_always_on_top(false);
         window.set_cursor_visible(true);
         win32_hide_window_to_tray(window);
+        // Libère la swapchain plein écran DWM/WebView2 une fois le HWND déjà masqué (zéro flash visuel)
+        window.set_fullscreen(None);
         tray.set_game_running_mode(true);
         Self::set_webview_suspended(webview, true);
     }
@@ -489,6 +519,7 @@ impl Controller {
 
         Self::set_webview_suspended(webview, false);
         Self::push_plunge_command(webview, "reset");
+        self.flush_deferred_logs(webview);
         tray.set_game_running_mode(self.game_running);
 
         window.set_always_on_top(false);
@@ -1160,16 +1191,16 @@ fn main() -> wry::Result<()> {
                             ctrl.update_view.has_jar_update = plan.jar_asset.is_some();
                             ctrl.update_view.download_percent = 0;
                             ctrl.update_view.message = format!(
-                                "Nouvelle version v{ver} disponible sur GitHub Releases !"
+                                "Nouvelle version v{ver} disponible sur GitHub Releases."
                             );
                             ctrl.pending_update = Some(plan);
-                            Controller::push_log(
+                            ctrl.append_or_buffer_log(
                                 &webview,
-                                &format!("[Auto-Updater] Mise à jour disponible : v{ver}."),
+                                format!("[Auto-Updater] Mise à jour disponible : v{ver}."),
                             );
                             Controller::push_toast(
                                 &webview,
-                                &format!("Mise à jour MashClient v{ver} disponible !"),
+                                &format!("Mise à jour MashClient v{ver} disponible."),
                                 false,
                             );
                         }
@@ -1217,7 +1248,7 @@ fn main() -> wry::Result<()> {
                                 Controller::push_toast(
                                     &webview,
                                     &format!(
-                                        "MashClient v{} installé ! Cliquez sur Relancer.",
+                                        "MashClient v{} installé. Cliquez sur Relancer.",
                                         outcome.version
                                     ),
                                     false,
@@ -1227,13 +1258,13 @@ fn main() -> wry::Result<()> {
                                 ctrl.update_view.has_jar_update = false;
                                 ctrl.update_view.has_exe_update = false;
                                 ctrl.update_view.message = format!(
-                                    "Mod MashClient v{} installé dans mods/ et prêt à jouer !",
+                                    "Mod MashClient v{} installé dans mods/.",
                                     outcome.version
                                 );
                                 Controller::push_toast(
                                     &webview,
                                     &format!(
-                                        "Mod MashClient v{} mis à jour avec succès !",
+                                        "Mod MashClient v{} mis à jour.",
                                         outcome.version
                                     ),
                                     false,
@@ -1268,6 +1299,14 @@ fn main() -> wry::Result<()> {
                 AppEvent::MinecraftMenuReady => {
                     ctrl.mc_menu_ready = true;
                     ctrl.try_schedule_seamless_handoff(&window, &proxy);
+                    if ctrl.curtain_active && !ctrl.handoff_dispatched {
+                        let expected_id = ctrl.curtain_id;
+                        let p_quick = proxy.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(Duration::from_millis(1200));
+                            let _ = p_quick.send_event(AppEvent::CurtainSafetyTimeout(expected_id));
+                        });
+                    }
                 }
                 AppEvent::RevealMinecraftNow(id) => {
                     if ctrl.curtain_active && ctrl.curtain_id == id {
@@ -1293,7 +1332,7 @@ fn main() -> wry::Result<()> {
                     *control_flow = ControlFlow::Exit;
                 }
                 AppEvent::LogLine(line) => {
-                    Controller::push_log(&webview, &line);
+                    ctrl.append_or_buffer_log(&webview, line);
                 }
                 AppEvent::Toast { message, is_error } => {
                     Controller::push_toast(&webview, &message, is_error);

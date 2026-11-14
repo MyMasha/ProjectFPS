@@ -127,14 +127,14 @@ public final class MashModule {
         this.fullWords = splitWords(this.normFull);
 
         if (hudWidget) {
-            this.hudScale = addSetting(new MashSetting.NumberSetting("hud_scale", "Échelle du widget", "Taille globale de l'élément sur l'écran", 1.0F, 0.50F, 2.00F, 0.05F, "x"));
-            this.hudShowBg = addSetting(new MashSetting.BooleanSetting("hud_bg", "Afficher l'arrière-plan", "Carte obsidienne fumée derrière le texte", true));
-            this.hudBgOpacity = addSetting(new MashSetting.NumberSetting("hud_bg_alpha", "Opacité du fond", "Transparence de la carte HUD", 80.0F, 0.0F, 100.0F, 5.0F, "%"));
-            this.hudCornerRadius = addSetting(new MashSetting.NumberSetting("hud_radius", "Rayon des coins", "Arrondi vectoriel SDF des angles", 5.5F, 0.0F, 12.0F, 0.5F, "px"));
-            this.hudShowBorder = addSetting(new MashSetting.BooleanSetting("hud_border", "Bordure subtile", "Fine bordure lumineuse autour du widget", true));
-            this.hudTextShadow = addSetting(new MashSetting.BooleanSetting("hud_shadow", "Ombre du texte", "Améliore la lisibilité sur ciel clair", true));
-            this.hudTextColor = addSetting(new MashSetting.ColorSetting("hud_text_col", "Couleur du texte", "Couleur principale et option Chroma", 0xFFF2F4F8, false));
-            this.hudAccentColor = addSetting(new MashSetting.ColorSetting("hud_accent_col", "Couleur d'accent", "Pastille et indicateurs du widget", 0xFFF5B85C, false));
+            this.hudScale = addSetting(new MashSetting.NumberSetting("hud_scale", "Échelle", "Taille de l'élément à l'écran", 1.0F, 0.50F, 2.00F, 0.05F, "x"));
+            this.hudShowBg = addSetting(new MashSetting.BooleanSetting("hud_bg", "Arrière-plan", "Fond sombre derrière le texte", true));
+            this.hudBgOpacity = addSetting(new MashSetting.NumberSetting("hud_bg_alpha", "Opacité du fond", "Transparence du fond", 80.0F, 0.0F, 100.0F, 5.0F, "%"));
+            this.hudCornerRadius = addSetting(new MashSetting.NumberSetting("hud_radius", "Arrondi", "Rayon des angles", 5.5F, 0.0F, 12.0F, 0.5F, "px"));
+            this.hudShowBorder = addSetting(new MashSetting.BooleanSetting("hud_border", "Bordure", "Contour fin autour du widget", true));
+            this.hudTextShadow = addSetting(new MashSetting.BooleanSetting("hud_shadow", "Ombre du texte", "Ombre portée sous les caractères", true));
+            this.hudTextColor = addSetting(new MashSetting.ColorSetting("hud_text_col", "Couleur du texte", "Couleur principale ou mode Chroma", 0xFFF2F4F8, false));
+            this.hudAccentColor = addSetting(new MashSetting.ColorSetting("hud_accent_col", "Couleur d'accent", "Couleur des repères du widget", 0xFFF5B85C, false));
         } else {
             this.hudScale = null;
             this.hudShowBg = null;

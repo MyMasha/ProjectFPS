@@ -1,5 +1,6 @@
 package dev.purefps.mixin;
 
+import net.minecraft.scoreboard.ScoreObjective;
 import net.minecraft.scoreboard.ScorePlayerTeam;
 import net.minecraft.scoreboard.Scoreboard;
 import org.spongepowered.asm.mixin.Mixin;
@@ -11,13 +12,20 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
  * Élimine la tempête de NullPointerException / IllegalArgumentException FATAL de Log4j sur Hypixel
- * (24+ exceptions/seconde lors des paquets S3EPacketTeams BungeeCord en lobby / BedWars / SkyWars).
+ * (24+ exceptions/seconde lors des paquets S3EPacketTeams et S3BPacketScoreboardObjective en BedWars / SkyWars).
  */
 @Mixin(Scoreboard.class)
 public abstract class MixinScoreboard {
 
     @Shadow
     public abstract ScorePlayerTeam getTeam(String name);
+
+    @Inject(method = "removeObjective", at = @At("HEAD"), cancellable = true)
+    private void purefps$guardNullRemoveObjective(ScoreObjective objective, CallbackInfo ci) {
+        if (objective == null) {
+            ci.cancel();
+        }
+    }
 
     @Inject(method = "removeTeam", at = @At("HEAD"), cancellable = true)
     private void purefps$guardNullRemoveTeam(ScorePlayerTeam team, CallbackInfo ci) {

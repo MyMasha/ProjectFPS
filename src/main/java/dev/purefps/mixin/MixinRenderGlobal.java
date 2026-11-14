@@ -139,11 +139,10 @@ public class MixinRenderGlobal {
     public void updateChunks(long finishTimeNano) {
         this.displayListEntitiesDirty |= this.renderDispatcher.runChunkUploads(finishTimeNano);
 
-        if (this.chunksToUpdate.isEmpty()) {
-            return;
-        }
-
         if (PureFPSConfig.enabled && PureFPSConfig.smartChunkUpdates) {
+            if (this.chunksToUpdate.isEmpty() && SmartChunkUpdateScheduler.getDeferredStaticCount() == 0) {
+                return;
+            }
             Entity viewer = this.mc != null ? this.mc.getRenderViewEntity() : null;
             boolean menuDimmed = MenuUnloadManager.isWorldDimmedByMenu(this.mc);
             SmartChunkUpdateScheduler.dispatchPrioritizedUpdates(
@@ -153,6 +152,10 @@ public class MixinRenderGlobal {
                     viewer,
                     menuDimmed
             );
+            return;
+        }
+
+        if (this.chunksToUpdate.isEmpty()) {
             return;
         }
 
@@ -204,12 +207,13 @@ public class MixinRenderGlobal {
             return;
         }
 
-        if (viewEntity.posX == this.lastViewEntityX
-                && viewEntity.posY == this.lastViewEntityY
-                && viewEntity.posZ == this.lastViewEntityZ) {
+        double mdx = viewEntity.posX - this.lastViewEntityX;
+        double mdy = viewEntity.posY - this.lastViewEntityY;
+        double mdz = viewEntity.posZ - this.lastViewEntityZ;
+        if (mdx * mdx + mdy * mdy + mdz * mdz <= 16.0D) {
             float dYaw = Math.abs(viewEntity.rotationYaw - this.purefps$settledYaw);
             float dPitch = Math.abs(viewEntity.rotationPitch - this.purefps$settledPitch);
-            if (dYaw < 0.16F && dPitch < 0.16F) {
+            if (dYaw < 0.22F && dPitch < 0.22F) {
                 this.lastViewEntityYaw = (double) viewEntity.rotationYaw;
                 this.lastViewEntityPitch = (double) viewEntity.rotationPitch;
                 return;

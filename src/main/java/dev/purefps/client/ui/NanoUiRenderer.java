@@ -582,6 +582,40 @@ public final class NanoUiRenderer {
         drawLauncherSwitch(x, y, active, hovered, 1.0F);
     }
 
+    /**
+     * Interrupteur pilule compact style Lunar Client (28x15 px en viewport Bureau).
+     */
+    public static void drawCompactSwitch(float x, float y, boolean active, boolean hovered, float alphaFactor) {
+        float w = 28.0F;
+        float h = 15.0F;
+        int trackTop;
+        int trackBot;
+        int border;
+        int knob;
+        if (active) {
+            trackTop = hovered ? 0xFFF7CA77 : 0xFFEBB65B;
+            trackBot = hovered ? 0xFFE29B39 : 0xFFCE8B2E;
+            border = 0x88FFE6B3;
+            knob = 0xFF0B0D12;
+        } else {
+            trackTop = hovered ? 0xFF1A1E28 : 0xFF11141B;
+            trackBot = hovered ? 0xFF141720 : 0xFF0C0E14;
+            border = hovered ? 0x55EAB354 : 0x2CFFFFFF;
+            knob = hovered ? 0xFFD8DEE9 : 0xFF8C95A8;
+        }
+        drawRoundedGradient(
+                x, y, w, h, h * 0.5F,
+                scaleAlpha(trackTop, alphaFactor),
+                scaleAlpha(trackBot, alphaFactor),
+                scaleAlpha(border, alphaFactor),
+                1.0F
+        );
+        float knobR = 5.1F;
+        float knobCx = active ? (x + w - 7.5F) : (x + 7.5F);
+        float knobCy = y + h * 0.5F;
+        drawCircle(knobCx, knobCy, knobR, scaleAlpha(knob, alphaFactor));
+    }
+
     public static void drawSlider(float x, float y, float w, float fraction, int accentArgb, boolean hovered) {
         float clamped = fraction < 0.0F ? 0.0F : (fraction > 1.0F ? 1.0F : fraction);
         float trackH = 6.0F;
@@ -765,6 +799,156 @@ public final class NanoUiRenderer {
         float r = size * 0.27F;
         drawLine(cx - r, cy - r, cx + r, cy + r, 1.45F, argb);
         drawLine(cx - r, cy + r, cx + r, cy - r, 1.45F, argb);
+    }
+
+    /**
+     * Icône vectorielle Trou Noir / Disque d'accrétion (pour le son ambiant du menu).
+     */
+    public static void drawVortexIcon(float cx, float cy, float size, boolean enabled, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float sf = Math.max(1.0F, cachedScaleFactor);
+        drawRing(cx, cy, size * 0.36F, 1.25F * sf, argb);
+        drawCircle(cx, cy, size * 0.14F, argb);
+        drawLine(cx - size * 0.48F, cy + size * 0.10F, cx + size * 0.48F, cy - size * 0.10F, 1.25F, argb);
+        if (!enabled) {
+            drawLine(cx - size * 0.40F, cy - size * 0.40F, cx + size * 0.40F, cy + size * 0.40F, 1.35F, 0xFFF87171);
+        }
+    }
+
+    /**
+     * Icône vectorielle Grille 2x2 (Modules / HUD).
+     */
+    public static void drawGridIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float b = size * 0.36F;
+        float g = size * 0.08F;
+        float sf = Math.max(1.0F, cachedScaleFactor);
+        drawRoundedRect(cx - b - g, cy - b - g, b, b, 1.2F, 0, argb, 1.2F * sf);
+        drawRoundedRect(cx + g, cy - b - g, b, b, 1.2F, 0, argb, 1.2F * sf);
+        drawRoundedRect(cx - b - g, cy + g, b, b, 1.2F, 0, argb, 1.2F * sf);
+        drawRoundedRect(cx + g, cy + g, b, b, 1.2F, 0, argb, 1.2F * sf);
+    }
+
+    /**
+     * Icône vectorielle Joueur Solo.
+     */
+    public static void drawUserIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float sf = Math.max(1.0F, cachedScaleFactor);
+        drawRing(cx, cy - size * 0.19F, size * 0.18F, 1.25F * sf, argb);
+        drawRoundedRect(cx - size * 0.32F, cy + size * 0.08F, size * 0.64F, size * 0.28F, size * 0.14F, 0, argb, 1.25F * sf);
+    }
+
+    /**
+     * Icône vectorielle Réticule (PvP).
+     */
+    public static void drawCrosshairIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float sf = Math.max(1.0F, cachedScaleFactor);
+        float r = size * 0.34F;
+        drawRing(cx, cy, r, 1.2F * sf, argb);
+        drawLine(cx - size * 0.48F, cy, cx - size * 0.20F, cy, 1.2F, argb);
+        drawLine(cx + size * 0.20F, cy, cx + size * 0.48F, cy, 1.2F, argb);
+        drawLine(cx, cy - size * 0.48F, cx, cy - size * 0.20F, 1.2F, argb);
+        drawLine(cx, cy + size * 0.20F, cx, cy + size * 0.48F, 1.2F, argb);
+    }
+
+    /**
+     * Icône vectorielle Œil (Visuel).
+     */
+    public static void drawEyeIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float sf = Math.max(1.0F, cachedScaleFactor);
+        drawRoundedRect(cx - size * 0.44F, cy - size * 0.24F, size * 0.88F, size * 0.48F, size * 0.24F, 0, argb, 1.2F * sf);
+        drawCircle(cx, cy, size * 0.13F, argb);
+    }
+
+    /**
+     * Icône vectorielle Éclair (Hypixel / Réactivité).
+     */
+    public static void drawBoltIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        drawLine(cx + size * 0.08F, cy - size * 0.44F, cx - size * 0.22F, cy + size * 0.02F, 1.4F, argb);
+        drawLine(cx - size * 0.22F, cy + size * 0.02F, cx + size * 0.16F, cy + size * 0.02F, 1.4F, argb);
+        drawLine(cx + size * 0.16F, cy + size * 0.02F, cx - size * 0.08F, cy + size * 0.44F, 1.4F, argb);
+    }
+
+    /**
+     * Icône vectorielle Globe (Monde).
+     */
+    public static void drawGlobeIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float sf = Math.max(1.0F, cachedScaleFactor);
+        float r = size * 0.40F;
+        drawRing(cx, cy, r, 1.2F * sf, argb);
+        drawLine(cx - r * 0.92F, cy, cx + r * 0.92F, cy, 1.05F, argb);
+        drawLine(cx, cy - r * 0.92F, cx, cy + r * 0.92F, 1.05F, argb);
+    }
+
+    /**
+     * Icône vectorielle Puce GPU/CPU (Performance).
+     */
+    public static void drawCpuIcon(float cx, float cy, float size, int argb) {
+        if (((argb >>> 24) & 0xFF) == 0 || size <= 0.0F) {
+            return;
+        }
+        float sf = Math.max(1.0F, cachedScaleFactor);
+        float s = size * 0.62F;
+        drawRoundedRect(cx - s * 0.5F, cy - s * 0.5F, s, s, 2.0F, 0, argb, 1.2F * sf);
+        float inner = size * 0.24F;
+        drawRoundedRect(cx - inner * 0.5F, cy - inner * 0.5F, inner, inner, 1.0F, argb, 0, 0.0F);
+        float p = size * 0.46F;
+        drawLine(cx - size * 0.15F, cy - p, cx - size * 0.15F, cy - s * 0.5F, 1.1F, argb);
+        drawLine(cx + size * 0.15F, cy - p, cx + size * 0.15F, cy - s * 0.5F, 1.1F, argb);
+        drawLine(cx - size * 0.15F, cy + s * 0.5F, cx - size * 0.15F, cy + p, 1.1F, argb);
+        drawLine(cx + size * 0.15F, cy + s * 0.5F, cx + size * 0.15F, cy + p, 1.1F, argb);
+    }
+
+    /**
+     * Dessine l'icône vectorielle correspondant à une catégorie MashCategory.
+     */
+    public static void drawCategoryIcon(dev.purefps.module.MashCategory cat, float cx, float cy, float size, int argb) {
+        if (cat == null) {
+            drawGridIcon(cx, cy, size, argb);
+            return;
+        }
+        switch (cat) {
+            case HUD:
+                drawGridIcon(cx, cy, size, argb);
+                break;
+            case PVP:
+                drawCrosshairIcon(cx, cy, size, argb);
+                break;
+            case VISUAL:
+                drawEyeIcon(cx, cy, size, argb);
+                break;
+            case HYPIXEL:
+                drawBoltIcon(cx, cy, size, argb);
+                break;
+            case WORLD:
+                drawGlobeIcon(cx, cy, size, argb);
+                break;
+            case ENGINE:
+                drawCpuIcon(cx, cy, size, argb);
+                break;
+            default:
+                drawGridIcon(cx, cy, size, argb);
+                break;
+        }
     }
 
     private static int scaleAlpha(int argb, float factor) {
