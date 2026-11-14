@@ -1,6 +1,7 @@
 package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
+import dev.purefps.core.SmartChunkUpdateScheduler;
 import net.minecraft.client.renderer.ViewFrustum;
 import net.minecraft.client.renderer.chunk.RenderChunk;
 import net.minecraft.util.BlockPos;
@@ -48,6 +49,7 @@ public abstract class MixinViewFrustum {
         int cyCount = this.countChunksY;
         int czCount = this.countChunksZ;
         RenderChunk[] chunks = this.renderChunks;
+        boolean shifted = false;
 
         for (int lx = 0; lx < cxCount; ++lx) {
             int worldX = this.func_178157_a(baseX, spanX, lx);
@@ -65,9 +67,13 @@ public abstract class MixinViewFrustum {
                     BlockPos next = new BlockPos(worldX, worldY, worldZ);
                     if (!next.equals(cur)) {
                         rc.setPosition(next);
+                        shifted = true;
                     }
                 }
             }
+        }
+        if (shifted) {
+            SmartChunkUpdateScheduler.onViewFrustumShifted();
         }
     }
 }

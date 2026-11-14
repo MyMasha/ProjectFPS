@@ -24,7 +24,7 @@ public class PureFPSMod {
 
     public static final String MODID = "purefps";
     public static final String NAME = "MashClient";
-    public static final String VERSION = "4.4.1";
+    public static final String VERSION = "4.4.2";
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -42,7 +42,7 @@ public class PureFPSMod {
 
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle("MashClient | Minecraft 1.8.9");
+            Display.setTitle("MashClient 4.4.2 | Minecraft 1.8.9");
             applyMashWindowIcon();
         }
     }

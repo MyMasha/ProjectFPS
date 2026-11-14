@@ -277,7 +277,7 @@ public final class MashModules {
             suppressCallbacks = false;
         }
 
-        if (!"4.4.0".equals(loadedVersion) && !"4.4.1".equals(loadedVersion)) {
+        if (loadedVersion == null || !loadedVersion.startsWith("4.4.")) {
             if (num("eng_unfocused_saver", "fps_cap", 30.0F) < 20.0F) {
                 setNumSilent("eng_unfocused_saver", "fps_cap", 30.0F);
             }
@@ -304,7 +304,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.4.1");
+        root.addProperty("version", "4.4.2");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);

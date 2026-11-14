@@ -697,7 +697,7 @@ impl PureClientSettings {
         map.insert("smartChunkUpdates".into(), self.smart_chunk_updates.to_string());
         map.insert("menuWorldUnload".into(), self.menu_world_unload.to_string());
 
-        let mut out = String::from("# MashClient 4.4.0 Configuration\n");
+        let mut out = String::from("# MashClient 4.4.2 Configuration\n");
         for (k, v) in &map {
             out.push_str(k);
             out.push('=');
@@ -713,8 +713,8 @@ impl PureClientSettings {
     }
 
     /// Débride automatiquement les réglages bloquants de Minecraft Vanilla (`options.txt`) :
-    /// `useVbo:true`, `enableVsync:false`, `maxFps:260` et désactive le plein écran exclusif
-    /// lorsque `borderless_fullscreen` est actif pour éviter tout flash d'écran au démarrage.
+    /// `useVbo:true`, `enableVsync:false`, `maxFps:240` (cadencé GPU pour préserver Discord / DWM)
+    /// et désactive le plein écran exclusif lorsque `borderless_fullscreen` est actif.
     pub fn sync_vanilla_options_txt(&self, game_dir: &str) {
         let options_path = Path::new(game_dir).join("options.txt");
         let Ok(existing) = std::fs::read_to_string(&options_path) else {
@@ -748,8 +748,8 @@ impl PureClientSettings {
             } else if let Some(raw_fps) = line.strip_prefix("maxFps:") {
                 saw_max_fps = true;
                 let parsed = raw_fps.trim().parse::<i32>().unwrap_or(120);
-                if parsed < 255 {
-                    updated_lines.push("maxFps:260".to_owned());
+                if parsed <= 120 || parsed == 260 {
+                    updated_lines.push("maxFps:240".to_owned());
                     changed = true;
                 } else {
                     updated_lines.push(line.to_owned());
@@ -776,7 +776,7 @@ impl PureClientSettings {
             changed = true;
         }
         if !saw_max_fps {
-            updated_lines.push("maxFps:260".to_owned());
+            updated_lines.push("maxFps:240".to_owned());
             changed = true;
         }
         if self.borderless_fullscreen && !saw_fullscreen {
@@ -999,7 +999,7 @@ mod tests {
         let patched_opts = std::fs::read_to_string(&opts_path).unwrap();
         assert!(patched_opts.contains("useVbo:true"));
         assert!(patched_opts.contains("enableVsync:false"));
-        assert!(patched_opts.contains("maxFps:260"));
+        assert!(patched_opts.contains("maxFps:240"));
         assert!(patched_opts.contains("fullscreen:false"));
 
         prepare_seamless_launch_files(&tmp.to_string_lossy());

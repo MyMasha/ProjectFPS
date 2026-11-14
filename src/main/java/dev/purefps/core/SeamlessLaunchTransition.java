@@ -38,6 +38,7 @@ public final class SeamlessLaunchTransition {
     private static boolean curtainFinished = false;
     private static int menuFramesRendered = 0;
     private static long emergenceStartMs = -1L;
+    private static long lastCursorCheckMs = 0L;
 
     private SeamlessLaunchTransition() {
     }
@@ -50,6 +51,7 @@ public final class SeamlessLaunchTransition {
         curtainFinished = false;
         menuFramesRendered = 0;
         emergenceStartMs = -1L;
+        lastCursorCheckMs = 0L;
     }
 
     public static boolean evaluateHandoffActivation(boolean jvmPropSet, File mcDataDir, long nowMs) {
@@ -102,7 +104,7 @@ public final class SeamlessLaunchTransition {
     /**
      * Désactive le thread SharedDrawable (wglShareLists) de Forge SplashProgress afin de préserver
      * 100 % des optimisations multithreadées du pilote NVIDIA (nvoglv64.dll) sur toute la session !
-     * L'animation du Trou Noir reste pilotée sur le contexte OpenGL principal via MixinMinecraft.
+     * La fenêtre reste en #000000 pur pendant startGame(), puis émerge à 240 FPS dès GuiPureMainMenu.
      */
     public static void ensureForgeSplashConfiguredDark(File mcDataDir) {
         if (mcDataDir == null) {
@@ -115,7 +117,7 @@ public final class SeamlessLaunchTransition {
                 cfgDir.mkdirs();
             }
             File splashFile = new File(cfgDir, "splash.properties");
-            String content = "# MashClient 4.4 — Single-Context NVIDIA Threaded GL Fast Boot\n"
+            String content = "# MashClient 4.4.2 — Single-Context NVIDIA Threaded GL Fast Boot\n"
                     + "enabled=false\n"
                     + "background=0x000000\n"
                     + "font=0x000000\n"
@@ -145,22 +147,30 @@ public final class SeamlessLaunchTransition {
     }
 
     public static void onDisplayCreated(Minecraft mc) {
+        BorderlessWindowHelper.installBlackWindowBackground();
+
+        if (active || PureFPSConfig.borderlessFullscreen) {
+            try {
+                Display.setLocation(0, 0);
+            } catch (Throwable ignored) {
+            }
+            // Place la fenêtre WS_POPUP (0, 0) en arrière-plan sous le rideau #000000 du Launcher sans voler le focus
+            BorderlessWindowHelper.ensurePostCreateBorderlessPlacement(mc, false);
+        }
+
         if (active || PureFPSConfig.enabled) {
             try {
-                if (active || PureFPSConfig.borderlessFullscreen) {
-                    Display.setLocation(0, 0);
-                }
                 GL11.glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
                 GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
                 Display.update();
                 GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+                Display.update();
             } catch (Throwable ignored) {
             }
         }
 
-        if (active || PureFPSConfig.borderlessFullscreen) {
-            BorderlessWindowHelper.ensurePostCreateBorderlessPlacement(mc, active);
-        }
+        BorderlessWindowHelper.ensureMenuCursorVisible();
+
         if (active) {
             signalDisplayCreated(mc != null ? mc.mcDataDir : null);
         }
@@ -194,13 +204,20 @@ public final class SeamlessLaunchTransition {
         if (gui == null) {
             return;
         }
+        long nowMs = System.currentTimeMillis();
+        if (nowMs - lastCursorCheckMs >= 350L) {
+            lastCursorCheckMs = nowMs;
+            BorderlessWindowHelper.ensureMenuCursorVisible();
+        }
+
         Minecraft mc = Minecraft.getMinecraft();
         File dataDir = mc != null ? mc.mcDataDir : null;
 
         if (gui instanceof GuiPureMainMenu) {
-            if (active && !readySignaled) {
+            if (active && !readySignaled && BlackHoleEmergenceRenderer.hasPresentedInitialBlackFrames()) {
                 readySignaled = true;
                 curtainFinished = true;
+                BorderlessWindowHelper.ensureMenuCursorVisible();
                 signalLauncherReady(dataDir);
             }
             return;
@@ -209,7 +226,7 @@ public final class SeamlessLaunchTransition {
         if (!active || curtainFinished) {
             return;
         }
-        int alpha = computeMenuCurtainAlphaAt(dataDir, System.currentTimeMillis());
+        int alpha = computeMenuCurtainAlphaAt(dataDir, nowMs);
         if (alpha <= 0) {
             return;
         }
@@ -230,28 +247,34 @@ public final class SeamlessLaunchTransition {
             return;
         }
         displaySignaled = true;
-        writeSignalFiles(mcDataDir);
-        System.out.println(DISPLAY_CREATED_SIGNAL);
-        System.out.flush();
-    }
-
-    private static void signalLauncherReady(File mcDataDir) {
-        writeSignalFiles(mcDataDir);
-        System.out.println(READY_STDOUT_SIGNAL);
-        System.out.flush();
-    }
-
-    private static void writeSignalFiles(File mcDataDir) {
         try {
             if (mcDataDir != null) {
                 File cfgDir = new File(mcDataDir, "config");
                 //noinspection ResultOfMethodCallIgnored
                 cfgDir.mkdirs();
-
                 File dispReady = new File(cfgDir, DISPLAY_READY_FILE_NAME);
                 try (FileOutputStream fos = new FileOutputStream(dispReady)) {
                     fos.write("DISPLAY_READY\n".getBytes(StandardCharsets.UTF_8));
                 }
+            }
+        } catch (Throwable ignored) {
+        }
+        System.out.println(DISPLAY_CREATED_SIGNAL);
+        System.out.flush();
+    }
+
+    private static void signalLauncherReady(File mcDataDir) {
+        writeMenuReadyFiles(mcDataDir);
+        System.out.println(READY_STDOUT_SIGNAL);
+        System.out.flush();
+    }
+
+    private static void writeMenuReadyFiles(File mcDataDir) {
+        try {
+            if (mcDataDir != null) {
+                File cfgDir = new File(mcDataDir, "config");
+                //noinspection ResultOfMethodCallIgnored
+                cfgDir.mkdirs();
 
                 File menuReady = new File(cfgDir, READY_FILE_NAME);
                 try (FileOutputStream fos = new FileOutputStream(menuReady)) {

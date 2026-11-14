@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.1.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.2.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -357,7 +357,7 @@ pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: 
 }
 
 #[cfg(windows)]
-fn detect_and_focus_new_lwjgl_window(existing_hwnd: usize) -> Option<usize> {
+fn detect_new_lwjgl_window(existing_hwnd: usize) -> Option<usize> {
     use core::ffi::c_void;
     #[link(name = "user32")]
     extern "system" {
@@ -368,7 +368,6 @@ fn detect_and_focus_new_lwjgl_window(existing_hwnd: usize) -> Option<usize> {
             lpszWindow: *const u16,
         ) -> *mut c_void;
         fn IsWindowVisible(hWnd: *mut c_void) -> i32;
-        fn SetForegroundWindow(hWnd: *mut c_void) -> i32;
     }
     let cls: [u16; 6] = [b'L' as u16, b'W' as u16, b'J' as u16, b'G' as u16, b'L' as u16, 0];
     unsafe {
@@ -380,7 +379,102 @@ fn detect_and_focus_new_lwjgl_window(existing_hwnd: usize) -> Option<usize> {
             }
             let addr = cur as usize;
             if addr != existing_hwnd && IsWindowVisible(cur) != 0 {
+                return Some(addr);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn promote_and_focus_lwjgl_window(existing_hwnd: usize) -> Option<usize> {
+    use core::ffi::c_void;
+    const GCLP_HCURSOR: i32 = -12;
+    const IDC_ARROW_ID: usize = 32512;
+    const HWND_TOPMOST: *mut c_void = -1isize as *mut c_void;
+    const HWND_NOTOPMOST: *mut c_void = -2isize as *mut c_void;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_SHOWWINDOW: u32 = 0x0040;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn FindWindowExW(
+            hWndParent: *mut c_void,
+            hWndChildAfter: *mut c_void,
+            lpszClass: *const u16,
+            lpszWindow: *const u16,
+        ) -> *mut c_void;
+        fn IsWindowVisible(hWnd: *mut c_void) -> i32;
+        fn GetForegroundWindow() -> *mut c_void;
+        fn GetWindowThreadProcessId(hWnd: *mut c_void, lpdwProcessId: *mut u32) -> u32;
+        fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: i32) -> i32;
+        fn SetWindowPos(
+            hWnd: *mut c_void,
+            hWndInsertAfter: *mut c_void,
+            X: i32,
+            Y: i32,
+            cx: i32,
+            cy: i32,
+            uFlags: u32,
+        ) -> i32;
+        fn BringWindowToTop(hWnd: *mut c_void) -> i32;
+        fn SetForegroundWindow(hWnd: *mut c_void) -> i32;
+        fn SetFocus(hWnd: *mut c_void) -> *mut c_void;
+        fn LoadCursorW(hInstance: *mut c_void, lpCursorName: *const u16) -> *mut c_void;
+        fn SetCursor(hCursor: *mut c_void) -> *mut c_void;
+        fn SetClassLongPtrW(hWnd: *mut c_void, nIndex: i32, dwNewLong: isize) -> usize;
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentThreadId() -> u32;
+    }
+
+    let cls: [u16; 6] = [b'L' as u16, b'W' as u16, b'J' as u16, b'G' as u16, b'L' as u16, 0];
+    unsafe {
+        let mut cur: *mut c_void = core::ptr::null_mut();
+        loop {
+            cur = FindWindowExW(core::ptr::null_mut(), cur, cls.as_ptr(), core::ptr::null());
+            if cur.is_null() {
+                break;
+            }
+            let addr = cur as usize;
+            if addr != existing_hwnd && IsWindowVisible(cur) != 0 {
+                let fg = GetForegroundWindow();
+                let cur_tid = GetCurrentThreadId();
+                let fg_tid = if !fg.is_null() {
+                    GetWindowThreadProcessId(fg, core::ptr::null_mut())
+                } else {
+                    0
+                };
+                let target_tid = GetWindowThreadProcessId(cur, core::ptr::null_mut());
+
+                if fg_tid != 0 && fg_tid != cur_tid {
+                    let _ = AttachThreadInput(cur_tid, fg_tid, 1);
+                }
+                if target_tid != 0 && target_tid != cur_tid {
+                    let _ = AttachThreadInput(cur_tid, target_tid, 1);
+                }
+
+                let arrow = LoadCursorW(core::ptr::null_mut(), IDC_ARROW_ID as *const u16);
+                if !arrow.is_null() {
+                    let _ = SetClassLongPtrW(cur, GCLP_HCURSOR, arrow as isize);
+                    let _ = SetCursor(arrow);
+                }
+
+                let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW;
+                let _ = SetWindowPos(cur, HWND_TOPMOST, 0, 0, 0, 0, flags);
+                let _ = SetWindowPos(cur, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+                let _ = BringWindowToTop(cur);
                 let _ = SetForegroundWindow(cur);
+                let _ = SetFocus(cur);
+
+                if target_tid != 0 && target_tid != cur_tid {
+                    let _ = AttachThreadInput(cur_tid, target_tid, 0);
+                }
+                if fg_tid != 0 && fg_tid != cur_tid {
+                    let _ = AttachThreadInput(cur_tid, fg_tid, 0);
+                }
                 return Some(addr);
             }
         }
@@ -413,7 +507,7 @@ fn current_visible_lwjgl_hwnd() -> usize {
 }
 
 #[cfg(not(windows))]
-fn detect_and_focus_new_lwjgl_window(_existing_hwnd: usize) -> Option<usize> {
+fn detect_new_lwjgl_window(_existing_hwnd: usize) -> Option<usize> {
     None
 }
 
@@ -425,31 +519,29 @@ fn spawn_display_ready_watcher(
     let pre_existing_lwjgl = current_visible_lwjgl_hwnd();
     std::thread::spawn(move || {
         let start = Instant::now();
-        let timeout = Duration::from_secs(26);
+        let timeout = Duration::from_secs(28);
         while !stop_flag.load(Ordering::Relaxed) && start.elapsed() < timeout {
             for dir in &watched_game_dirs {
                 let cfg = dir.join("config");
-                let disp_ready = cfg.join(".purefps_display_ready");
                 let menu_ready = cfg.join(".purefps_menu_ready");
-                if disp_ready.is_file() || menu_ready.is_file() {
-                    let _ = std::fs::remove_file(&disp_ready);
+                if menu_ready.is_file() {
+                    let _ = std::fs::remove_file(cfg.join(".purefps_display_ready"));
                     let _ = std::fs::remove_file(&menu_ready);
-                    let _ = detect_and_focus_new_lwjgl_window(pre_existing_lwjgl);
                     stop_flag.store(true, Ordering::Relaxed);
                     let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
                     return;
                 }
             }
-            if start.elapsed() >= Duration::from_millis(900)
-                && detect_and_focus_new_lwjgl_window(pre_existing_lwjgl).is_some()
+            // Fallback tardif (14s) uniquement si une instance externe non-moddée n'écrit jamais .purefps_menu_ready
+            if start.elapsed() >= Duration::from_secs(14)
+                && detect_new_lwjgl_window(pre_existing_lwjgl).is_some()
             {
                 stop_flag.store(true, Ordering::Relaxed);
                 let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
                 return;
             }
-            std::thread::sleep(Duration::from_millis(25));
+            std::thread::sleep(Duration::from_millis(20));
         }
-        // Sécurité absolue : ne bloque jamais l'écran indéfiniment même si une instance externe met très longtemps
         if !stop_flag.load(Ordering::Relaxed) {
             let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
         }
@@ -493,11 +585,11 @@ pub fn run_direct_jvm_blocking(
     let mut cmd = Command::new(&prefs.java_path);
     cmd.current_dir(&prefs.game_dir)
         .env("__GL_THREADED_OPTIMIZATIONS", "1")
-        .env("SHIM_MCCOMPAT", "0x800000001")
         .arg(format!("-Xms{}M", prefs.ram_mb))
         .arg(format!("-Xmx{}M", prefs.ram_mb))
         .arg("-XX:+UnlockExperimentalVMOptions")
         .arg("-XX:+UseG1GC")
+        .arg("-XX:ConcGCThreads=2")
         .arg("-XX:+AlwaysPreTouch")
         .arg("-XX:G1NewSizePercent=20")
         .arg("-XX:G1ReservePercent=20")
@@ -573,20 +665,9 @@ pub fn run_direct_jvm_blocking(
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
-                if line.contains("[PureClient-Ready] DISPLAY_CREATED")
-                    || line.contains("[PureClient-Ready] MENU_ACTIVE")
-                {
+                if line.contains("[PureClient-Ready] MENU_ACTIVE") {
                     stop_on_ready.store(true, Ordering::Relaxed);
                     let _ = p_out.send_event(AppEvent::MinecraftMenuReady);
-                } else if line.contains("LWJGL Version:") && !stop_on_ready.load(Ordering::Relaxed) {
-                    let p_fallback = p_out.clone();
-                    let flag_clone = Arc::clone(&stop_on_ready);
-                    std::thread::spawn(move || {
-                        std::thread::sleep(Duration::from_millis(650));
-                        if !flag_clone.swap(true, Ordering::Relaxed) {
-                            let _ = p_fallback.send_event(AppEvent::MinecraftMenuReady);
-                        }
-                    });
                 }
                 let _ = p_out.send_event(AppEvent::LogLine(line));
             }
@@ -653,7 +734,7 @@ pub fn prepare_prism_bridge_files(
 
 #[cfg(windows)]
 pub fn focus_visible_lwjgl_window() {
-    let _ = detect_and_focus_new_lwjgl_window(0);
+    let _ = promote_and_focus_lwjgl_window(0);
 }
 
 #[cfg(not(windows))]
@@ -674,7 +755,6 @@ pub fn spawn_prism_bridge_now(
 
     let mut cmd = Command::new(&prefs.prism_exe);
     cmd.env("__GL_THREADED_OPTIMIZATIONS", "1")
-        .env("SHIM_MCCOMPAT", "0x800000001")
         .arg("--launch")
         .arg(instance_id);
     if prefs.quick_join_hypixel {
@@ -695,7 +775,7 @@ pub fn spawn_prism_bridge_now(
         let mut tracked_hwnd: usize = 0;
 
         while start.elapsed() < Duration::from_secs(36) {
-            if let Some(hwnd) = detect_and_focus_new_lwjgl_window(pre_existing_lwjgl) {
+            if let Some(hwnd) = detect_new_lwjgl_window(pre_existing_lwjgl) {
                 tracked_hwnd = hwnd;
                 break;
             }

@@ -353,6 +353,9 @@ impl Controller {
     }
 
     fn push_full_state(&self, webview: &wry::WebView) {
+        if self.hidden_in_tray {
+            return;
+        }
         let snap = UiStateSnapshot {
             settings: &self.settings,
             prefs: &self.prefs,
@@ -447,21 +450,18 @@ impl Controller {
         Self::set_webview_suspended(webview, false);
 
         // Maintient l'écran noir #000000 au premier plan pendant l'initialisation Forge/PrismLauncher
-        // (pour masquer toute petite fenêtre de chargement PrismLauncher), tout en relâchant
-        // immédiatement `always_on_top` si l'utilisateur appuie sur Alt+Tab / touche Windows !
+        // sans appeler ShowCursor(FALSE) Win32 (le masquage visuel du curseur est géré en CSS).
         window.set_minimized(false);
         window.set_visible(true);
         window.set_fullscreen(Some(Fullscreen::Borderless(None)));
         window.set_always_on_top(true);
-        window.set_cursor_visible(false);
         window.set_focus();
-        allow_any_foreground_window();
         Self::push_plunge_command(webview, "start");
     }
 
-    /// Ferme complètement la fenêtre du Launcher du bureau et de la barre des tâches SANS quitter
-    /// le plein écran au préalable (zéro rétrécissement vers 1240×780 !) pour la loger uniquement
-    /// dans la zone de notification en bas à droite (`SystemTray`, 0% GPU).
+    /// Ferme complètement la fenêtre du Launcher du bureau et de la barre des tâches SANS appeler
+    /// `window.set_fullscreen(None)` (qui déclenche un `SetWindowPlacement(SW_SHOWNORMAL)` asynchrone
+    /// dans `tao` et faisait flasher la fenêtre 1240×780 par-dessus l'écran noir !).
     fn suspend_to_system_tray(
         &mut self,
         window: &Window,
@@ -475,13 +475,10 @@ impl Controller {
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
 
-        window.set_always_on_top(false);
-        window.set_cursor_visible(true);
-        win32_hide_window_to_tray(window);
-        // Libère la swapchain plein écran DWM/WebView2 une fois le HWND déjà masqué (zéro flash visuel)
-        window.set_fullscreen(None);
-        tray.set_game_running_mode(true);
         Self::set_webview_suspended(webview, true);
+        window.set_always_on_top(false);
+        win32_hide_window_to_tray(window);
+        tray.set_game_running_mode(true);
     }
 
     /// Masque MashClient directement dans la zone de notification en bas à droite (System Tray)
@@ -513,6 +510,7 @@ impl Controller {
 
         Self::set_webview_suspended(webview, false);
         Self::push_plunge_command(webview, "reset");
+        self.push_full_state(webview);
         self.flush_deferred_logs(webview);
         tray.set_game_running_mode(self.game_running);
 
@@ -532,7 +530,7 @@ impl Controller {
             && !self.handoff_dispatched
         {
             self.handoff_dispatched = true;
-            // Relâche `always_on_top` et place la fenêtre OpenGL LWJGL #000000 juste devant le rideau #000000
+            // Relâche `always_on_top` et place atomiquement la fenêtre OpenGL LWJGL #000000 devant le rideau #000000
             window.set_always_on_top(false);
             allow_any_foreground_window();
             focus_visible_lwjgl_window();
@@ -540,7 +538,7 @@ impl Controller {
             let expected_id = self.curtain_id;
             let p = proxy.clone();
             std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(45));
+                std::thread::sleep(Duration::from_millis(60));
                 let _ = p.send_event(AppEvent::RevealMinecraftNow(expected_id));
             });
         }
@@ -621,7 +619,6 @@ fn begin_singularity_launch_now(
                         }
                     }
                 };
-                allow_any_foreground_window();
                 if let Err(e) = run_direct_jvm_blocking(
                     prefs_clone,
                     active_acc.username,
@@ -643,7 +640,6 @@ fn begin_singularity_launch_now(
             let uuid = offline_uuid_hex(&uname);
             let p = proxy.clone();
             std::thread::spawn(move || {
-                allow_any_foreground_window();
                 if let Err(e) = run_direct_jvm_blocking(
                     prefs_clone,
                     uname,
@@ -895,7 +891,6 @@ fn handle_ipc(
         },
         IpcCommand::PlungeDarknessReached => {
             ctrl.plunge_darkness_reached = true;
-            allow_any_foreground_window();
             ctrl.try_schedule_seamless_handoff(window, proxy);
 
             // Garde-fou matériel large (28s) : laisse le temps à Forge 1.8.9 d'ouvrir sa fenêtre OpenGL
@@ -1279,10 +1274,12 @@ fn main() -> wry::Result<()> {
                     ctrl.mc_menu_ready = true;
                     ctrl.try_schedule_seamless_handoff(&window, &proxy);
                     if ctrl.curtain_active && !ctrl.handoff_dispatched {
+                        // Si la WebView n'a pas encore émis PlungeDarknessReached après 3.2s (> 2050ms de plongée),
+                        // déclenche le handoff atomique complet (focus LWJGL + masquage rideau)
                         let expected_id = ctrl.curtain_id;
                         let p_quick = proxy.clone();
                         std::thread::spawn(move || {
-                            std::thread::sleep(Duration::from_millis(1200));
+                            std::thread::sleep(Duration::from_millis(3200));
                             let _ = p_quick.send_event(AppEvent::CurtainSafetyTimeout(expected_id));
                         });
                     }
@@ -1294,7 +1291,13 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::CurtainSafetyTimeout(id) => {
                     if ctrl.curtain_active && ctrl.curtain_id == id {
-                        ctrl.dismiss_curtain_for_game(&window, &webview, &tray);
+                        ctrl.plunge_darkness_reached = true;
+                        ctrl.mc_menu_ready = true;
+                        if !ctrl.handoff_dispatched {
+                            ctrl.try_schedule_seamless_handoff(&window, &proxy);
+                        } else {
+                            ctrl.dismiss_curtain_for_game(&window, &webview, &tray);
+                        }
                     }
                 }
                 AppEvent::LaunchAborted(err_msg) => {

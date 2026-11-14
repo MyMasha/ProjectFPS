@@ -661,23 +661,24 @@ public class PureFPSCoreTest {
             assertEquals("false", props.getProperty("enabled"));
             assertEquals("0x000000", props.getProperty("background"));
 
-            // 2. Continuité monotone de la sortie du Trou Noir (SplashProgress$3 -> GuiPureMainMenu 120 FPS)
+            // 2. Émergence fluide depuis #000000 pur (0.0 -> 1.0 sur 2150 ms à 240 FPS dans GuiPureMainMenu)
             BlackHoleEmergenceRenderer.resetForBoot();
             float s0 = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.0F, -1L);
-            float sSplash = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.52F, -1L);
-            float mStart = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.52F, 0L);
-            float mMid = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.52F, 775L);
-            float mEnd = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.52F, 1600L);
+            float mStart = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.0F, 0L);
+            float mEarly = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.0F, 500L);
+            float mMid = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.0F, 1550L);
+            float mEnd = BlackHoleEmergenceRenderer.computeEmergenceProgress(0.0F, 2200L);
 
             assertEquals(0.0F, s0, 1e-5F);
-            assertEquals(0.52F, sSplash, 1e-5F);
-            assertEquals(sSplash, mStart, 1e-5F);
-            assertTrue(mMid > 0.85F && mMid < 1.0F);
+            assertEquals(0.0F, mStart, 1e-5F);
+            assertTrue(mEarly > 0.10F && mEarly < 0.35F);
+            assertTrue(mMid > 0.75F && mMid < 1.0F);
             assertEquals(1.0F, mEnd, 1e-5F);
+            assertFalse(BlackHoleEmergenceRenderer.isBootEmergenceComplete());
 
             assertEquals(0.0F, BlackHoleEmergenceRenderer.computeCameraUiAlpha(0.50F), 1e-5F);
             float uiMid = BlackHoleEmergenceRenderer.computeCameraUiAlpha(mMid);
-            assertTrue(uiMid > 0.40F && uiMid < 1.0F);
+            assertTrue(uiMid > 0.35F && uiMid < 1.0F);
             assertEquals(1.0F, BlackHoleEmergenceRenderer.computeCameraUiAlpha(mEnd), 1e-5F);
         } finally {
             //noinspection ResultOfMethodCallIgnored
@@ -976,39 +977,63 @@ public class PureFPSCoreTest {
     }
 
     @Test
-    public void testSmartChunkUpdateSchedulerDynamicBedsGeneratorsAndStaticThrottling() {
+    public void testSmartChunkUpdateSchedulerBakeOncePlayerRadiusAndDynamicExplosionUnfreeze() {
         SmartChunkUpdateScheduler.clear();
         long now = System.currentTimeMillis();
 
-        // 1. Blocs posés/cassés par un joueur -> section + voisins immédiats urgents (0 ms)
-        SmartChunkUpdateScheduler.markDynamicBlockChange(32, 64, 32, false);
-        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(2, 4, 2, now));
-        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(3, 4, 2, now));
-        assertFalse(SmartChunkUpdateScheduler.isUrgentSubchunk(10, 4, 10, now));
+        // 1. Deux joueurs en (0, 0) et (-10, 8) : seule la grille 3x3 autour de chaque joueur est active
+        SmartChunkUpdateScheduler.setActivePlayersForTest(new int[]{0, -10}, new int[]{0, 8}, 2);
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(0, 4, 0, now));
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(1, 4, -1, now));
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(-9, 5, 9, now));
+        assertFalse("Chunk à 2 chunks du joueur sans explosion doit être gelé",
+                SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(2, 4, 0, now));
+        assertFalse("Chunk distant (20, 4, 20) doit être strictement gelé",
+                SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(20, 4, 20, now));
 
-        // 2. Lits BedWars -> priorité permanente sans expiration
-        SmartChunkUpdateScheduler.registerBedSubchunk(12, 4, 12);
-        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(12, 4, 12, now + 3_600_000L));
-        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(12, 5, 12, now + 3_600_000L));
+        // 2. Modification serveur de bloc à distance (ex: pont ou lit cassé à (320, 64, 320)) -> dégel 0 ms + voisins
+        SmartChunkUpdateScheduler.markDynamicBlockChange(320, 64, 320, true);
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(20, 4, 20, now));
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(21, 4, 20, now));
+        assertFalse("Re-gel automatique après expiration du TTL de modification",
+                SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(20, 4, 20, now + 20_000L));
 
-        // 3. Générateurs de minerais -> priorité immédiate sur la colonne du générateur
-        SmartChunkUpdateScheduler.markGeneratorActivity(160.5D, 65.0D, -31.5D);
-        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(10, 4, -2, now));
+        // 3. Fireball / TNT en vol (markDestructiveEntityActivity) + Explosion S27 à 600 blocs
+        SmartChunkUpdateScheduler.markDestructiveEntityActivity(480.5D, 72.0D, -160.5D);
+        assertTrue("Fireball/TNT distante doit dégeler son chunk et ses voisins",
+                SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(30, 4, -11, now));
 
-        // 4. Filtrage notifyLightSet sur le décor statique vs lits/blocs joueurs
-        PureFPSConfig.applyProfile(PureFPSProfile.FPS, false);
-        assertFalse("Static island light update must be suppressed in FPS profile",
-                SmartChunkUpdateScheduler.shouldAllowLightRebuild(800, 64, 800, now));
-        assertTrue("Bed subchunk light update must always pass",
-                SmartChunkUpdateScheduler.shouldAllowLightRebuild(12 * 16, 64, 12 * 16, now));
-        assertTrue("Player-edited subchunk light update must always pass",
-                SmartChunkUpdateScheduler.shouldAllowLightRebuild(32, 64, 32, now));
+        java.util.List<net.minecraft.util.BlockPos> crater = java.util.Arrays.asList(
+                new net.minecraft.util.BlockPos(640, 65, 640),
+                new net.minecraft.util.BlockPos(657, 65, 640)
+        );
+        SmartChunkUpdateScheduler.markExplosion(640.0D, 65.0D, 640.0D, 4.0F, crater);
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(40, 4, 40, now));
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(41, 4, 40, now));
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(42, 4, 40, now));
 
+        // 4. Grâce de couture initiale à la réception réseau d'une colonne S21/S26, puis gel définitif
+        SmartChunkUpdateScheduler.markChunkColumnLoaded(-25, 35);
+        long graceNow = System.currentTimeMillis();
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(-25, 3, 35, graceNow));
+        assertTrue(SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(-24, 3, 35, graceNow));
+        assertFalse("Une fois la couture initiale terminée, la colonne distante est gelée",
+                SmartChunkUpdateScheduler.shouldRebuildCompiledSubchunk(-25, 3, 35, graceNow + 5_000L));
+
+        // 5. Filtrage notifyLightSet : gel intégral hors joueur ±1 (sauf explosion/modif), cooldown en zone active
         PureFPSConfig.applyProfile(PureFPSProfile.BALANCED, false);
-        assertTrue("First static light rebuild allowed in BALANCED",
-                SmartChunkUpdateScheduler.shouldAllowLightRebuild(960, 64, 960, now));
-        assertFalse("Repeated static light rebuild within 4s cooldown must be throttled",
-                SmartChunkUpdateScheduler.shouldAllowLightRebuild(960, 64, 960, now + 500L));
+        assertFalse("Aucune recompilation lumineuse sur un chunk distant gelé",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(800, 64, 800, now));
+        assertTrue("Explosion distante autorise la mise à jour lumineuse du cratère",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(640, 65, 640, now));
+        assertTrue("Premier recalcul lumineux autorisé dans le chunk du joueur (0, 0)",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(8, 64, 8, now));
+        assertFalse("Cooldown anti-spam lumineux dans le chunk du joueur",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(8, 64, 8, now + 400L));
+
+        PureFPSConfig.applyProfile(PureFPSProfile.FPS, false);
+        assertFalse("Profil FPS coupe le recalcul lumineux passif même proche si aucun bloc n'est modifié",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(8, 64, 8, now + 5_000L));
 
         SmartChunkUpdateScheduler.clear();
     }

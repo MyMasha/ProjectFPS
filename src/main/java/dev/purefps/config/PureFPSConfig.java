@@ -87,6 +87,7 @@ public final class PureFPSConfig {
     public static boolean unfocusedFpsLimiter = true;
     public static int unfocusedFpsLimit = 30;
     public static boolean showF3Stats = true;
+    public static boolean fpsPacingMigrated = false;
 
     // Modules MashClient (synchronisés avec MashModules)
     public static boolean customMainMenu = true;
@@ -321,8 +322,16 @@ public final class PureFPSConfig {
                 }
                 changed = true;
             }
-            if (gs.limitFramerate < 255) {
-                gs.limitFramerate = 260;
+            if (!fpsPacingMigrated) {
+                if (gs.limitFramerate < 120 || gs.limitFramerate == 260) {
+                    gs.limitFramerate = 240;
+                    changed = true;
+                }
+                fpsPacingMigrated = true;
+                markDirty();
+                saveIfDirty();
+            } else if (gs.limitFramerate < 60) {
+                gs.limitFramerate = 240;
                 changed = true;
             }
         }
@@ -354,7 +363,7 @@ public final class PureFPSConfig {
             gs.particleSetting = 2;
             gs.entityShadows = false;
             gs.enableVsync = false;
-            gs.limitFramerate = 260;
+            gs.limitFramerate = 240;
         } else if (profile == PureFPSProfile.BALANCED) {
             gs.fancyGraphics = false;
             gs.ambientOcclusion = 1;
@@ -362,7 +371,7 @@ public final class PureFPSConfig {
             gs.particleSetting = 1;
             gs.entityShadows = false;
             gs.enableVsync = false;
-            gs.limitFramerate = 260;
+            gs.limitFramerate = 240;
         } else if (profile == PureFPSProfile.QUALITY) {
             gs.fancyGraphics = true;
             gs.ambientOcclusion = 2;
@@ -455,7 +464,7 @@ public final class PureFPSConfig {
             return clamp(chunkWorkerThreads, 2, maxSafeForRam);
         }
         int logicalCores = Runtime.getRuntime().availableProcessors();
-        int auto = Math.max(2, Math.min(4, logicalCores / 3));
+        int auto = Math.max(2, Math.min(3, (logicalCores - 2) / 3));
         return Math.min(auto, maxSafeForRam);
     }
 
@@ -543,6 +552,7 @@ public final class PureFPSConfig {
             unfocusedFpsLimiter = getBool(props, "unfocusedFpsLimiter", unfocusedFpsLimiter);
             unfocusedFpsLimit = clamp(getInt(props, "unfocusedFpsLimit", unfocusedFpsLimit), 5, 60);
             showF3Stats = getBool(props, "showF3Stats", showF3Stats);
+            fpsPacingMigrated = getBool(props, "fpsPacingMigrated", fpsPacingMigrated);
 
             customMainMenu = getBool(props, "customMainMenu", customMainMenu);
             smoothClientFont = getBool(props, "smoothClientFont", smoothClientFont);
@@ -651,6 +661,7 @@ public final class PureFPSConfig {
         props.setProperty("unfocusedFpsLimiter", Boolean.toString(unfocusedFpsLimiter));
         props.setProperty("unfocusedFpsLimit", Integer.toString(unfocusedFpsLimit));
         props.setProperty("showF3Stats", Boolean.toString(showF3Stats));
+        props.setProperty("fpsPacingMigrated", Boolean.toString(fpsPacingMigrated));
 
         props.setProperty("customMainMenu", Boolean.toString(customMainMenu));
         props.setProperty("smoothClientFont", Boolean.toString(smoothClientFont));
@@ -684,7 +695,7 @@ public final class PureFPSConfig {
         props.setProperty("hudKeystrokesY", Integer.toString(hudKeystrokesY));
 
         try (FileOutputStream out = new FileOutputStream(configFile)) {
-            props.store(out, "MashClient 4.4.0 Configuration");
+            props.store(out, "MashClient 4.4.2 Configuration");
         } catch (IOException ignored) {
         }
     }

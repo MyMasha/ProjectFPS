@@ -5,11 +5,10 @@ import dev.purefps.core.EnumCaches;
 import dev.purefps.core.MenuUnloadManager;
 import dev.purefps.core.OcclusionCuller;
 import dev.purefps.core.SmartChunkUpdateScheduler;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockBed;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.WorldClient;
 import net.minecraft.client.renderer.RenderGlobal;
+import net.minecraft.client.renderer.ViewFrustum;
 import net.minecraft.client.renderer.chunk.ChunkRenderDispatcher;
 import net.minecraft.client.renderer.chunk.CompiledChunk;
 import net.minecraft.client.renderer.chunk.RenderChunk;
@@ -34,11 +33,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Optimisation haute-fréquence de RenderGlobal (MashClient 4.3) :
+ * Optimisation haute-fréquence de RenderGlobal (MashClient 4.4.2) :
  * 1. setupTerrain sans allocation et sans faux positifs partialTicks.
- * 2. Ordonnanceur à 2 vitesses (SmartChunkUpdateScheduler) dans updateChunks + filtrage notifyLightSet :
- *    - 0 ms de délai pour les nouveaux blocs posés/cassés par les joueurs, les lits (BlockBed) et les générateurs.
- *    - Raréfaction maximale des recompilations sur les îles statiques et suspension dans les menus.
+ * 2. Bake initial 360° de toute la carte une seule fois, puis gel strict des chunks hors rayon
+ *    joueur ±1 chunk (sauf explosions Fireball/TNT et modifications réelles de blocs).
  * 3. Déchargement des nuages et caches dynamiques dans les menus / changements de lobby.
  */
 @Mixin(RenderGlobal.class)
@@ -56,6 +54,9 @@ public class MixinRenderGlobal {
 
     @Shadow
     private WorldClient theWorld;
+
+    @Shadow
+    private ViewFrustum viewFrustum;
 
     @Shadow
     private Set<RenderChunk> chunksToUpdate;
@@ -104,18 +105,6 @@ public class MixinRenderGlobal {
         MenuUnloadManager.onWorldChangeOrUnload();
     }
 
-    @Inject(method = "markBlockForUpdate", at = @At("HEAD"))
-    private void purefps$markBlockUpdateUrgent(BlockPos pos, CallbackInfo ci) {
-        if (PureFPSConfig.enabled && PureFPSConfig.smartChunkUpdates && pos != null) {
-            boolean isBed = false;
-            if (this.theWorld != null && this.theWorld.isBlockLoaded(pos)) {
-                Block block = this.theWorld.getBlockState(pos).getBlock();
-                isBed = (block instanceof BlockBed);
-            }
-            SmartChunkUpdateScheduler.markDynamicBlockChange(pos.getX(), pos.getY(), pos.getZ(), isBed);
-        }
-    }
-
     @Inject(method = "notifyLightSet", at = @At("HEAD"), cancellable = true)
     private void purefps$throttleStaticIslandLightUpdates(BlockPos pos, CallbackInfo ci) {
         if (PureFPSConfig.enabled && PureFPSConfig.smartChunkUpdates && pos != null) {
@@ -132,21 +121,23 @@ public class MixinRenderGlobal {
 
     /**
      * @author MashClient
-     * @reason Priorité 0 ms aux blocs posés/cassés par les joueurs, aux lits et aux générateurs ;
-     *         raréfaction des mises à jour sur le décor statique et pause dans les menus bloquants.
+     * @reason Compilation initiale 360° de toute la carte à la connexion, puis gel intégral des chunks
+     *         hors rayon joueur ±1 chunk (sauf explosions Fireball/TNT et modifications réelles).
      */
     @Overwrite
     public void updateChunks(long finishTimeNano) {
         this.displayListEntitiesDirty |= this.renderDispatcher.runChunkUploads(finishTimeNano);
 
         if (PureFPSConfig.enabled && PureFPSConfig.smartChunkUpdates) {
-            if (this.chunksToUpdate.isEmpty() && SmartChunkUpdateScheduler.getDeferredStaticCount() == 0) {
+            if (this.chunksToUpdate.isEmpty() && !SmartChunkUpdateScheduler.hasPendingInitialBake()) {
                 return;
             }
             Entity viewer = this.mc != null ? this.mc.getRenderViewEntity() : null;
             boolean menuDimmed = MenuUnloadManager.isWorldDimmedByMenu(this.mc);
             SmartChunkUpdateScheduler.dispatchPrioritizedUpdates(
                     this.chunksToUpdate,
+                    this.viewFrustum,
+                    this.theWorld,
                     this.renderDispatcher,
                     finishTimeNano,
                     viewer,

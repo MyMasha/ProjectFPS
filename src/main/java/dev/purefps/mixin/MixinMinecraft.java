@@ -3,6 +3,7 @@ package dev.purefps.mixin;
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.BlackHoleEmergenceRenderer;
 import dev.purefps.core.BorderlessWindowHelper;
+import dev.purefps.core.GpuFramePacer;
 import dev.purefps.core.MenuUnloadManager;
 import dev.purefps.core.SeamlessLaunchTransition;
 import net.minecraft.client.Minecraft;
@@ -21,18 +22,18 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.0) :
+ * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.4.2) :
  * 1. Supprime les 2 appels bloquants GL11.glGetError() par frame dans checkGLError.
- * 2. Supprime Thread.yield() à chaque frame dans runGameLoop.
- * 3. Court-circuite renderStreamIndicator + les callbacks Twitch morts.
- * 4. Débride isFramerateLimitBelowMax() (>= 255) et synchronise VBO/VSync/FPS max dès la fin de startGame().
- * 5. Mode Plein Écran Sans Bordure ("Borderless Windowed") natif par défaut et sur F11 via BorderlessWindowHelper.
+ * 2. Régule la file GPU (1-frame-in-flight GLSync) et le limiteur hors focus (60 FPS visible / 30 FPS réduit)
+ *    pour éliminer tout freeze des streams Discord, navigateurs et applications en arrière-plan.
+ * 3. Maintient un écran #000000 pur pendant startGame() et restaure le curseur flèche Win32 dans tous les menus.
  */
 @Mixin(Minecraft.class)
 public abstract class MixinMinecraft {
@@ -59,6 +60,9 @@ public abstract class MixinMinecraft {
     @Shadow
     public abstract void toggleFullscreen();
 
+    @Unique
+    private boolean purefps$wasDisplayActive = false;
+
     /**
      * @author MashClient
      * @reason Élimine le point de synchronisation bloquant glGetError() appelé 2 fois par frame ("Pre render" / "Post render")
@@ -78,7 +82,8 @@ public abstract class MixinMinecraft {
 
     /**
      * @author MashClient
-     * @reason Menus fluides 240 FPS + limiteur hors focus intelligent (préserve 100 % des FPS lors d'une capture Win+Shift+S en jeu)
+     * @reason Émergence 240 FPS -> menu 120 FPS + limiteur hors focus (60 FPS visible sur 2e écran / 30 FPS réduit)
+     *         pour ne jamais saturer le GPU pendant l'utilisation de Discord ou d'autres applications
      */
     @Overwrite
     public int getLimitFramerate() {
@@ -90,10 +95,14 @@ public abstract class MixinMinecraft {
                 if (this.theWorld == null || this.currentScreen != null) {
                     return Math.max(30, PureFPSConfig.unfocusedFpsLimit);
                 }
+                return Math.max(60, PureFPSConfig.unfocusedFpsLimit);
             }
         }
         if (this.theWorld == null && this.currentScreen != null) {
-            return PureFPSConfig.enabled ? 240 : 30;
+            if (!PureFPSConfig.enabled) {
+                return 30;
+            }
+            return BlackHoleEmergenceRenderer.isBootEmergenceComplete() ? 120 : 240;
         }
         return this.gameSettings.limitFramerate;
     }
@@ -141,7 +150,7 @@ public abstract class MixinMinecraft {
     @Inject(method = "drawSplashScreen", at = @At("HEAD"), cancellable = true)
     private void purefps$renderBlackHoleEmergenceFallback(TextureManager textureManagerInstance, CallbackInfo ci) {
         if (PureFPSConfig.enabled || SeamlessLaunchTransition.isActive()) {
-            BlackHoleEmergenceRenderer.renderStartupCheckpoint((Minecraft) (Object) this, 0.25F, true);
+            BlackHoleEmergenceRenderer.renderPureBlackBootFrame((Minecraft) (Object) this);
             ci.cancel();
         }
     }
@@ -173,16 +182,39 @@ public abstract class MixinMinecraft {
     @Inject(method = "startGame", at = @At("RETURN"))
     private void purefps$syncStartupSettings(CallbackInfo ci) {
         if (SeamlessLaunchTransition.isActive()) {
-            BlackHoleEmergenceRenderer.renderStartupCheckpoint((Minecraft) (Object) this, 0.88F, true);
+            BlackHoleEmergenceRenderer.renderPureBlackBootFrame((Minecraft) (Object) this);
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle("MashClient 4.4 | Minecraft 1.8.9");
+            Display.setTitle("MashClient 4.4.2 | Minecraft 1.8.9");
         }
+        BorderlessWindowHelper.ensureMenuCursorVisible();
+    }
+
+    @Inject(method = "displayGuiScreen", at = @At("RETURN"))
+    private void purefps$ensureCursorOnGuiOpen(GuiScreen guiScreenIn, CallbackInfo ci) {
+        if (this.currentScreen != null) {
+            BorderlessWindowHelper.ensureMenuCursorVisible();
+        }
+    }
+
+    @Inject(method = "setIngameNotInFocus", at = @At("RETURN"))
+    private void purefps$ensureCursorOnUngrab(CallbackInfo ci) {
+        BorderlessWindowHelper.ensureMenuCursorVisible();
+    }
+
+    @Inject(method = "runGameLoop", at = @At("HEAD"))
+    private void purefps$restoreCursorOnFocusRegain(CallbackInfo ci) {
+        boolean activeNow = Display.isCreated() && Display.isActive();
+        if (activeNow && !this.purefps$wasDisplayActive && this.currentScreen != null) {
+            BorderlessWindowHelper.ensureMenuCursorVisible();
+        }
+        this.purefps$wasDisplayActive = activeNow;
     }
 
     @Inject(method = "shutdownMinecraftApplet", at = @At("HEAD"))
     private void purefps$flushDirtyConfigOnShutdown(CallbackInfo ci) {
+        GpuFramePacer.release();
         dev.purefps.module.MashModules.saveNow();
         PureFPSConfig.save();
     }
@@ -192,7 +224,9 @@ public abstract class MixinMinecraft {
             at = @At(value = "INVOKE", target = "Ljava/lang/Thread;yield()V")
     )
     private void purefps$skipRenderThreadYield() {
-        if (!PureFPSConfig.enabled) {
+        // Lorsque les FPS sont débridés (>= 255, sans Display.sync), conserve Thread.yield()
+        // pour éviter d'affamer les threads audio/WebRTC de Discord et de Windows.
+        if (!PureFPSConfig.enabled || !this.isFramerateLimitBelowMax()) {
             Thread.yield();
         }
     }
@@ -265,6 +299,9 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "runGameLoop", at = @At("RETURN"))
     private void purefps$endFrameTelemetry(CallbackInfo ci) {
+        if (PureFPSConfig.enabled) {
+            GpuFramePacer.onFramePresented();
+        }
         PureFPSConfig.endFrameStats();
     }
 }

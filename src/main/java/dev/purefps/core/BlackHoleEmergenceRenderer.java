@@ -29,6 +29,7 @@ public final class BlackHoleEmergenceRenderer {
 
     private static final float MAX_SPLASH_EMERGENCE = 0.68F;
     private static final float MENU_REMAINING_MS = 1550.0F;
+    private static final float BOOT_EMERGENCE_MS = 2150.0F;
     private static final int NOISE_SIZE = 512;
     private static final int MAX_MENU_FBO_HEIGHT = 820;
 
@@ -129,14 +130,14 @@ public final class BlackHoleEmergenceRenderer {
             + "void main() {\n"
             + "    vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / max(min(uRes.x, uRes.y), 1.0);\n"
             + "    float e = clamp(uEmergence, 0.0, 1.0);\n"
-            + "    float easeOut = 1.0 - pow(1.0 - e, 2.65);\n"
-            + "    float menuSettle = smoothstep(0.58, 1.0, e);\n"
+            + "    float easeOut = 1.0 - pow(1.0 - e, 2.05);\n"
+            + "    float menuSettle = smoothstep(0.42, 1.0, e);\n"
             + "    uv.x -= uOffsetX * menuSettle;\n"
             + "\n"
-            + "    // Sortie continue de l'Horizon (r = 1.08 -> orbite rapprochée r = 15.6 identique au Launcher)\n"
-            + "    float camDist = mix(1.08, 15.6, easeOut);\n"
-            + "    float elev = mix(0.055, 0.176 + uMouse.y * 0.04 * menuSettle, easeOut);\n"
-            + "    float azim = uTime * 0.032 + (1.0 - easeOut) * 0.72 + uMouse.x * 0.07 * menuSettle;\n"
+            + "    // Sortie continue depuis l'intérieur de l'Horizon (r = 0.92 #000000 -> orbite éditoriale r = 15.6)\n"
+            + "    float camDist = mix(0.92, 15.6, easeOut);\n"
+            + "    float elev = mix(0.052, 0.176 + uMouse.y * 0.04 * menuSettle, easeOut);\n"
+            + "    float azim = uTime * 0.032 + (1.0 - easeOut) * 0.65 + uMouse.x * 0.07 * menuSettle;\n"
             + "\n"
             + "    vec3 ro = vec3(\n"
             + "        camDist * cos(elev) * sin(azim),\n"
@@ -146,13 +147,13 @@ public final class BlackHoleEmergenceRenderer {
             + "\n"
             + "    vec3 forward = normalize(-ro);\n"
             + "    vec3 worldUp = vec3(0.0, 1.0, 0.0);\n"
-            + "    float roll = mix(0.26, -0.155, easeOut);\n"
+            + "    float roll = mix(0.32, -0.155, easeOut);\n"
             + "    vec3 right0 = normalize(cross(forward, worldUp));\n"
             + "    vec3 up0 = cross(right0, forward);\n"
             + "    vec3 right = right0 * cos(roll) + up0 * sin(roll);\n"
             + "    vec3 up = -right0 * sin(roll) + up0 * cos(roll);\n"
             + "\n"
-            + "    float focal = mix(0.66, 1.56, easeOut);\n"
+            + "    float focal = mix(0.64, 1.56, easeOut);\n"
             + "    vec3 rd = normalize(forward * focal + uv.x * right + uv.y * up);\n"
             + "\n"
             + "    vec3 pos = ro;\n"
@@ -208,7 +209,7 @@ public final class BlackHoleEmergenceRenderer {
             + "    vec3 x = max(vec3(0.0, 0.0, 0.0), accumColor);\n"
             + "    vec3 mapped = (x * (2.51 * x + vec3(0.03, 0.03, 0.03))) / (x * (2.43 * x + vec3(0.59, 0.59, 0.59)) + vec3(0.14, 0.14, 0.14));\n"
             + "    mapped = pow(clamp(mapped, 0.0, 1.0), vec3(0.92, 0.92, 0.92));\n"
-            + "    mapped *= smoothstep(0.0, 0.08, e);\n"
+            + "    mapped *= smoothstep(0.01, 0.16, e);\n"
             + "    gl_FragColor = vec4(mapped, 1.0);\n"
             + "}\n";
 
@@ -234,11 +235,14 @@ public final class BlackHoleEmergenceRenderer {
     private static int mainULocNoise = -1;
     private static Framebuffer menuFbo = null;
 
-    // Continuité temporelle atomique entre SplashProgress$3 et GuiPureMainMenu
+    // Continuité temporelle entre le rideau #000000 du Launcher et GuiPureMainMenu
     private static volatile long bootOriginNs = 0L;
     private static volatile float latestEmergence = 0.0F;
     private static long menuAttachMs = -1L;
     private static float menuStartEmergence = 0.0F;
+    private static int bootWarmupFrames = 0;
+    private static long handoffWaitStartMs = -1L;
+    private static boolean bootEmergenceCompleted = false;
     private static float smoothMouseX = 0.0F;
     private static float smoothMouseY = 0.0F;
     private static long lastMenuFboRenderNs = 0L;
@@ -253,14 +257,30 @@ public final class BlackHoleEmergenceRenderer {
         latestEmergence = 0.0F;
         menuAttachMs = -1L;
         menuStartEmergence = 0.0F;
+        bootWarmupFrames = 0;
+        handoffWaitStartMs = -1L;
+        bootEmergenceCompleted = false;
         lastMenuFboRenderNs = 0L;
         dev.purefps.client.audio.MashAudioEngine.resetBootState();
+    }
+
+    public static boolean hasPresentedInitialBlackFrames() {
+        return bootWarmupFrames >= 2 || bootEmergenceCompleted;
+    }
+
+    public static boolean isBootEmergenceComplete() {
+        return bootEmergenceCompleted;
     }
 
     public static float computeEmergenceProgress(float startupProgress, long menuElapsedMs) {
         float clampedStartup = clamp01(startupProgress);
         if (menuElapsedMs < 0L) {
             return clampedStartup;
+        }
+        if (clampedStartup <= 0.01F) {
+            float t = clamp01((float) menuElapsedMs / BOOT_EMERGENCE_MS);
+            float eased = t * t * (3.0F - 2.0F * t);
+            return clampedStartup + (1.0F - clampedStartup) * eased;
         }
         float t = clamp01((float) menuElapsedMs / MENU_REMAINING_MS);
         float eased = 1.0F - (float) Math.pow(1.0D - t, 3.0D);
@@ -351,7 +371,27 @@ public final class BlackHoleEmergenceRenderer {
     }
 
     /**
-     * Repli si SplashProgress est désactivé sur un pilote exotique (drawSplashScreen Vanilla).
+     * Maintient la fenêtre OpenGL en #000000 pur pendant drawSplashScreen / startGame()
+     * (empêche tout affichage prématuré d'une frame statique du trou noir avant l'entrée dans GuiPureMainMenu).
+     */
+    public static void renderPureBlackBootFrame(Minecraft mc) {
+        if (mc == null || !Display.isCreated()) {
+            return;
+        }
+        if (bootOriginNs == 0L) {
+            bootOriginNs = System.nanoTime();
+        }
+        try {
+            GL11.glViewport(0, 0, Math.max(1, mc.displayWidth), Math.max(1, mc.displayHeight));
+            GL11.glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
+            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+            Display.update();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Repli optionnel de jalon de démarrage.
      */
     public static void renderStartupCheckpoint(Minecraft mc, float targetEmergence, boolean forceRender) {
         if (mc == null || !Display.isCreated()) {
@@ -396,24 +436,47 @@ public final class BlackHoleEmergenceRenderer {
     }
 
     /**
-     * Rendu 120+ FPS dans GuiPureMainMenu : poursuit sans coupure la trajectoire de la caméra depuis latestEmergence jusqu'à 1.0,
-     * avec le même décalage éditorial (uOffsetX = 0.14) et le même cadrage rapproché que l'accueil du Launcher !
+     * Rendu 240 FPS dans GuiPureMainMenu :
+     * 1. Préchauffe le shader + FBO sur 2 frames #000000 pures avant de signaler MENU_ACTIVE au Launcher.
+     * 2. Attend que la fenêtre Minecraft ait le focus (plafond 240 ms) pour démarrer l'émergence à e = 0.0 (#000000).
+     * 3. Anime l'émergence de 0.0 -> 1.0 sans aucun saut d'image jusqu'au cadrage éditorial (uOffsetX = 0.14).
      */
     public static float renderMenuBackground(Minecraft mc, int guiWidth, int guiHeight, int mouseX, int mouseY) {
         long nowMs = System.currentTimeMillis();
         if (bootOriginNs == 0L) {
             bootOriginNs = System.nanoTime();
-            latestEmergence = 0.65F;
-        }
-        if (menuAttachMs < 0L) {
-            menuAttachMs = nowMs;
-            menuStartEmergence = latestEmergence > 0.02F ? latestEmergence : 0.65F;
-            dev.purefps.client.audio.MashAudioEngine.playBlackHoleEmergenceOnce();
         }
 
-        long elapsedMenuMs = Math.max(0L, nowMs - menuAttachMs);
-        float emergence = computeEmergenceProgress(menuStartEmergence, elapsedMenuMs);
-        latestEmergence = emergence;
+        float emergence;
+        if (bootEmergenceCompleted) {
+            emergence = 1.0F;
+            latestEmergence = 1.0F;
+        } else if (bootWarmupFrames < 2) {
+            bootWarmupFrames++;
+            emergence = 0.0F;
+            latestEmergence = 0.0F;
+        } else if (SeamlessLaunchTransition.isActive()
+                && Display.isCreated()
+                && !Display.isActive()
+                && (handoffWaitStartMs < 0L || (nowMs - handoffWaitStartMs) < 240L)) {
+            if (handoffWaitStartMs < 0L) {
+                handoffWaitStartMs = nowMs;
+            }
+            emergence = 0.0F;
+            latestEmergence = 0.0F;
+        } else {
+            if (menuAttachMs < 0L) {
+                menuAttachMs = nowMs;
+                menuStartEmergence = latestEmergence;
+                dev.purefps.client.audio.MashAudioEngine.playBlackHoleEmergenceOnce();
+            }
+            long elapsedMenuMs = Math.max(0L, nowMs - menuAttachMs);
+            emergence = computeEmergenceProgress(menuStartEmergence, elapsedMenuMs);
+            latestEmergence = emergence;
+            if (emergence >= 0.999F) {
+                bootEmergenceCompleted = true;
+            }
+        }
 
         float targetMx = guiWidth > 0 ? ((float) mouseX / (float) guiWidth) * 2.0F - 1.0F : 0.0F;
         float targetMy = guiHeight > 0 ? ((float) mouseY / (float) guiHeight) * 2.0F - 1.0F : 0.0F;
@@ -432,6 +495,7 @@ public final class BlackHoleEmergenceRenderer {
 
             if (menuFbo != null) {
                 boolean shouldRenderShader = emergence < 0.999F
+                        || bootWarmupFrames <= 2
                         || lastMenuFboRenderNs == 0L
                         || (nowNs - lastMenuFboRenderNs) >= 16_000_000L;
                 if (shouldRenderShader) {
