@@ -65,19 +65,151 @@ pub struct LauncherPrefs {
     pub auto_update_check: bool,
 }
 
+pub fn is_real_prism_instance(instance_root: &Path) -> bool {
+    instance_root.join("instance.cfg").is_file() || instance_root.join("mmc-pack.json").is_file()
+}
+
+pub fn resolve_prism_instance_game_dir(instance_root: &Path) -> PathBuf {
+    let dot_mc = instance_root.join(".minecraft");
+    if dot_mc.is_dir() {
+        dot_mc
+    } else {
+        instance_root.join("minecraft")
+    }
+}
+
+pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
+    let exact_candidates = [
+        r"C:\Program Files\Eclipse Adoptium\jre-8.0.504.1-hotspot\bin\javaw.exe".to_owned(),
+        format!(r"{appdata}\PrismLauncher\java\jre-legacy\bin\javaw.exe"),
+        format!(
+            r"{local_appdata}\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime\jre-legacy\windows-x64\jre-legacy\bin\javaw.exe"
+        ),
+        r"C:\Program Files (x86)\Minecraft Launcher\runtime\jre-legacy\windows-x64\jre-legacy\bin\javaw.exe"
+            .to_owned(),
+    ];
+    for c in &exact_candidates {
+        if Path::new(c).is_file() {
+            return c.clone();
+        }
+    }
+
+    let search_roots = [
+        PathBuf::from(r"C:\Program Files\Eclipse Adoptium"),
+        PathBuf::from(r"C:\Program Files\Java"),
+        PathBuf::from(r"C:\Program Files\Zulu"),
+        PathBuf::from(r"C:\Program Files\BellSoft"),
+        Path::new(appdata).join("PrismLauncher").join("java"),
+    ];
+    for root in &search_roots {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let folder_name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            if folder_name.contains("8") || folder_name.contains("1.8") || folder_name.contains("legacy") {
+                let javaw = entry.path().join("bin").join("javaw.exe");
+                if javaw.is_file() {
+                    return javaw.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
+    exact_candidates[0].clone()
+}
+
+pub fn detect_prism_exe(appdata: &str, local_appdata: &str) -> String {
+    let candidates = [
+        format!(r"{local_appdata}\Programs\PrismLauncher\prismlauncher.exe"),
+        r"C:\Program Files\PrismLauncher\prismlauncher.exe".to_owned(),
+        format!(r"{appdata}\PrismLauncher\prismlauncher.exe"),
+    ];
+    for c in &candidates {
+        if Path::new(c).is_file() {
+            return c.clone();
+        }
+    }
+    candidates[0].clone()
+}
+
+pub fn detect_minecraft_189_dirs(appdata: &str, local_appdata: &str) -> (String, String, String) {
+    let prism_roots = [
+        Path::new(appdata).join("PrismLauncher"),
+        Path::new(local_appdata).join("Programs").join("PrismLauncher"),
+    ];
+
+    let mut best_match: Option<(i32, PathBuf, PathBuf)> = None;
+    for prism_root in &prism_roots {
+        let instances_dir = prism_root.join("instances");
+        let Ok(entries) = std::fs::read_dir(&instances_dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let inst_path = entry.path();
+            if !inst_path.is_dir() || !is_real_prism_instance(&inst_path) {
+                continue;
+            }
+            let inst_name = entry.file_name().to_string_lossy().to_string();
+            let mmc_pack = std::fs::read_to_string(inst_path.join("mmc-pack.json")).unwrap_or_default();
+            let inst_cfg = std::fs::read_to_string(inst_path.join("instance.cfg")).unwrap_or_default();
+
+            let mut score = 0;
+            if mmc_pack.contains("1.8.9") || inst_cfg.contains("1.8.9") || inst_name.contains("1.8.9") {
+                score += 100;
+            }
+            if mmc_pack.contains("net.minecraftforge") {
+                score += 50;
+            }
+            if inst_name.eq_ignore_ascii_case("1.8.9 gemini fps") {
+                score += 25;
+            }
+            if score >= 100 {
+                let replace = match &best_match {
+                    None => true,
+                    Some((cur_score, _, _)) => score > *cur_score,
+                };
+                if replace {
+                    best_match = Some((score, prism_root.clone(), inst_path));
+                }
+            }
+        }
+    }
+
+    if let Some((_, prism_root, inst_path)) = best_match {
+        let game_dir = resolve_prism_instance_game_dir(&inst_path)
+            .to_string_lossy()
+            .to_string();
+        let libs_dir = prism_root.join("libraries").to_string_lossy().to_string();
+        let assets_dir = prism_root.join("assets").to_string_lossy().to_string();
+        return (game_dir, libs_dir, assets_dir);
+    }
+
+    let official_mc = Path::new(appdata).join(".minecraft");
+    if official_mc.is_dir() {
+        return (
+            official_mc.to_string_lossy().to_string(),
+            official_mc.join("libraries").to_string_lossy().to_string(),
+            official_mc.join("assets").to_string_lossy().to_string(),
+        );
+    }
+
+    (
+        format!(r"{appdata}\PrismLauncher\instances\1.8.9 gemini fps\minecraft"),
+        format!(r"{appdata}\PrismLauncher\libraries"),
+        format!(r"{appdata}\PrismLauncher\assets"),
+    )
+}
+
 impl Default for LauncherPrefs {
     fn default() -> Self {
         let appdata = std::env::var("APPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
         let local_appdata =
             std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
 
-        let temurin = r"C:\Program Files\Eclipse Adoptium\jre-8.0.504.1-hotspot\bin\javaw.exe";
-        let fallback_java = format!(r"{appdata}\PrismLauncher\java\jre-legacy\bin\javaw.exe");
-        let java_path = if Path::new(temurin).is_file() {
-            temurin.to_owned()
-        } else {
-            fallback_java
-        };
+        let java_path = detect_java8_path(&appdata, &local_appdata);
+        let prism_exe = detect_prism_exe(&appdata, &local_appdata);
+        let (game_dir, libraries_dir, assets_dir) = detect_minecraft_189_dirs(&appdata, &local_appdata);
 
         Self {
             ram_mb: 3072,
@@ -85,10 +217,10 @@ impl Default for LauncherPrefs {
             quick_join_hypixel: false,
             launch_mode: LaunchMode::PrismBridge,
             java_path,
-            game_dir: format!(r"{appdata}\PrismLauncher\instances\1.8.9 gemini fps\minecraft"),
-            libraries_dir: format!(r"{appdata}\PrismLauncher\libraries"),
-            assets_dir: format!(r"{appdata}\PrismLauncher\assets"),
-            prism_exe: format!(r"{local_appdata}\Programs\PrismLauncher\prismlauncher.exe"),
+            game_dir,
+            libraries_dir,
+            assets_dir,
+            prism_exe,
             github_repo: default_github_repo(),
             auto_update_check: true,
         }
@@ -601,10 +733,47 @@ pub fn app_storage_dir() -> PathBuf {
 
 pub fn load_launcher_prefs() -> LauncherPrefs {
     let path = app_storage_dir().join("launcher.json");
-    std::fs::read_to_string(path)
+    let mut prefs = std::fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str::<LauncherPrefs>(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    let appdata = std::env::var("APPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
+    let local_appdata =
+        std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
+
+    // Auto-réparation si l'ancien chemin par défaut "1.8.9 gemini fps" ne correspond pas à une vraie instance Prism
+    let game_path = Path::new(&prefs.game_dir);
+    let looks_like_uncreated_prism = prefs.game_dir.contains("PrismLauncher")
+        && game_path
+            .parent()
+            .map(|inst| !is_real_prism_instance(inst))
+            .unwrap_or(true);
+    if looks_like_uncreated_prism || !game_path.exists() {
+        let (detected_game, detected_libs, detected_assets) =
+            detect_minecraft_189_dirs(&appdata, &local_appdata);
+        if Path::new(&detected_game).exists() || looks_like_uncreated_prism {
+            prefs.game_dir = detected_game;
+            prefs.libraries_dir = detected_libs;
+            prefs.assets_dir = detected_assets;
+        }
+    }
+
+    if !Path::new(&prefs.java_path).is_file() {
+        let detected_java = detect_java8_path(&appdata, &local_appdata);
+        if Path::new(&detected_java).is_file() {
+            prefs.java_path = detected_java;
+        }
+    }
+
+    if !Path::new(&prefs.prism_exe).is_file() {
+        let detected_prism = detect_prism_exe(&appdata, &local_appdata);
+        if Path::new(&detected_prism).is_file() {
+            prefs.prism_exe = detected_prism;
+        }
+    }
+
+    prefs
 }
 
 pub fn save_launcher_prefs(prefs: &LauncherPrefs) -> Result<(), String> {
@@ -677,8 +846,8 @@ pub fn prepare_seamless_launch_files(game_dir: &str) {
     let cfg_dir = Path::new(game_dir).join("config");
     let _ = std::fs::create_dir_all(&cfg_dir);
 
-    let ready_file = cfg_dir.join(".purefps_menu_ready");
-    let _ = std::fs::remove_file(&ready_file);
+    let _ = std::fs::remove_file(cfg_dir.join(".purefps_display_ready"));
+    let _ = std::fs::remove_file(cfg_dir.join(".purefps_menu_ready"));
 
     let handoff_file = cfg_dir.join(".purefps_handoff");
     let _ = std::fs::write(&handoff_file, "SINGULARITY_HANDOFF\n");

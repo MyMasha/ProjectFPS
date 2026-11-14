@@ -1,6 +1,7 @@
 package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
+import dev.purefps.core.BlackHoleEmergenceRenderer;
 import dev.purefps.core.ChunkRegionManager;
 import dev.purefps.core.FastSkullCache;
 import dev.purefps.core.SeamlessLaunchTransition;
@@ -20,19 +21,20 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Optimisations critiques de la boucle principale Minecraft 1.8.9 (PureClient 3.5) :
+ * Optimisations critiques de la boucle principale Minecraft 1.8.9 (PureClient 3.6) :
  * 1. Supprime les 2 appels bloquants GL11.glGetError() par frame dans checkGLError.
- * 2. Supprime Thread.yield() à chaque frame dans runGameLoop (évite de céder le quantum CPU Windows pendant 1 à 6 ms !).
- * 3. Court-circuite renderStreamIndicator + les callbacks Twitch morts (élimine un glClear(GL_DEPTH_BUFFER_BIT) +
- *    new ScaledResolution + glOrtho complet sur le backbuffer à chaque frame !).
+ * 2. Supprime Thread.yield() à chaque frame dans runGameLoop.
+ * 3. Court-circuite renderStreamIndicator + les callbacks Twitch morts.
  * 4. Débride isFramerateLimitBelowMax() (>= 255) et synchronise VBO/VSync/FPS max dès la fin de startGame().
- * 5. Assure la transition sans couture "Event Horizon" depuis le Launcher (fenêtre sans bordure plein écran #000000).
+ * 5. Remplace intégralement l'écran "Mojang" par la caméra du joueur qui sort du Trou Noir relativiste
+ *    et place la fenêtre sans bordure plein écran exactement à la place du rideau du Launcher.
  */
 @Mixin(Minecraft.class)
 public abstract class MixinMinecraft {
@@ -54,7 +56,13 @@ public abstract class MixinMinecraft {
     private IStream stream;
 
     @Shadow
+    private boolean fullscreen;
+
+    @Shadow
     public abstract void toggleFullscreen();
+
+    @Unique
+    private int purefps$startupStepCounter = 0;
 
     /**
      * @author PureClient
@@ -99,9 +107,18 @@ public abstract class MixinMinecraft {
         return this.getLimitFramerate() < 255;
     }
 
-    @Inject(method = "setInitialDisplayMode", at = @At("HEAD"))
+    @Inject(method = "startGame", at = @At("HEAD"))
+    private void purefps$onStartGameHead(CallbackInfo ci) {
+        this.purefps$startupStepCounter = 0;
+        SeamlessLaunchTransition.onStartGameHead((Minecraft) (Object) this);
+    }
+
+    @Inject(method = "setInitialDisplayMode", at = @At("HEAD"), cancellable = true)
     private void purefps$prepareSeamlessDisplay(CallbackInfo ci) {
-        SeamlessLaunchTransition.checkAndPrepareBeforeDisplay((Minecraft) (Object) this);
+        if (SeamlessLaunchTransition.applyBorderlessDisplayMode((Minecraft) (Object) this)) {
+            this.fullscreen = false;
+            ci.cancel();
+        }
     }
 
     @Redirect(
@@ -118,14 +135,61 @@ public abstract class MixinMinecraft {
     }
 
     @Inject(method = "createDisplay", at = @At("RETURN"))
-    private void purefps$clearSeamlessBlackOnCreate(CallbackInfo ci) {
-        SeamlessLaunchTransition.clearDisplayToPureBlack();
+    private void purefps$onDisplayCreated(CallbackInfo ci) {
+        SeamlessLaunchTransition.onDisplayCreated((Minecraft) (Object) this);
     }
 
     @Inject(method = "drawSplashScreen", at = @At("HEAD"), cancellable = true)
-    private void purefps$suppressWhiteMojangSplash(TextureManager textureManagerInstance, CallbackInfo ci) throws LWJGLException {
-        if (SeamlessLaunchTransition.renderBlackSplashIfSeamless()) {
+    private void purefps$renderBlackHoleEmergenceInsteadOfMojang(TextureManager textureManagerInstance, CallbackInfo ci) {
+        if (PureFPSConfig.enabled || SeamlessLaunchTransition.isActive()) {
+            BlackHoleEmergenceRenderer.renderStartupCheckpoint((Minecraft) (Object) this, 0.18F, true);
             ci.cancel();
+        }
+    }
+
+    @Inject(
+            method = "startGame",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/client/resources/IReloadableResourceManager;registerReloadListener(Lnet/minecraft/client/resources/IResourceManagerReloadListener;)V",
+                    shift = At.Shift.AFTER
+            )
+    )
+    private void purefps$animateEmergenceOnReloadListeners(CallbackInfo ci) {
+        if (PureFPSConfig.enabled || SeamlessLaunchTransition.isActive()) {
+            this.purefps$startupStepCounter++;
+            float progress = Math.min(0.52F, 0.08F + this.purefps$startupStepCounter * 0.036F);
+            BlackHoleEmergenceRenderer.renderStartupCheckpoint((Minecraft) (Object) this, progress, false);
+        }
+    }
+
+    @Inject(
+            method = "startGame",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraftforge/fml/common/ProgressManager$ProgressBar;step(Ljava/lang/String;)V",
+                    remap = false
+            )
+    )
+    private void purefps$animateEmergenceOnProgressBarStep(CallbackInfo ci) {
+        if (PureFPSConfig.enabled || SeamlessLaunchTransition.isActive()) {
+            this.purefps$startupStepCounter++;
+            float progress = Math.min(0.55F, 0.22F + this.purefps$startupStepCounter * 0.025F);
+            BlackHoleEmergenceRenderer.renderStartupCheckpoint((Minecraft) (Object) this, progress, true);
+        }
+    }
+
+    @Inject(
+            method = "startGame",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraftforge/fml/client/FMLClientHandler;finishMinecraftLoading()V",
+                    remap = false
+            )
+    )
+    private void purefps$animateEmergenceBeforeFinishLoading(CallbackInfo ci) {
+        if (PureFPSConfig.enabled || SeamlessLaunchTransition.isActive()) {
+            BlackHoleEmergenceRenderer.renderStartupCheckpoint((Minecraft) (Object) this, 0.56F, true);
         }
     }
 
@@ -222,6 +286,7 @@ public abstract class MixinMinecraft {
             at = @At("HEAD")
     )
     private void purefps$clearCachesOnWorldChange(WorldClient worldClientIn, String loadingMessage, CallbackInfo ci) {
+        BlackHoleEmergenceRenderer.releaseMenuResources();
         FastSkullCache.clear();
         ChunkRegionManager.clearAll();
         PureFPSConfig.saveIfDirty();

@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PureClient 3.5 — Singularity Launcher</title>
-<meta name="description" content="PureClient 3.5 Singularity Edition — Launcher compétitif Minecraft 1.8.9 avec transition Trou Noir temps-réel sans changement de fenêtre.">
+<title>PureClient 3.6 — Singularity Launcher</title>
+<meta name="description" content="PureClient 3.6 Singularity Edition — Launcher compétitif Minecraft 1.8.9 avec plongeon et émergence Trou Noir temps-réel sans écran Mojang.">
 <style>
   :root {
     --void-0: #000000;
@@ -1206,7 +1206,7 @@
           </svg>
         </div>
         <span class="brand-wordmark">PURECLIENT</span>
-        <span class="brand-edition">SINGULARITY 3.5</span>
+        <span class="brand-edition">SINGULARITY 3.6</span>
       </div>
 
       <nav class="top-nav" aria-label="Navigation principale">
@@ -1257,7 +1257,7 @@
           <div class="hero-kicker">FORGE 1.8.9  &bull;  VAO GL30 + TRIANGLES</div>
           <h1 class="hero-title">PURECLIENT</h1>
           <p class="hero-subtitle">
-            Pipeline OpenGL sans blocage GPU, Item Frames compilés, LOD joueurs et transition directe dans l'horizon des événements vers votre menu Minecraft.
+            Pipeline OpenGL sans blocage GPU, Item Frames compilés, LOD joueurs et caméra émergeant directement hors du Trou Noir à la place de l'écran Mojang.
           </p>
 
           <div class="profile-strip" role="radiogroup" aria-label="Profil de performance">
@@ -1362,7 +1362,7 @@
                 <div class="updater-title-group">
                   <span class="updater-title">Auto-Updater GitHub Releases</span>
                   <span class="updater-badge ok" id="upd-token-badge">Jeton Read-Only actif</span>
-                  <span class="updater-badge" id="upd-status-badge">Launcher v3.5.0</span>
+                  <span class="updater-badge" id="upd-status-badge">Launcher v3.6.0</span>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;">
                   <button class="btn-outline" id="btn-upd-check" onclick="triggerManualUpdateCheck()">Vérifier maintenant</button>
@@ -1414,15 +1414,15 @@
               </div>
 
               <div class="sys-card">
-                <div class="sys-label">Exécutable Java 8 détecté</div>
-                <input type="text" class="sys-input" id="inp-java-path" readonly>
-                <div class="sys-label">Instance Minecraft cible</div>
-                <input type="text" class="sys-input" id="inp-game-dir" readonly>
+                <div class="sys-label">Exécutable Java 8 (auto-détecté ou modifiable)</div>
+                <input type="text" class="sys-input" id="inp-java-path" onchange="sendIpc({cmd:'set_java_path', path:this.value})">
+                <div class="sys-label">Instance Minecraft 1.8.9 cible (PrismLauncher / .minecraft)</div>
+                <input type="text" class="sys-input" id="inp-game-dir" onchange="sendIpc({cmd:'set_game_dir', path:this.value})">
               </div>
             </div>
 
             <div class="sys-label" style="margin-bottom:7px;">Journal d'exécution temps-réel</div>
-            <pre class="log-terminal" id="log-console">[Singularity 3.5] Prêt. Cliquez sur JOUER pour plonger dans l'horizon des événements et ouvrir Minecraft sans transition de fenêtre.</pre>
+            <pre class="log-terminal" id="log-console">[Singularity 3.6] Prêt. Cliquez sur JOUER pour plonger dans l'horizon des événements et faire émerger la caméra hors du Trou Noir dans Minecraft.</pre>
           </div>
         </div>
       </section>
@@ -1456,9 +1456,9 @@
     <div class="modal-card" id="account-modal-body"></div>
   </div>
 
-  <!-- Rideau Noir Absolu (#000000) une fois la caméra aspirée dans le Trou Noir -->
-  <div id="horizon-blackout">
-    <div class="horizon-telemetry" id="horizon-status">SYNCHRONISATION OPENGL 1.8.9...</div>
+  <!-- Rideau Noir Absolu (#000000) une fois la caméra aspirée dans le Trou Noir (cliquable / Échap / Alt+Tab) -->
+  <div id="horizon-blackout" onclick="if(plungeActive){resetPlungeSequence();sendIpc({cmd:'abort_launch_curtain'});}">
+    <div class="horizon-telemetry" id="horizon-status">ENTRÉE DANS LA SINGULARITÉ 1.8.9  &bull;  ÉCHAP OU ALT+TAB POUR QUITTER</div>
   </div>
 
   <!-- Aperçu interactif du menu Minecraft Singularity (uniquement hors-JVM pour démonstration fluide) -->
@@ -1478,7 +1478,7 @@
       <div class="mc-card">
         <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
           <span style="font-size:19px;font-weight:700;letter-spacing:0.14em;color:#f7f4ec;">PURECLIENT</span>
-          <span class="brand-edition">v3.5</span>
+          <span class="brand-edition">v3.6</span>
         </div>
         <div style="font-size:11px;color:#8a91a2;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.09);">
           Singularity VAO + Triangles  &bull;  RSHIFT en jeu
@@ -1496,7 +1496,7 @@
 
     <div style="padding:10px 16px;display:flex;justify-content:space-between;font-size:11px;color:#697082;">
       <span>OpenGL 3.0 Hardware VAO  &bull;  Java 1.8.0</span>
-      <span>PureClient 3.5.0  &bull;  Forge 1.8.9</span>
+      <span>PureClient 3.6.0  &bull;  Forge 1.8.9</span>
     </div>
   </div>
 
@@ -1604,8 +1604,8 @@
     has_github_token: true,
     update: {
       status: "idle",
-      current_version: "3.5.0",
-      installed_jar_version: "3.5.0",
+      current_version: "3.6.0",
+      installed_jar_version: "3.6.0",
       latest_version: null,
       release_notes: null,
       download_percent: 0,
@@ -1624,7 +1624,7 @@
   let plungeStartMs = 0;
   let plungeProgress = 0.0; // 0.0 = orbite calme, 1.0 = franchissement de l'Horizon des Événements (#000000)
   let darknessSignaled = false;
-  const PLUNGE_DURATION_MS = 2350.0;
+  const PLUNGE_DURATION_MS = 2050.0;
 
   let mouseTargetX = 0.0;
   let mouseTargetY = 0.0;
@@ -1953,9 +1953,18 @@
 
   function renderSystem() {
     setSlider("rng-ram", "lbl-ram", state.prefs.ram_mb.toLocaleString("fr-FR"), " MiB", state.prefs.ram_mb);
-    document.getElementById("inp-offline-name").value = state.prefs.offline_username || "PurePlayer";
-    document.getElementById("inp-java-path").value = state.prefs.java_path || "";
-    document.getElementById("inp-game-dir").value = state.prefs.game_dir || "";
+    const offInput = document.getElementById("inp-offline-name");
+    if (offInput && document.activeElement !== offInput) {
+      offInput.value = state.prefs.offline_username || "PurePlayer";
+    }
+    const javaInput = document.getElementById("inp-java-path");
+    if (javaInput && document.activeElement !== javaInput) {
+      javaInput.value = state.prefs.java_path || "";
+    }
+    const gameDirInput = document.getElementById("inp-game-dir");
+    if (gameDirInput && document.activeElement !== gameDirInput) {
+      gameDirInput.value = state.prefs.game_dir || "";
+    }
 
     const repoInput = document.getElementById("inp-gh-repo");
     if (repoInput && document.activeElement !== repoInput) {
@@ -1985,7 +1994,7 @@
     const checkBtn = document.getElementById("btn-upd-check");
     const actBtn = document.getElementById("btn-upd-action");
 
-    const curVer = upd.current_version || "3.5.0";
+    const curVer = upd.current_version || "3.6.0";
     const modVer = upd.installed_jar_version ? ` • Mod v${upd.installed_jar_version}` : "";
     if (msgEl) msgEl.textContent = upd.message || `Launcher v${curVer}${modVer}`;
 
@@ -2154,7 +2163,7 @@
   }
 
   function clearLogs() {
-    document.getElementById("log-console").textContent = "[Singularity 3.5] Journal effacé.\n";
+    document.getElementById("log-console").textContent = "[Singularity 3.6] Journal effacé.\n";
   }
 
   function appendLog(line) {

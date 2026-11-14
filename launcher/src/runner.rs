@@ -1,10 +1,17 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + PureClient 3.5.0.
-//! - Déploie automatiquement `purefps-3.5.0.jar`
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + PureClient 3.6.0.
+//! - Synchronise automatiquement `purefps-3.6.0.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
-//! - Construit le classpath complet de 49 archives et diffuse les logs en temps réel hors du thread UI.
+//! - Détecte instantanément l'ouverture de la fenêtre OpenGL (`DISPLAY_CREATED` / `.purefps_display_ready`)
+//!   pour retirer le rideau noir du Launcher à l'instant exact où Minecraft prend sa place.
 
-use crate::config::{app_storage_dir, prepare_seamless_launch_files, LauncherPrefs};
-use crate::updater::extract_purefps_jar_semver;
+use crate::config::{
+    app_storage_dir, effective_github_token, is_real_prism_instance, prepare_seamless_launch_files,
+    resolve_prism_instance_game_dir, LauncherPrefs,
+};
+use crate::updater::{
+    check_for_updates, download_and_install_update, extract_purefps_jar_semver,
+    installed_mod_version, parse_semver, UpdateCheckOutcome, LAUNCHER_VERSION,
+};
 use crate::AppEvent;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -15,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-3.5.0.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-3.6.0.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -88,14 +95,35 @@ pub fn offline_uuid_hex(username: &str) -> String {
     hex
 }
 
+/// Si le mod `purefps-*.jar` est absent ou plus ancien que le Launcher, tente de le récupérer
+/// automatiquement depuis GitHub Releases avant le lancement pour garantir le Trou Noir Mojang !
+pub fn auto_fetch_mod_jar_if_needed(prefs: &LauncherPrefs, proxy: &EventLoopProxy<AppEvent>) {
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((3, 6, 0));
+    let cur_mod = installed_mod_version(&prefs.game_dir);
+    if cur_mod.is_some_and(|v| v >= launcher_ver) {
+        return;
+    }
+
+    let tok = effective_github_token();
+    if let Ok(UpdateCheckOutcome::Available(mut plan)) =
+        check_for_updates(&prefs.github_repo, tok.as_deref(), &prefs.game_dir)
+    {
+        if plan.jar_asset.is_some() {
+            plan.exe_asset = None;
+            let _ = proxy.send_event(AppEvent::LogLine(format!(
+                "[PureLauncher] Téléchargement automatique du mod PureClient v{}...",
+                plan.version
+            )));
+            let _ = download_and_install_update(&plan, tok.as_deref(), &prefs.game_dir, proxy);
+        }
+    }
+}
+
 pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
     let mods_dir = Path::new(game_dir).join("mods");
     std::fs::create_dir_all(&mods_dir).map_err(|e| format!("Création dossier mods: {e}"))?;
 
-    let mut search_dirs: Vec<PathBuf> = vec![
-        app_storage_dir().join("updates"),
-        mods_dir.clone(),
-    ];
+    let mut search_dirs: Vec<PathBuf> = vec![app_storage_dir().join("updates"), mods_dir.clone()];
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             search_dirs.push(dir.to_path_buf());
@@ -113,7 +141,6 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
     search_dirs.push(PathBuf::from(r"build\libs"));
     search_dirs.push(PathBuf::from("."));
 
-    // Sélectionne automatiquement le `purefps-X.Y.Z.jar` le plus récent (Auto-Updater ou compilation locale)
     let mut best_jar: Option<((u32, u32, u32), String, PathBuf)> = None;
     for dir in &search_dirs {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -128,9 +155,11 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
             if let Some(ver) = extract_purefps_jar_semver(&name) {
                 let replace = match &best_jar {
                     None => true,
-                    // À version égale, privilégie une source hors `mods/` (ex: cache `updates/` ou `build/libs/`)
                     Some((cur_ver, _, cur_path)) => {
-                        ver > *cur_ver || (ver == *cur_ver && cur_path.parent() == Some(mods_dir.as_path()) && path.parent() != Some(mods_dir.as_path()))
+                        ver > *cur_ver
+                            || (ver == *cur_ver
+                                && cur_path.parent() == Some(mods_dir.as_path())
+                                && path.parent() != Some(mods_dir.as_path()))
                     }
                 };
                 if replace {
@@ -158,7 +187,7 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
     }
 
     Err(format!(
-        "Archive {FALLBACK_PURECLIENT_JAR_NAME} introuvable (lancez une mise à jour ou placez le mod dans mods/)."
+        "Archive {FALLBACK_PURECLIENT_JAR_NAME} introuvable (lancez une mise à jour dans l'onglet Système)."
     ))
 }
 
@@ -222,56 +251,136 @@ pub fn build_classpath(libraries_dir: &str) -> Result<String, String> {
     Ok(paths.join(";"))
 }
 
-pub fn sync_prism_instance_cfg(prefs: &LauncherPrefs) {
-    let Some(instance_root) = Path::new(&prefs.game_dir).parent() else {
+pub fn resolve_prism_instance_id(prefs: &LauncherPrefs) -> String {
+    if let Some(inst_root) = Path::new(&prefs.game_dir).parent() {
+        if is_real_prism_instance(inst_root) {
+            if let Some(name) = inst_root.file_name() {
+                return name.to_string_lossy().to_string();
+            }
+        }
+        if let Some(instances_dir) = inst_root.parent() {
+            if let Ok(entries) = std::fs::read_dir(instances_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() && is_real_prism_instance(&p) {
+                        let fname = entry.file_name().to_string_lossy().to_string();
+                        let mmc = std::fs::read_to_string(p.join("mmc-pack.json")).unwrap_or_default();
+                        if mmc.contains("1.8.9") || fname.contains("1.8.9") {
+                            return fname;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    "1.8.9 gemini fps".to_owned()
+}
+
+fn collect_watched_189_game_dirs(primary_game_dir: &str) -> Vec<PathBuf> {
+    let mut dirs = vec![PathBuf::from(primary_game_dir)];
+    if let Some(instances_dir) = Path::new(primary_game_dir)
+        .parent()
+        .and_then(|p| p.parent())
+    {
+        if let Ok(entries) = std::fs::read_dir(instances_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_dir() || !is_real_prism_instance(&p) {
+                    continue;
+                }
+                let mmc = std::fs::read_to_string(p.join("mmc-pack.json")).unwrap_or_default();
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if mmc.contains("1.8.9") || fname.contains("1.8.9") {
+                    let gdir = resolve_prism_instance_game_dir(&p);
+                    if !dirs.contains(&gdir) {
+                        dirs.push(gdir);
+                    }
+                }
+            }
+        }
+    }
+    dirs
+}
+
+pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: u32, screen_h: u32) {
+    let Some(instance_root) = instance_game_dir.parent() else {
         return;
     };
     let cfg_path = instance_root.join("instance.cfg");
     let Ok(existing) = std::fs::read_to_string(&cfg_path) else {
         return;
     };
+
     let mut updated_lines: Vec<String> = Vec::new();
     let mut saw_min = false;
     let mut saw_max = false;
+    let mut saw_override_win = false;
+    let mut saw_win_w = false;
+    let mut saw_win_h = false;
+
     for line in existing.lines() {
         if line.starts_with("MinMemAlloc=") {
-            updated_lines.push(format!("MinMemAlloc={}", prefs.ram_mb));
+            updated_lines.push(format!("MinMemAlloc={ram_mb}"));
             saw_min = true;
         } else if line.starts_with("MaxMemAlloc=") {
-            updated_lines.push(format!("MaxMemAlloc={}", prefs.ram_mb));
+            updated_lines.push(format!("MaxMemAlloc={ram_mb}"));
             saw_max = true;
+        } else if line.starts_with("OverrideWindow=") {
+            updated_lines.push("OverrideWindow=true".to_owned());
+            saw_override_win = true;
+        } else if line.starts_with("WindowWidth=") {
+            updated_lines.push(format!("WindowWidth={}", screen_w.max(854)));
+            saw_win_w = true;
+        } else if line.starts_with("WindowHeight=") {
+            updated_lines.push(format!("WindowHeight={}", screen_h.max(480)));
+            saw_win_h = true;
         } else {
             updated_lines.push(line.to_owned());
         }
     }
     if !saw_min {
-        updated_lines.push(format!("MinMemAlloc={}", prefs.ram_mb));
+        updated_lines.push(format!("MinMemAlloc={ram_mb}"));
     }
     if !saw_max {
-        updated_lines.push(format!("MaxMemAlloc={}", prefs.ram_mb));
+        updated_lines.push(format!("MaxMemAlloc={ram_mb}"));
+    }
+    if !saw_override_win {
+        updated_lines.push("OverrideWindow=true".to_owned());
+    }
+    if !saw_win_w {
+        updated_lines.push(format!("WindowWidth={}", screen_w.max(854)));
+    }
+    if !saw_win_h {
+        updated_lines.push(format!("WindowHeight={}", screen_h.max(480)));
     }
     let _ = std::fs::write(&cfg_path, updated_lines.join("\n") + "\n");
 }
 
-fn spawn_menu_ready_watcher(
-    game_dir: String,
+fn spawn_display_ready_watcher(
+    watched_game_dirs: Vec<PathBuf>,
     proxy: EventLoopProxy<AppEvent>,
     stop_flag: Arc<AtomicBool>,
-    fallback_reveal_after_timeout: bool,
 ) {
     std::thread::spawn(move || {
-        let ready_path = Path::new(&game_dir).join("config").join(".purefps_menu_ready");
         let start = Instant::now();
-        let timeout = Duration::from_secs(45);
+        let timeout = Duration::from_secs(9);
         while !stop_flag.load(Ordering::Relaxed) && start.elapsed() < timeout {
-            if ready_path.is_file() {
-                let _ = std::fs::remove_file(&ready_path);
-                let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
-                return;
+            for dir in &watched_game_dirs {
+                let cfg = dir.join("config");
+                let disp_ready = cfg.join(".purefps_display_ready");
+                let menu_ready = cfg.join(".purefps_menu_ready");
+                if disp_ready.is_file() || menu_ready.is_file() {
+                    let _ = std::fs::remove_file(&disp_ready);
+                    let _ = std::fs::remove_file(&menu_ready);
+                    stop_flag.store(true, Ordering::Relaxed);
+                    let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
+                    return;
+                }
             }
-            std::thread::sleep(Duration::from_millis(40));
+            std::thread::sleep(Duration::from_millis(25));
         }
-        if fallback_reveal_after_timeout && !stop_flag.load(Ordering::Relaxed) {
+        // Sécurité absolue : ne bloque jamais l'écran indéfiniment même si une instance externe est lancée
+        if !stop_flag.load(Ordering::Relaxed) {
             let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
         }
     });
@@ -291,6 +400,8 @@ pub fn run_direct_jvm_blocking(
     if !Path::new(&prefs.java_path).is_file() {
         return Err(format!("Java introuvable : {}", prefs.java_path));
     }
+
+    auto_fetch_mod_jar_if_needed(&prefs, &proxy);
 
     let jar_msg = sync_pureclient_jar(&prefs.game_dir)?;
     let _ = proxy.send_event(AppEvent::LogLine(format!("[PureLauncher] {jar_msg}")));
@@ -377,11 +488,10 @@ pub fn run_direct_jvm_blocking(
     let _ = proxy.send_event(AppEvent::GameRunning(true));
 
     let stop_watcher = Arc::new(AtomicBool::new(false));
-    spawn_menu_ready_watcher(
-        prefs.game_dir.clone(),
+    spawn_display_ready_watcher(
+        vec![PathBuf::from(&prefs.game_dir)],
         proxy.clone(),
         Arc::clone(&stop_watcher),
-        false,
     );
 
     if let Some(stdout) = child.stdout.take() {
@@ -390,9 +500,20 @@ pub fn run_direct_jvm_blocking(
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
-                if line.contains("[PureClient-Ready] MENU_ACTIVE") {
+                if line.contains("[PureClient-Ready] DISPLAY_CREATED")
+                    || line.contains("[PureClient-Ready] MENU_ACTIVE")
+                {
                     stop_on_ready.store(true, Ordering::Relaxed);
                     let _ = p_out.send_event(AppEvent::MinecraftMenuReady);
+                } else if line.contains("LWJGL Version:") && !stop_on_ready.load(Ordering::Relaxed) {
+                    let p_fallback = p_out.clone();
+                    let flag_clone = Arc::clone(&stop_on_ready);
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(650));
+                        if !flag_clone.swap(true, Ordering::Relaxed) {
+                            let _ = p_fallback.send_event(AppEvent::MinecraftMenuReady);
+                        }
+                    });
                 }
                 let _ = p_out.send_event(AppEvent::LogLine(line));
             }
@@ -418,25 +539,58 @@ pub fn run_direct_jvm_blocking(
     Ok(())
 }
 
-pub fn spawn_prism_bridge_sync(
+pub fn prepare_prism_bridge_files(
     prefs: &LauncherPrefs,
+    screen_w: u32,
+    screen_h: u32,
     proxy: &EventLoopProxy<AppEvent>,
-) -> Result<(), String> {
+) -> Result<(String, Vec<PathBuf>), String> {
     if !Path::new(&prefs.prism_exe).is_file() {
         return Err(format!("PrismLauncher introuvable : {}", prefs.prism_exe));
     }
-    let jar_msg = sync_pureclient_jar(&prefs.game_dir)?;
-    let _ = proxy.send_event(AppEvent::LogLine(format!("[PureLauncher] {jar_msg}")));
-    sync_prism_instance_cfg(prefs);
-    prepare_seamless_launch_files(&prefs.game_dir);
 
+    auto_fetch_mod_jar_if_needed(prefs, proxy);
+
+    let instance_id = resolve_prism_instance_id(prefs);
+    let watched_dirs = collect_watched_189_game_dirs(&prefs.game_dir);
+
+    let mut synced_any = false;
+    let mut last_err = String::new();
+    for gdir in &watched_dirs {
+        let gdir_str = gdir.to_string_lossy();
+        match sync_pureclient_jar(&gdir_str) {
+            Ok(msg) => {
+                if !synced_any {
+                    let _ = proxy.send_event(AppEvent::LogLine(format!("[PureLauncher] {msg}")));
+                }
+                synced_any = true;
+            }
+            Err(e) => last_err = e,
+        }
+        sync_prism_instance_cfg(gdir, prefs.ram_mb, screen_w, screen_h);
+        prepare_seamless_launch_files(&gdir_str);
+    }
+
+    if !synced_any && !last_err.is_empty() {
+        return Err(last_err);
+    }
+
+    Ok((instance_id, watched_dirs))
+}
+
+pub fn spawn_prism_bridge_now(
+    prefs: &LauncherPrefs,
+    instance_id: &str,
+    watched_dirs: Vec<PathBuf>,
+    proxy: &EventLoopProxy<AppEvent>,
+) -> Result<(), String> {
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[PureLauncher] Pont Singularity Prism : lancement de '1.8.9 gemini fps' ({} MiB RAM)...",
-        prefs.ram_mb
+        "[PureLauncher] Pont Singularity Prism : lancement de '{}' ({} MiB RAM)...",
+        instance_id, prefs.ram_mb
     )));
 
     let mut cmd = Command::new(&prefs.prism_exe);
-    cmd.arg("--launch").arg("1.8.9 gemini fps");
+    cmd.arg("--launch").arg(instance_id);
     if prefs.quick_join_hypixel {
         cmd.arg("--server").arg("mc.hypixel.net");
     }
@@ -445,7 +599,7 @@ pub fn spawn_prism_bridge_sync(
         .map_err(|e| format!("Échec lancement PrismLauncher : {e}"))?;
 
     let stop_watcher = Arc::new(AtomicBool::new(false));
-    spawn_menu_ready_watcher(prefs.game_dir.clone(), proxy.clone(), stop_watcher, true);
+    spawn_display_ready_watcher(watched_dirs, proxy.clone(), stop_watcher);
     Ok(())
 }
 

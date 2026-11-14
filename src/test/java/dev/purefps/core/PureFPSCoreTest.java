@@ -623,14 +623,16 @@ public class PureFPSCoreTest {
             assertTrue(ready.isFile());
             assertFalse(handoff.exists());
 
-            // Milieu de l'émergence (~425 ms sur 850 ms -> ease-out cubique ~ (0.5)^3 * 255 = 32)
-            int midAlpha = SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow + 16L + 425L);
+            // Milieu de l'émergence (~325 ms sur 650 ms -> ease-out cubique ~ (0.5)^3 * 255 = 32)
+            int midAlpha = SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow + 16L + 325L);
             assertTrue(midAlpha > 20 && midAlpha < 50);
 
-            // Fin de l'émergence (>= 850 ms) -> alpha = 0 et court-circuit définitif
-            assertEquals(0, SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow + 16L + 900L));
+            // Fin de l'émergence (>= 650 ms) -> alpha = 0 et court-circuit définitif
+            assertEquals(0, SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow + 16L + 700L));
             assertEquals(0, SeamlessLaunchTransition.computeMenuCurtainAlphaAt(tmpMc, freshNow + 16L + 2000L));
         } finally {
+            //noinspection ResultOfMethodCallIgnored
+            new File(cfgDir, SeamlessLaunchTransition.DISPLAY_READY_FILE_NAME).delete();
             //noinspection ResultOfMethodCallIgnored
             ready.delete();
             //noinspection ResultOfMethodCallIgnored
@@ -640,6 +642,55 @@ public class PureFPSCoreTest {
             //noinspection ResultOfMethodCallIgnored
             tmpMc.delete();
             SeamlessLaunchTransition.resetForTest();
+        }
+    }
+
+    @Test
+    public void testBlackHoleEmergenceTimelineAndSplashSuppression() throws Exception {
+        File tmpMc = new File(System.getProperty("java.io.tmpdir"), "purefps_bh_splash_test_" + System.nanoTime());
+        File cfgDir = new File(tmpMc, "config");
+        File splash = new File(cfgDir, "splash.properties");
+        try {
+            // 1. Désactivation garantie du SplashProgress blanc de Forge dès startGame HEAD
+            SeamlessLaunchTransition.ensureForgeWhiteSplashDisabled(tmpMc);
+            assertTrue(splash.isFile());
+            java.util.Properties props = new java.util.Properties();
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(splash)) {
+                props.load(fis);
+            }
+            assertEquals("false", props.getProperty("enabled"));
+
+            // 2. Continuité monotone de la sortie du Trou Noir (Mojang startup -> GuiPureMainMenu 120 FPS)
+            BlackHoleEmergenceRenderer.resetTimelineForTest();
+            float s0 = BlackHoleEmergenceRenderer.computeStartupEmergence(0.0F, 0.0F);
+            float s1 = BlackHoleEmergenceRenderer.computeStartupEmergence(0.18F, 0.8F);
+            float s2 = BlackHoleEmergenceRenderer.computeStartupEmergence(0.45F, 2.5F);
+            float sCap = BlackHoleEmergenceRenderer.computeStartupEmergence(0.95F, 20.0F);
+            assertEquals(0.0F, s0, 1e-5F);
+            assertTrue(s1 >= 0.18F && s2 > s1);
+            assertEquals(0.58F, sCap, 1e-4F);
+
+            // Premier frame du menu : reprend sans saut puis converge vers 1.0 (orbite complète)
+            float m0 = BlackHoleEmergenceRenderer.advanceMenuEmergenceAt(10_000L);
+            assertEquals(0.18F, m0, 1e-4F);
+            assertEquals(0.0F, BlackHoleEmergenceRenderer.computeMenuUiAlpha(m0), 1e-4F);
+
+            float mMid = BlackHoleEmergenceRenderer.advanceMenuEmergenceAt(11_025L);
+            assertTrue(mMid > 0.80F && mMid < 0.99F);
+            float uiMid = BlackHoleEmergenceRenderer.computeMenuUiAlpha(mMid);
+            assertTrue(uiMid > 0.50F && uiMid < 1.0F);
+
+            float mEnd = BlackHoleEmergenceRenderer.advanceMenuEmergenceAt(12_200L);
+            assertEquals(1.0F, mEnd, 1e-5F);
+            assertEquals(1.0F, BlackHoleEmergenceRenderer.computeMenuUiAlpha(mEnd), 1e-5F);
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            splash.delete();
+            //noinspection ResultOfMethodCallIgnored
+            cfgDir.delete();
+            //noinspection ResultOfMethodCallIgnored
+            tmpMc.delete();
+            BlackHoleEmergenceRenderer.resetTimelineForTest();
         }
     }
 }

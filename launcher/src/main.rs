@@ -1,10 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! PureClient 3.5 — Singularity Edition Native Desktop Launcher (WebView2 `tao` + `wry`)
+//! PureClient 3.6 — Singularity Edition Native Desktop Launcher (WebView2 `tao` + `wry`)
 //! - Rendu temps-réel WebGL2 d'un Trou Noir relativiste (lentille gravitationnelle de Schwarzschild + disque Doppler)
-//! - Transition cinématique sans changement de fenêtre visible : aspiration dans l'Horizon des Événements ->
-//!   plein écran noir sans bordure (#000000) -> émergence directe sur le menu PureClient 1.8.9.
-//! - Connexion Microsoft OAuth2 Device Code 1-clic (`microsoft.com/link` + détection auto)
+//! - Transition cinématique sans changement de fenêtre visible et sans jamais bloquer Alt-Tab :
+//!   aspiration dans l'Horizon des Événements -> ouverture de Minecraft sans bordure à (0, 0) ->
+//!   remplacement de l'écran "Mojang" par la caméra du joueur qui sort du Trou Noir.
 
 mod auth;
 mod config;
@@ -21,26 +21,43 @@ use config::{
     LaunchMode, LauncherPrefs, MicrosoftAccount, PublicAccountView, PureClientSettings,
     PureProfile,
 };
-use runner::{offline_uuid_hex, run_direct_jvm_blocking, spawn_prism_bridge_sync};
+use runner::{
+    auto_fetch_mod_jar_if_needed, offline_uuid_hex, prepare_prism_bridge_files,
+    run_direct_jvm_blocking, spawn_prism_bridge_now,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tao::dpi::{LogicalSize, Size};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::window::{Fullscreen, Window, WindowBuilder};
 use updater::{
     check_for_updates, cleanup_old_launcher_binary, download_and_install_update, format_semver,
-    installed_mod_version, restart_launcher_process, sanitize_repo, InstallOutcome, PendingUpdate,
-    UiUpdateView, UpdateCheckOutcome,
+    installed_mod_version, parse_semver, restart_launcher_process, sanitize_repo, InstallOutcome,
+    PendingUpdate, UiUpdateView, UpdateCheckOutcome, LAUNCHER_VERSION,
 };
 use wry::WebViewBuilder;
 
 const UI_HTML: &str = include_str!("ui.html");
+
+#[cfg(windows)]
+fn allow_any_foreground_window() {
+    #[link(name = "user32")]
+    extern "system" {
+        fn AllowSetForegroundWindow(dwProcessId: u32) -> i32;
+    }
+    unsafe {
+        let _ = AllowSetForegroundWindow(0xFFFF_FFFF);
+    }
+}
+
+#[cfg(not(windows))]
+fn allow_any_foreground_window() {}
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -56,12 +73,17 @@ pub enum AppEvent {
         message: String,
     },
     UpdateInstalled(Result<InstallOutcome, String>),
+    PreLaunchModSynced,
     GameRunning(bool),
     MinecraftMenuReady,
-    RevealMinecraftNow,
+    RevealMinecraftNow(u64),
+    CurtainSafetyTimeout(u64),
     LaunchAborted(String),
     LogLine(String),
-    Toast { message: String, is_error: bool },
+    Toast {
+        message: String,
+        is_error: bool,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +106,12 @@ enum IpcCommand {
     },
     SetOfflineName {
         name: String,
+    },
+    SetJavaPath {
+        path: String,
+    },
+    SetGameDir {
+        path: String,
     },
     SetLaunchMode {
         mode: LaunchMode,
@@ -140,10 +168,14 @@ struct Controller {
     settings: PureClientSettings,
     account: Option<MicrosoftAccount>,
     game_running: bool,
+    prelaunch_syncing: bool,
+    curtain_id: u64,
     curtain_active: bool,
+    curtain_entered_at: Option<Instant>,
     plunge_darkness_reached: bool,
     mc_menu_ready: bool,
     handoff_dispatched: bool,
+    deferred_prism_launch: Option<(String, Vec<PathBuf>)>,
     active_challenge: Option<DeviceCodeChallenge>,
     auth_cancel: Arc<AtomicBool>,
     update_view: UiUpdateView,
@@ -165,10 +197,14 @@ impl Controller {
             settings,
             account,
             game_running: false,
+            prelaunch_syncing: false,
+            curtain_id: 0,
             curtain_active: false,
+            curtain_entered_at: None,
             plunge_darkness_reached: false,
             mc_menu_ready: false,
             handoff_dispatched: false,
+            deferred_prism_launch: None,
             active_challenge: None,
             auth_cancel: Arc::new(AtomicBool::new(false)),
             update_view,
@@ -257,25 +293,98 @@ impl Controller {
     }
 
     fn enter_singularity_curtain(&mut self, window: &Window, webview: &wry::WebView) {
+        self.curtain_id = self.curtain_id.wrapping_add(1);
         self.curtain_active = true;
+        self.curtain_entered_at = Some(Instant::now());
         self.plunge_darkness_reached = false;
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
 
+        // IMPORTANT : aucun `set_always_on_top(true)` !
+        // Le plein écran sans bordure couvre la barre des tâches tant qu'il a le focus,
+        // tout en laissant Alt-Tab fonctionner naturellement et en laissant la fenêtre
+        // OpenGL de Minecraft s'ouvrir directement devant lui à (0, 0).
+        window.set_always_on_top(false);
+        window.set_minimized(false);
+        window.set_visible(true);
         window.set_fullscreen(Some(Fullscreen::Borderless(None)));
-        window.set_always_on_top(true);
         window.set_cursor_visible(false);
+        window.set_focus();
+        allow_any_foreground_window();
         Self::push_plunge_command(webview, "start");
     }
 
-    fn restore_normal_window(&mut self, window: &Window, webview: &wry::WebView) {
+    /// Retire proprement le plein écran WebView2 et réduit le Launcher dans la barre des tâches
+    /// pendant que la fenêtre OpenGL #000000 de Minecraft prend sa place à (0, 0).
+    fn dismiss_curtain_for_game(&mut self, window: &Window, webview: &wry::WebView) {
+        if !self.curtain_active {
+            return;
+        }
+        self.curtain_id = self.curtain_id.wrapping_add(1);
         self.curtain_active = false;
+        self.curtain_entered_at = None;
+        self.plunge_darkness_reached = false;
+        self.mc_menu_ready = false;
+        self.handoff_dispatched = false;
+        self.deferred_prism_launch = None;
+
+        window.set_always_on_top(false);
+        window.set_cursor_visible(true);
+        window.set_fullscreen(None);
+        window.set_minimized(true);
+        Self::push_plunge_command(webview, "reset");
+    }
+
+    /// Appelé dès que l'utilisateur fait Alt-Tab vers une autre application (ou que Minecraft
+    /// prend le focus au premier plan) : quitte immédiatement le plein écran sans voler le focus !
+    fn dismiss_curtain_on_focus_loss(
+        &mut self,
+        window: &Window,
+        webview: &wry::WebView,
+        proxy: &EventLoopProxy<AppEvent>,
+    ) {
+        if !self.curtain_active {
+            return;
+        }
+        if let Some(entered) = self.curtain_entered_at {
+            if entered.elapsed() < Duration::from_millis(320) {
+                return;
+            }
+        }
+
+        let should_minimize = self.plunge_darkness_reached || self.game_running;
+        if let Some((inst_id, watched_dirs)) = self.deferred_prism_launch.take() {
+            let _ = spawn_prism_bridge_now(&self.prefs, &inst_id, watched_dirs, proxy);
+        }
+
+        self.curtain_id = self.curtain_id.wrapping_add(1);
+        self.curtain_active = false;
+        self.curtain_entered_at = None;
         self.plunge_darkness_reached = false;
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
 
         window.set_always_on_top(false);
+        window.set_cursor_visible(true);
         window.set_fullscreen(None);
+        if should_minimize {
+            window.set_minimized(true);
+        }
+        Self::push_plunge_command(webview, "reset");
+    }
+
+    fn restore_normal_window(&mut self, window: &Window, webview: &wry::WebView) {
+        self.curtain_id = self.curtain_id.wrapping_add(1);
+        self.curtain_active = false;
+        self.curtain_entered_at = None;
+        self.plunge_darkness_reached = false;
+        self.mc_menu_ready = false;
+        self.handoff_dispatched = false;
+        self.deferred_prism_launch = None;
+
+        window.set_always_on_top(false);
+        window.set_fullscreen(None);
+        window.set_minimized(false);
         window.set_cursor_visible(true);
         window.set_visible(true);
         window.set_focus();
@@ -289,11 +398,11 @@ impl Controller {
             && !self.handoff_dispatched
         {
             self.handoff_dispatched = true;
+            let expected_id = self.curtain_id;
             let p = proxy.clone();
             std::thread::spawn(move || {
-                // Laisse 55 ms au compositeur DWM pour valider le tampon OpenGL #000000 de Minecraft
-                std::thread::sleep(Duration::from_millis(55));
-                let _ = p.send_event(AppEvent::RevealMinecraftNow);
+                std::thread::sleep(Duration::from_millis(35));
+                let _ = p.send_event(AppEvent::RevealMinecraftNow(expected_id));
             });
         }
     }
@@ -307,6 +416,91 @@ fn current_monitor_resolution(window: &Window) -> (u32, u32) {
         }
     }
     (1920, 1080)
+}
+
+fn begin_singularity_launch_now(
+    ctrl: &mut Controller,
+    window: &Window,
+    webview: &wry::WebView,
+    proxy: &EventLoopProxy<AppEvent>,
+) {
+    let _ = ctrl.settings.save_to_game_dir(&ctrl.prefs.game_dir);
+    let _ = save_launcher_prefs(&ctrl.prefs);
+
+    let (screen_w, screen_h) = current_monitor_resolution(window);
+
+    match ctrl.prefs.launch_mode {
+        LaunchMode::PrismBridge => {
+            match prepare_prism_bridge_files(&ctrl.prefs, screen_w, screen_h, proxy) {
+                Ok((inst_id, watched_dirs)) => {
+                    // En mode PrismBridge, on lance prismlauncher.exe dès que le plongeon caméra
+                    // atteint le noir (#000000) pour que la fenêtre Prism n'interrompe pas l'animation !
+                    ctrl.deferred_prism_launch = Some((inst_id, watched_dirs));
+                    ctrl.enter_singularity_curtain(window, webview);
+                }
+                Err(e) => {
+                    Controller::push_toast(webview, &e, true);
+                }
+            }
+        }
+        LaunchMode::DirectMicrosoft => {
+            let Some(acc) = ctrl.account.clone() else {
+                Controller::push_toast(
+                    webview,
+                    "Connectez d'abord votre compte Microsoft en haut à droite.",
+                    true,
+                );
+                return;
+            };
+            ctrl.enter_singularity_curtain(window, webview);
+            let prefs_clone = ctrl.prefs.clone();
+            let p = proxy.clone();
+            std::thread::spawn(move || {
+                let active_acc = match refresh_microsoft_session(&acc) {
+                    Ok(fresh) => {
+                        let _ = save_microsoft_account(&fresh);
+                        fresh
+                    }
+                    Err(_) => acc,
+                };
+                allow_any_foreground_window();
+                if let Err(e) = run_direct_jvm_blocking(
+                    prefs_clone,
+                    active_acc.username,
+                    active_acc.uuid,
+                    active_acc.access_token,
+                    "msa".to_owned(),
+                    screen_w,
+                    screen_h,
+                    p.clone(),
+                ) {
+                    let _ = p.send_event(AppEvent::LaunchAborted(e));
+                }
+            });
+        }
+        LaunchMode::DirectOffline => {
+            ctrl.enter_singularity_curtain(window, webview);
+            let prefs_clone = ctrl.prefs.clone();
+            let uname = prefs_clone.offline_username.clone();
+            let uuid = offline_uuid_hex(&uname);
+            let p = proxy.clone();
+            std::thread::spawn(move || {
+                allow_any_foreground_window();
+                if let Err(e) = run_direct_jvm_blocking(
+                    prefs_clone,
+                    uname,
+                    uuid,
+                    "0".to_owned(),
+                    "legacy".to_owned(),
+                    screen_w,
+                    screen_h,
+                    p.clone(),
+                ) {
+                    let _ = p.send_event(AppEvent::LaunchAborted(e));
+                }
+            });
+        }
+    }
 }
 
 fn handle_ipc(
@@ -375,6 +569,39 @@ fn handle_ipc(
                 ctrl.push_full_state(webview);
             }
         }
+        IpcCommand::SetJavaPath { path } => {
+            let clean = path.trim();
+            if !clean.is_empty() {
+                ctrl.prefs.java_path = clean.to_owned();
+                let _ = save_launcher_prefs(&ctrl.prefs);
+                ctrl.push_full_state(webview);
+            }
+        }
+        IpcCommand::SetGameDir { path } => {
+            let clean = path.trim();
+            if !clean.is_empty() {
+                ctrl.prefs.game_dir = clean.to_owned();
+                let p = Path::new(clean);
+                if p.join("libraries").is_dir() && p.join("assets").is_dir() {
+                    ctrl.prefs.libraries_dir = p.join("libraries").to_string_lossy().to_string();
+                    ctrl.prefs.assets_dir = p.join("assets").to_string_lossy().to_string();
+                } else if let Some(prism_root) =
+                    p.parent().and_then(|i| i.parent()).and_then(|r| r.parent())
+                {
+                    if prism_root.join("libraries").is_dir() {
+                        ctrl.prefs.libraries_dir =
+                            prism_root.join("libraries").to_string_lossy().to_string();
+                        ctrl.prefs.assets_dir =
+                            prism_root.join("assets").to_string_lossy().to_string();
+                    }
+                }
+                ctrl.settings = PureClientSettings::load_from_game_dir(&ctrl.prefs.game_dir);
+                ctrl.update_view.installed_jar_version =
+                    installed_mod_version(&ctrl.prefs.game_dir).map(format_semver);
+                let _ = save_launcher_prefs(&ctrl.prefs);
+                ctrl.push_full_state(webview);
+            }
+        }
         IpcCommand::SetLaunchMode { mode } => {
             ctrl.prefs.launch_mode = mode;
             let _ = save_launcher_prefs(&ctrl.prefs);
@@ -418,7 +645,11 @@ fn handle_ipc(
         IpcCommand::RefreshMs => {
             if let Some(existing) = ctrl.account.clone() {
                 let p = proxy.clone();
-                Controller::push_toast(webview, "Rafraîchissement de la session Microsoft...", false);
+                Controller::push_toast(
+                    webview,
+                    "Rafraîchissement de la session Microsoft...",
+                    false,
+                );
                 std::thread::spawn(move || {
                     let res = refresh_microsoft_session(&existing);
                     let _ = p.send_event(AppEvent::AuthCompleted(res));
@@ -464,66 +695,77 @@ fn handle_ipc(
                 let _ = p.send_event(AppEvent::UpdateInstalled(res));
             });
         }
-        IpcCommand::RestartLauncher => {
-            match restart_launcher_process() {
-                Ok(()) => {
-                    ctrl.auth_cancel.store(true, Ordering::Relaxed);
-                    return true;
-                }
-                Err(e) => {
-                    Controller::push_toast(webview, &e, true);
-                }
+        IpcCommand::RestartLauncher => match restart_launcher_process() {
+            Ok(()) => {
+                ctrl.auth_cancel.store(true, Ordering::Relaxed);
+                return true;
             }
-        }
+            Err(e) => {
+                Controller::push_toast(webview, &e, true);
+            }
+        },
         IpcCommand::SetAutoUpdate { enabled } => {
             ctrl.prefs.auto_update_check = enabled;
             let _ = save_launcher_prefs(&ctrl.prefs);
             ctrl.push_full_state(webview);
         }
-        IpcCommand::SetGithubRepo { repo } => {
-            match sanitize_repo(&repo) {
-                Ok(clean_repo) => {
-                    ctrl.prefs.github_repo = clean_repo;
-                    let _ = save_launcher_prefs(&ctrl.prefs);
-                    ctrl.push_full_state(webview);
-                    ctrl.spawn_update_check(true, webview, proxy);
-                }
-                Err(e) => {
-                    Controller::push_toast(webview, &e, true);
-                }
+        IpcCommand::SetGithubRepo { repo } => match sanitize_repo(&repo) {
+            Ok(clean_repo) => {
+                ctrl.prefs.github_repo = clean_repo;
+                let _ = save_launcher_prefs(&ctrl.prefs);
+                ctrl.push_full_state(webview);
+                ctrl.spawn_update_check(true, webview, proxy);
             }
-        }
-        IpcCommand::SaveGithubToken { token } => {
-            match save_custom_github_token(&token) {
-                Ok(()) => {
-                    let msg = if token.trim().is_empty() {
-                        "Jeton personnalisé effacé (utilisation du jeton embarqué)."
-                    } else {
-                        "Jeton GitHub Read-Only enregistré localement."
-                    };
-                    Controller::push_toast(webview, msg, false);
-                    ctrl.push_full_state(webview);
-                    ctrl.spawn_update_check(true, webview, proxy);
-                }
-                Err(e) => {
-                    Controller::push_toast(webview, &format!("Erreur sauvegarde jeton: {e}"), true);
-                }
+            Err(e) => {
+                Controller::push_toast(webview, &e, true);
             }
-        }
+        },
+        IpcCommand::SaveGithubToken { token } => match save_custom_github_token(&token) {
+            Ok(()) => {
+                let msg = if token.trim().is_empty() {
+                    "Jeton personnalisé effacé (utilisation du jeton embarqué)."
+                } else {
+                    "Jeton GitHub Read-Only enregistré localement."
+                };
+                Controller::push_toast(webview, msg, false);
+                ctrl.push_full_state(webview);
+                ctrl.spawn_update_check(true, webview, proxy);
+            }
+            Err(e) => {
+                Controller::push_toast(webview, &format!("Erreur sauvegarde jeton: {e}"), true);
+            }
+        },
         IpcCommand::PlungeDarknessReached => {
             ctrl.plunge_darkness_reached = true;
+            allow_any_foreground_window();
+
+            if let Some((inst_id, watched_dirs)) = ctrl.deferred_prism_launch.take() {
+                if let Err(e) = spawn_prism_bridge_now(&ctrl.prefs, &inst_id, watched_dirs, proxy) {
+                    ctrl.restore_normal_window(window, webview);
+                    Controller::push_toast(webview, &e, true);
+                    return false;
+                }
+            }
+
             ctrl.try_schedule_seamless_handoff(proxy);
+
+            // Garde-fou matériel absolu : le rideau noir ne peut JAMAIS rester plus de 3.2s après le plongeon !
+            let expected_id = ctrl.curtain_id;
+            let p_safety = proxy.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(3200));
+                let _ = p_safety.send_event(AppEvent::CurtainSafetyTimeout(expected_id));
+            });
         }
         IpcCommand::AbortLaunchCurtain => {
             ctrl.restore_normal_window(window, webview);
         }
         IpcCommand::LaunchGame => {
-            if ctrl.game_running || ctrl.curtain_active {
+            if ctrl.game_running || ctrl.curtain_active || ctrl.prelaunch_syncing {
                 Controller::push_toast(webview, "Séquence de lancement déjà active.", false);
                 return false;
             }
 
-            // Validation préalable avant de basculer en plein écran Trou Noir
             if ctrl.prefs.launch_mode == LaunchMode::DirectMicrosoft && ctrl.account.is_none() {
                 Controller::push_toast(
                     webview,
@@ -553,68 +795,27 @@ fn handle_ipc(
                 return false;
             }
 
-            let _ = ctrl.settings.save_to_game_dir(&ctrl.prefs.game_dir);
-            let _ = save_launcher_prefs(&ctrl.prefs);
+            // Si le mod purefps-*.jar n'est pas encore à la version du Launcher, on le synchronise
+            // AVANT de lancer l'aspiration caméra dans le Trou Noir !
+            let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((3, 6, 0));
+            let mod_up_to_date = installed_mod_version(&ctrl.prefs.game_dir)
+                .is_some_and(|cur| cur >= launcher_ver);
 
-            let (screen_w, screen_h) = current_monitor_resolution(window);
-            ctrl.enter_singularity_curtain(window, webview);
-
-            match ctrl.prefs.launch_mode {
-                LaunchMode::PrismBridge => {
-                    if let Err(e) = spawn_prism_bridge_sync(&ctrl.prefs, proxy) {
-                        ctrl.restore_normal_window(window, webview);
-                        Controller::push_toast(webview, &e, true);
-                    }
-                }
-                LaunchMode::DirectMicrosoft => {
-                    let Some(acc) = ctrl.account.clone() else {
-                        ctrl.restore_normal_window(window, webview);
-                        return false;
-                    };
-                    let prefs_clone = ctrl.prefs.clone();
-                    let p = proxy.clone();
-                    std::thread::spawn(move || {
-                        let active_acc = match refresh_microsoft_session(&acc) {
-                            Ok(fresh) => {
-                                let _ = save_microsoft_account(&fresh);
-                                fresh
-                            }
-                            Err(_) => acc,
-                        };
-                        if let Err(e) = run_direct_jvm_blocking(
-                            prefs_clone,
-                            active_acc.username,
-                            active_acc.uuid,
-                            active_acc.access_token,
-                            "msa".to_owned(),
-                            screen_w,
-                            screen_h,
-                            p.clone(),
-                        ) {
-                            let _ = p.send_event(AppEvent::LaunchAborted(e));
-                        }
-                    });
-                }
-                LaunchMode::DirectOffline => {
-                    let prefs_clone = ctrl.prefs.clone();
-                    let uname = prefs_clone.offline_username.clone();
-                    let uuid = offline_uuid_hex(&uname);
-                    let p = proxy.clone();
-                    std::thread::spawn(move || {
-                        if let Err(e) = run_direct_jvm_blocking(
-                            prefs_clone,
-                            uname,
-                            uuid,
-                            "0".to_owned(),
-                            "legacy".to_owned(),
-                            screen_w,
-                            screen_h,
-                            p.clone(),
-                        ) {
-                            let _ = p.send_event(AppEvent::LaunchAborted(e));
-                        }
-                    });
-                }
+            if !mod_up_to_date {
+                ctrl.prelaunch_syncing = true;
+                Controller::push_toast(
+                    webview,
+                    "Synchronisation automatique du mod PureClient Singularity...",
+                    false,
+                );
+                let prefs_clone = ctrl.prefs.clone();
+                let p = proxy.clone();
+                std::thread::spawn(move || {
+                    auto_fetch_mod_jar_if_needed(&prefs_clone, &p);
+                    let _ = p.send_event(AppEvent::PreLaunchModSynced);
+                });
+            } else {
+                begin_singularity_launch_now(ctrl, window, webview, proxy);
             }
         }
     }
@@ -661,6 +862,16 @@ fn main() -> wry::Result<()> {
                 ctrl.auth_cancel.store(true, Ordering::Relaxed);
                 *control_flow = ControlFlow::Exit;
             }
+            Event::WindowEvent {
+                event: WindowEvent::Focused(false),
+                ..
+            } => {
+                // Garantit que Alt-Tab vers n'importe quelle application (ou l'ouverture de Minecraft
+                // au premier plan) retire immédiatement le rideau plein écran sans jamais bloquer l'écran !
+                if ctrl.curtain_active {
+                    ctrl.dismiss_curtain_on_focus_loss(&window, &webview, &proxy);
+                }
+            }
             Event::UserEvent(app_evt) => match app_evt {
                 AppEvent::IpcRaw(raw) => {
                     if let Ok(cmd) = serde_json::from_str::<IpcCommand>(&raw) {
@@ -668,6 +879,13 @@ fn main() -> wry::Result<()> {
                             *control_flow = ControlFlow::Exit;
                         }
                     }
+                }
+                AppEvent::PreLaunchModSynced => {
+                    ctrl.prelaunch_syncing = false;
+                    ctrl.update_view.installed_jar_version =
+                        installed_mod_version(&ctrl.prefs.game_dir).map(format_semver);
+                    ctrl.push_full_state(&webview);
+                    begin_singularity_launch_now(&mut ctrl, &window, &webview, &proxy);
                 }
                 AppEvent::DeviceCodeStarted(res) => match res {
                     Ok(challenge) => {
@@ -727,7 +945,9 @@ fn main() -> wry::Result<()> {
                                 format!("PureClient est à jour (v{latest_version}).");
                             Controller::push_log(
                                 &webview,
-                                &format!("[Auto-Updater] À jour sur GitHub Releases (v{latest_version})."),
+                                &format!(
+                                    "[Auto-Updater] À jour sur GitHub Releases (v{latest_version})."
+                                ),
                             );
                             if manual {
                                 Controller::push_toast(
@@ -767,8 +987,8 @@ fn main() -> wry::Result<()> {
                             let ver = plan.version.clone();
                             ctrl.update_view.status = "available".to_owned();
                             ctrl.update_view.latest_version = Some(ver.clone());
-                            ctrl.update_view.release_notes = Some(plan.body.clone())
-                                .filter(|s| !s.trim().is_empty());
+                            ctrl.update_view.release_notes =
+                                Some(plan.body.clone()).filter(|s| !s.trim().is_empty());
                             ctrl.update_view.has_exe_update = plan.exe_asset.is_some();
                             ctrl.update_view.has_jar_update = plan.jar_asset.is_some();
                             ctrl.update_view.download_percent = 0;
@@ -816,7 +1036,9 @@ fn main() -> wry::Result<()> {
                             if let Some(ref jar_name) = outcome.jar_installed {
                                 Controller::push_log(
                                     &webview,
-                                    &format!("[Auto-Updater] Archive {jar_name} déployée dans mods/."),
+                                    &format!(
+                                        "[Auto-Updater] Archive {jar_name} déployée dans mods/."
+                                    ),
                                 );
                             }
                             if outcome.exe_staged_for_restart {
@@ -843,7 +1065,10 @@ fn main() -> wry::Result<()> {
                                 );
                                 Controller::push_toast(
                                     &webview,
-                                    &format!("Mod PureClient v{} mis à jour avec succès !", outcome.version),
+                                    &format!(
+                                        "Mod PureClient v{} mis à jour avec succès !",
+                                        outcome.version
+                                    ),
                                     false,
                                 );
                             }
@@ -862,7 +1087,7 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::GameRunning(running) => {
                     ctrl.game_running = running;
-                    if !running && (ctrl.curtain_active || !window.is_visible()) {
+                    if !running && (ctrl.curtain_active || window.is_minimized() || !window.is_visible()) {
                         ctrl.restore_normal_window(&window, &webview);
                     }
                     ctrl.push_full_state(&webview);
@@ -871,11 +1096,14 @@ fn main() -> wry::Result<()> {
                     ctrl.mc_menu_ready = true;
                     ctrl.try_schedule_seamless_handoff(&proxy);
                 }
-                AppEvent::RevealMinecraftNow => {
-                    if ctrl.curtain_active {
-                        // Masque instantanément le rideau #000000 au-dessus du menu #000000 de Minecraft déjà ouvert à (0, 0)
-                        window.set_always_on_top(false);
-                        window.set_visible(false);
+                AppEvent::RevealMinecraftNow(id) => {
+                    if ctrl.curtain_active && ctrl.curtain_id == id {
+                        ctrl.dismiss_curtain_for_game(&window, &webview);
+                    }
+                }
+                AppEvent::CurtainSafetyTimeout(id) => {
+                    if ctrl.curtain_active && ctrl.curtain_id == id {
+                        ctrl.dismiss_curtain_for_game(&window, &webview);
                     }
                 }
                 AppEvent::LaunchAborted(err_msg) => {
