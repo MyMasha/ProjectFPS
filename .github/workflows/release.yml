@@ -87,11 +87,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          $ErrorActionPreference = "Continue"
           $rawTag = if ("${{ github.event.inputs.tag }}" -ne "") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
           $cleanVer = $rawTag.TrimStart('v')
           "tag=$rawTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "version=$cleanVer" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          $assets = gh release view $rawTag --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null
+          $assets = @(gh release view $rawTag --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null)
+          $global:LASTEXITCODE = 0
           if ("${{ github.event_name }}" -ne "workflow_dispatch" -and ($assets -contains "MashClient.exe")) {
             "already_uploaded=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             Write-Host "MashClient.exe déjà publié localement sur $rawTag, build CI ignoré."
