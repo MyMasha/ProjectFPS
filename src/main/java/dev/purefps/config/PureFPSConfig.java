@@ -34,6 +34,9 @@ public final class PureFPSConfig {
     public static int chunkWorkerThreads = 0; // 0 = Auto (3 sur Ryzen 5 5500)
     public static boolean disableWorldLoadGC = true;
     public static boolean skipVoidFogLoop = true;
+    public static boolean islandCoreCulling = true;
+    public static boolean smartChunkUpdates = true;
+    public static boolean menuWorldUnload = true;
 
     // GPU VAO GL30 + EBO GL_TRIANGLES, Zéro glGetError, FBO Blit GL30, Modèles compilés & UI
     public static boolean disableGlErrorChecks = true;
@@ -132,6 +135,8 @@ public final class PureFPSConfig {
     public static int activeChunkThreads = 2;
     public static int skippedAnimationsLastTick = 0;
     public static int totalAnimationsCount = 0;
+    public static int unloadedIslandCoresTotal = 0;
+    public static int throttledStaticUpdatesTotal = 0;
 
     private static File configFile;
     private static volatile boolean dirty = false;
@@ -194,6 +199,9 @@ public final class PureFPSConfig {
 
         switch (profile) {
             case FPS:
+                islandCoreCulling = true;
+                smartChunkUpdates = true;
+                menuWorldUnload = true;
                 smartAnimations = true;
                 limitDistantGlint = true;
                 disableVignette = true;
@@ -218,6 +226,9 @@ public final class PureFPSConfig {
                 break;
 
             case BALANCED:
+                islandCoreCulling = true;
+                smartChunkUpdates = true;
+                menuWorldUnload = true;
                 smartAnimations = true;
                 limitDistantGlint = true;
                 disableVignette = true;
@@ -242,6 +253,9 @@ public final class PureFPSConfig {
                 break;
 
             case QUALITY:
+                islandCoreCulling = false;
+                smartChunkUpdates = false;
+                menuWorldUnload = false;
                 smartAnimations = false;
                 limitDistantGlint = false;
                 disableVignette = false;
@@ -366,7 +380,8 @@ public final class PureFPSConfig {
 
     public static void refreshProfileAfterManualEdit() {
         if (matchesCoreLosslessBase()) {
-            if (smartAnimations && limitDistantGlint && disableVignette && entityOcclusionCulling && entityDistanceCulling
+            if (islandCoreCulling && smartChunkUpdates && menuWorldUnload
+                    && smartAnimations && limitDistantGlint && disableVignette && entityOcclusionCulling && entityDistanceCulling
                     && maxEntityRenderDistance == 48 && fastDroppedItems && fastItemFrames && maxItemFrameDistance == 36
                     && fastPlayerRendering && fastSignText && tileEntityDistanceCulling
                     && maxTileEntityRenderDistance == 32 && fastNametags && nametagDistanceCulling && maxNametagDistance == 24
@@ -375,7 +390,8 @@ public final class PureFPSConfig {
                 activeProfile = PureFPSProfile.FPS;
                 return;
             }
-            if (smartAnimations && limitDistantGlint && disableVignette && entityOcclusionCulling && entityDistanceCulling
+            if (islandCoreCulling && smartChunkUpdates && menuWorldUnload
+                    && smartAnimations && limitDistantGlint && disableVignette && entityOcclusionCulling && entityDistanceCulling
                     && maxEntityRenderDistance == 64 && fastDroppedItems && fastItemFrames && maxItemFrameDistance == 48
                     && fastPlayerRendering && fastSignText && tileEntityDistanceCulling
                     && maxTileEntityRenderDistance == 48 && fastNametags && nametagDistanceCulling && maxNametagDistance == 32
@@ -384,7 +400,8 @@ public final class PureFPSConfig {
                 activeProfile = PureFPSProfile.BALANCED;
                 return;
             }
-            if (!smartAnimations && !limitDistantGlint && !disableVignette && !entityOcclusionCulling && !entityDistanceCulling
+            if (!islandCoreCulling && !smartChunkUpdates && !menuWorldUnload
+                    && !smartAnimations && !limitDistantGlint && !disableVignette && !entityOcclusionCulling && !entityDistanceCulling
                     && maxEntityRenderDistance == 128 && !fastDroppedItems && fastItemFrames && maxItemFrameDistance == 96
                     && !fastPlayerRendering && !fastSignText && !tileEntityDistanceCulling
                     && maxTileEntityRenderDistance == 128 && !fastNametags && !nametagDistanceCulling && maxNametagDistance == 64
@@ -470,6 +487,9 @@ public final class PureFPSConfig {
             chunkWorkerThreads = clamp(getInt(props, "chunkWorkerThreads", chunkWorkerThreads), 0, 6);
             disableWorldLoadGC = getBool(props, "disableWorldLoadGC", disableWorldLoadGC);
             skipVoidFogLoop = getBool(props, "skipVoidFogLoop", skipVoidFogLoop);
+            islandCoreCulling = getBool(props, "islandCoreCulling", islandCoreCulling);
+            smartChunkUpdates = getBool(props, "smartChunkUpdates", smartChunkUpdates);
+            menuWorldUnload = getBool(props, "menuWorldUnload", menuWorldUnload);
 
             regionMultiDraw = getBool(props, "regionMultiDraw", regionMultiDraw);
             hardwareRegionVao = getBool(props, "hardwareRegionVao", hardwareRegionVao);
@@ -573,6 +593,9 @@ public final class PureFPSConfig {
         props.setProperty("chunkWorkerThreads", Integer.toString(chunkWorkerThreads));
         props.setProperty("disableWorldLoadGC", Boolean.toString(disableWorldLoadGC));
         props.setProperty("skipVoidFogLoop", Boolean.toString(skipVoidFogLoop));
+        props.setProperty("islandCoreCulling", Boolean.toString(islandCoreCulling));
+        props.setProperty("smartChunkUpdates", Boolean.toString(smartChunkUpdates));
+        props.setProperty("menuWorldUnload", Boolean.toString(menuWorldUnload));
 
         props.setProperty("regionMultiDraw", Boolean.toString(regionMultiDraw));
         props.setProperty("hardwareRegionVao", Boolean.toString(hardwareRegionVao));

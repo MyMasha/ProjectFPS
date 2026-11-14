@@ -172,6 +172,8 @@ public final class ChunkRegionManager {
         }
 
         int layerOrd = layer.ordinal();
+        boolean menuDimmed = MenuUnloadManager.isWorldDimmedByMenu();
+        float menuMaxDistSq = (layerOrd == 0) ? 2304.0F : 1024.0F;
         boolean indexSupported = QuadIndexBuffer.isSupported();
         int boundEbo = -1;
         if (indexSupported) {
@@ -202,6 +204,14 @@ public final class ChunkRegionManager {
             float targetX = (float) ((double) pos.getX() - viewX);
             float targetY = (float) ((double) pos.getY() - viewY);
             float targetZ = (float) ((double) pos.getZ() - viewZ);
+            if (menuDimmed) {
+                float cx = targetX + 8.0F;
+                float cy = targetY + 8.0F;
+                float cz = targetZ + 8.0F;
+                if (cx * cx + cy * cy + cz * cz > menuMaxDistSq) {
+                    continue;
+                }
+            }
             float dx = targetX - prevX;
             float dy = targetY - prevY;
             float dz = targetZ - prevZ;

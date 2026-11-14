@@ -1639,6 +1639,9 @@
   });
 
   const ENGINE_DEFS = [
+    { key: "island_core_culling", title: "Coeur des îles déchargé", desc: "Supprime les blocs invisibles enfouis au milieu des îles BedWars et SkyWars." },
+    { key: "smart_chunk_updates", title: "Blocs joueurs, lits & générateurs 0ms", desc: "Actualise instantanément les blocs posés, lits et générateurs ; raréfie le décor statique." },
+    { key: "menu_world_unload", title: "Déchargement maximal en menu", desc: "Décharge les chunks distants, particules et reflets non survolés dans les menus." },
     { key: "disable_gl_error_checks", title: "Appels OpenGL directs", desc: "Désactive les vérifications d'erreurs OpenGL à chaque image." },
     { key: "hardware_region_vao", title: "Rendu terrain VAO", desc: "Utilise les tampons matériels OpenGL 3.0 pour les chunks." },
     { key: "region_multi_draw", title: "Terrain indexé", desc: "Regroupe les géométries de blocs pour soulager le processeur." },
@@ -1723,7 +1726,10 @@
       max_tile_entity_render_distance: 48,
       max_particles_per_layer: 1000,
       skip_client_skylight_updates: false,
-      unfocused_fps_limit: 15
+      unfocused_fps_limit: 15,
+      island_core_culling: true,
+      smart_chunk_updates: true,
+      menu_world_unload: true
     },
     prefs: {
       ram_mb: 3072,
@@ -1741,8 +1747,8 @@
     has_github_token: true,
     update: {
       status: "idle",
-      current_version: "4.2.0",
-      installed_jar_version: "4.2.0",
+      current_version: "4.3.0",
+      installed_jar_version: "4.3.0",
       latest_version: null,
       release_notes: null,
       download_percent: 0,
@@ -2877,12 +2883,12 @@
       state.has_github_token = true;
       state.update = {
         status: "available",
-        current_version: "4.1.0",
-        installed_jar_version: "4.1.0",
-        latest_version: "4.2.0",
-        release_notes: "MashClient 4.2.0",
+        current_version: "4.2.0",
+        installed_jar_version: "4.2.0",
+        latest_version: "4.3.0",
+        release_notes: "MashClient 4.3.0",
         download_percent: 0,
-        message: "Mise à jour v4.2.0 disponible.",
+        message: "Mise à jour v4.3.0 disponible.",
         has_exe_update: true,
         has_jar_update: true
       };

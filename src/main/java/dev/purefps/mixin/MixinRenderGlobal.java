@@ -1,15 +1,25 @@
 package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
-import dev.purefps.core.ChunkRegionManager;
 import dev.purefps.core.EnumCaches;
+import dev.purefps.core.MenuUnloadManager;
 import dev.purefps.core.OcclusionCuller;
+import dev.purefps.core.SmartChunkUpdateScheduler;
+import net.minecraft.block.Block;
+import net.minecraft.block.BlockBed;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.WorldClient;
 import net.minecraft.client.renderer.RenderGlobal;
+import net.minecraft.client.renderer.chunk.ChunkRenderDispatcher;
+import net.minecraft.client.renderer.chunk.CompiledChunk;
 import net.minecraft.client.renderer.chunk.RenderChunk;
 import net.minecraft.client.renderer.culling.ICamera;
 import net.minecraft.entity.Entity;
+import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -18,17 +28,18 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 
 /**
- * Optimisation haute-fréquence de RenderGlobal.setupTerrain (MashClient 4.0) :
- * - Corrige le bug critique où l'interpolation partialTicks forçait displayListEntitiesDirty = true à chaque frame
- *   en sprintant (7x plus de parcours BFS que Vanilla !).
- * - Conserve la cadence de tick 20 Hz de Vanilla sur posX/posY/posZ tout en filtrant le micro-tremblement souris
- *   (< 0.16°) sans jamais altérer frustumUpdatePosX/Y/Z ni faire disparaître les chunks latéraux.
- * - Réutilise à la fois l'ArrayList renderInfos pré-dimensionnée et la file LinkedList BFS (0 allocation tas).
+ * Optimisation haute-fréquence de RenderGlobal (MashClient 4.3) :
+ * 1. setupTerrain sans allocation et sans faux positifs partialTicks.
+ * 2. Ordonnanceur à 2 vitesses (SmartChunkUpdateScheduler) dans updateChunks + filtrage notifyLightSet :
+ *    - 0 ms de délai pour les nouveaux blocs posés/cassés par les joueurs, les lits (BlockBed) et les générateurs.
+ *    - Raréfaction maximale des recompilations sur les îles statiques et suspension dans les menus.
+ * 3. Déchargement des nuages et caches dynamiques dans les menus / changements de lobby.
  */
 @Mixin(RenderGlobal.class)
 public class MixinRenderGlobal {
@@ -40,10 +51,20 @@ public class MixinRenderGlobal {
     private static final ArrayList<Object> PUREFPS_RENDER_INFOS = new ArrayList<Object>(2048);
 
     @Shadow
+    @Final
+    private Minecraft mc;
+
+    @Shadow
+    private WorldClient theWorld;
+
+    @Shadow
     private Set<RenderChunk> chunksToUpdate;
 
     @Shadow
     private List<?> renderInfos;
+
+    @Shadow
+    private ChunkRenderDispatcher renderDispatcher;
 
     @Shadow
     private double lastViewEntityX;
@@ -73,14 +94,88 @@ public class MixinRenderGlobal {
     private void purefps$clearRegionArenasOnReload(CallbackInfo ci) {
         this.purefps$settledYaw = Float.NaN;
         PUREFPS_RENDER_INFOS.clear();
-        ChunkRegionManager.clearAll();
+        MenuUnloadManager.onWorldChangeOrUnload();
     }
 
     @Inject(method = "deleteAllDisplayLists", at = @At("HEAD"))
     private void purefps$clearRegionArenasOnDeleteAll(CallbackInfo ci) {
         this.purefps$settledYaw = Float.NaN;
         PUREFPS_RENDER_INFOS.clear();
-        ChunkRegionManager.clearAll();
+        MenuUnloadManager.onWorldChangeOrUnload();
+    }
+
+    @Inject(method = "markBlockForUpdate", at = @At("HEAD"))
+    private void purefps$markBlockUpdateUrgent(BlockPos pos, CallbackInfo ci) {
+        if (PureFPSConfig.enabled && PureFPSConfig.smartChunkUpdates && pos != null) {
+            boolean isBed = false;
+            if (this.theWorld != null && this.theWorld.isBlockLoaded(pos)) {
+                Block block = this.theWorld.getBlockState(pos).getBlock();
+                isBed = (block instanceof BlockBed);
+            }
+            SmartChunkUpdateScheduler.markDynamicBlockChange(pos.getX(), pos.getY(), pos.getZ(), isBed);
+        }
+    }
+
+    @Inject(method = "notifyLightSet", at = @At("HEAD"), cancellable = true)
+    private void purefps$throttleStaticIslandLightUpdates(BlockPos pos, CallbackInfo ci) {
+        if (PureFPSConfig.enabled && PureFPSConfig.smartChunkUpdates && pos != null) {
+            if (!SmartChunkUpdateScheduler.shouldAllowLightRebuild(
+                    pos.getX(),
+                    pos.getY(),
+                    pos.getZ(),
+                    System.currentTimeMillis()
+            )) {
+                ci.cancel();
+            }
+        }
+    }
+
+    /**
+     * @author MashClient
+     * @reason Priorité 0 ms aux blocs posés/cassés par les joueurs, aux lits et aux générateurs ;
+     *         raréfaction des mises à jour sur le décor statique et pause dans les menus bloquants.
+     */
+    @Overwrite
+    public void updateChunks(long finishTimeNano) {
+        this.displayListEntitiesDirty |= this.renderDispatcher.runChunkUploads(finishTimeNano);
+
+        if (this.chunksToUpdate.isEmpty()) {
+            return;
+        }
+
+        if (PureFPSConfig.enabled && PureFPSConfig.smartChunkUpdates) {
+            Entity viewer = this.mc != null ? this.mc.getRenderViewEntity() : null;
+            boolean menuDimmed = MenuUnloadManager.isWorldDimmedByMenu(this.mc);
+            SmartChunkUpdateScheduler.dispatchPrioritizedUpdates(
+                    this.chunksToUpdate,
+                    this.renderDispatcher,
+                    finishTimeNano,
+                    viewer,
+                    menuDimmed
+            );
+            return;
+        }
+
+        Iterator<RenderChunk> iterator = this.chunksToUpdate.iterator();
+        while (iterator.hasNext()) {
+            RenderChunk renderchunk = iterator.next();
+            if (!this.renderDispatcher.updateChunkLater(renderchunk)) {
+                break;
+            }
+            renderchunk.setNeedsUpdate(false);
+            iterator.remove();
+            long remaining = finishTimeNano - System.nanoTime();
+            if (finishTimeNano != 0L && remaining < 0L && renderchunk.getCompiledChunk() != CompiledChunk.DUMMY) {
+                break;
+            }
+        }
+    }
+
+    @Inject(method = "renderClouds", at = @At("HEAD"), cancellable = true)
+    private void purefps$skipCloudsWhenMenuOpen(float partialTicks, int pass, CallbackInfo ci) {
+        if (MenuUnloadManager.isWorldDimmedByMenu(this.mc)) {
+            ci.cancel();
+        }
     }
 
     @Inject(method = "setupTerrain", at = @At("HEAD"))
@@ -109,8 +204,6 @@ public class MixinRenderGlobal {
             return;
         }
 
-        // Ne touche JAMAIS à lastViewEntityX/Y/Z (qui changent uniquement 20x/s aux ticks) :
-        // filtre uniquement le micro-jitter souris (< 0.16°) entre deux frames stationnaires !
         if (viewEntity.posX == this.lastViewEntityX
                 && viewEntity.posY == this.lastViewEntityY
                 && viewEntity.posZ == this.lastViewEntityZ) {

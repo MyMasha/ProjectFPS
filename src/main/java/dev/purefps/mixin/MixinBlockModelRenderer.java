@@ -4,6 +4,7 @@ import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.BlockPosPool;
 import dev.purefps.core.EnumCaches;
 import dev.purefps.core.FastItemFrameRenderer;
+import dev.purefps.core.IslandCoreCuller;
 import dev.purefps.core.StandardModelContext;
 import net.minecraft.block.Block;
 import net.minecraft.client.renderer.BlockModelRenderer;
@@ -124,7 +125,8 @@ public abstract class MixinBlockModelRenderer {
                         py + facing.getFrontOffsetY(),
                         pz + facing.getFrontOffsetZ()
                 );
-                if (!checkSides || blockIn.shouldSideBeRendered(blockAccessIn, offsetPos, facing)) {
+                if ((!checkSides || blockIn.shouldSideBeRendered(blockAccessIn, offsetPos, facing))
+                        && (!checkSides || IslandCoreCuller.isFaceVisible(px, py, pz, facing))) {
                     int brightness = blockIn.getMixedBrightnessForBlock(blockAccessIn, offsetPos);
                     if (PureFPSConfig.smartAnimations) {
                         dev.purefps.core.SmartAnimations.markQuadsVisible(faceQuads);
@@ -168,5 +170,20 @@ public abstract class MixinBlockModelRenderer {
         return (PureFPSConfig.enabled && PureFPSConfig.zeroAllocSmoothLighting)
                 ? BlockPosPool.offset(base, facing)
                 : base.offset(facing);
+    }
+
+    @Redirect(
+            method = "renderModelAmbientOcclusion",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/block/Block;shouldSideBeRendered(Lnet/minecraft/world/IBlockAccess;Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"
+            )
+    )
+    private boolean purefps$aoSideAndIslandCoreVisible(Block block, IBlockAccess access, BlockPos offsetPos, EnumFacing side) {
+        if (!block.shouldSideBeRendered(access, offsetPos, side)) {
+            return false;
+        }
+        IslandCoreCuller.Context ctx = IslandCoreCuller.currentContext();
+        return !ctx.active || ctx.isNeighborExteriorReachable(offsetPos.getX(), offsetPos.getY(), offsetPos.getZ());
     }
 }

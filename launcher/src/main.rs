@@ -113,7 +113,7 @@ fn win32_hide_window_to_tray(window: &Window) {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
-    window.set_skip_taskbar(true);
+    let _ = window.set_skip_taskbar(true);
     window.set_visible(false);
 }
 
@@ -144,7 +144,7 @@ fn win32_restore_window_from_tray(window: &Window) {
         fn SetForegroundWindow(hWnd: *mut c_void) -> i32;
     }
 
-    window.set_skip_taskbar(false);
+    let _ = window.set_skip_taskbar(false);
     window.set_fullscreen(None);
     let hwnd = window.hwnd() as *mut c_void;
     if !hwnd.is_null() {

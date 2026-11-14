@@ -222,6 +222,9 @@ public final class MashEnglishCatalog {
         // 6. 25 ENGINE / FPS BOOST MODULES
         // =====================================================================
         put("eng_region_multidraw", "Region GPU MultiDraw", "chunk batching vbo ebo gl_triangles fps boost");
+        put("eng_island_core_cull", "Island Core Unloading", "bedwars skywars hollow island buried blocks culling");
+        put("eng_smart_chunk_updates", "Smart Dynamic Chunks", "player blocks beds generators instant chunk updates");
+        put("eng_menu_world_unload", "Max Menu Unloading", "shop container pause menu world unload fps");
         put("eng_lazy_terrain_bfs", "Lazy Chunk Loading", "terrain bfs visibility graph cpu");
         put("eng_frustum_pvertex", "Fast Frustum Culling", "p-vertex aabb culling");
         put("eng_fbo_blit_gl30", "Hardware FBO Blit", "glblitframebuffer dma framebuffer");

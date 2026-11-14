@@ -6,6 +6,7 @@
 //! - Nettoyage garanti `NIM_DELETE` à la fermeture pour ne jamais laisser d'icône fantôme.
 
 #[cfg(windows)]
+#[allow(clippy::upper_case_acronyms)]
 mod imp {
     use crate::AppEvent;
     use core::ffi::c_void;
@@ -318,7 +319,7 @@ mod imp {
     unsafe fn load_mash_tray_icon(h_instance: HINSTANCE) -> (HICON, bool) {
         let embedded_res = LoadImageW(
             h_instance,
-            1usize as *const u16,
+            std::ptr::without_provenance::<u16>(1),
             IMAGE_ICON,
             0,
             0,

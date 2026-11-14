@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.2.0.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.3.0.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",

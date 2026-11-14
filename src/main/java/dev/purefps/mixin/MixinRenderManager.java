@@ -3,6 +3,7 @@ package dev.purefps.mixin;
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.EntityCullCache;
 import dev.purefps.core.GpuUploadBudget;
+import dev.purefps.core.MenuUnloadManager;
 import dev.purefps.core.OcclusionCuller;
 import net.minecraft.client.renderer.culling.ICamera;
 import net.minecraft.client.renderer.entity.Render;
@@ -37,8 +38,11 @@ public abstract class MixinRenderManager {
                 PureFPSConfig.frameEntitiesAccumulator++;
                 return false;
             }
-            if (PureFPSConfig.entityDistanceCulling
-                    && OcclusionCuller.isBeyondEntityDistance(entity, camX, camY, camZ, PureFPSConfig.maxEntityRenderDistance)) {
+            int maxDist = MenuUnloadManager.isWorldDimmedByMenu()
+                    ? Math.min(20, PureFPSConfig.maxEntityRenderDistance)
+                    : PureFPSConfig.maxEntityRenderDistance;
+            if ((PureFPSConfig.entityDistanceCulling || MenuUnloadManager.isWorldDimmedByMenu())
+                    && OcclusionCuller.isBeyondEntityDistance(entity, camX, camY, camZ, maxDist)) {
                 PureFPSConfig.frameEntitiesAccumulator++;
                 return false;
             }

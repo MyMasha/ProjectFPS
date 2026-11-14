@@ -149,6 +149,10 @@ public class GuiMashClientMenu extends GuiScreen {
         return false;
     }
 
+    public boolean isCanvasPeekActive() {
+        return this.hudCanvasMode || this.draggingHud || this.resizingHud || Keyboard.isKeyDown(Keyboard.KEY_TAB);
+    }
+
     private void rebuildFilteredList() {
         boolean onlyEn = this.currentTab == NavTab.ACTIVE;
         boolean onlyFav = this.currentTab == NavTab.FAVORITES;
@@ -709,11 +713,17 @@ public class GuiMashClientMenu extends GuiScreen {
         gridMaxScroll = Math.max(0.0F, contentH - gh + 6.0F);
         gridScroll = clamp(gridScroll, 0.0F, gridMaxScroll);
 
+        float rowStride = cardH + gapY;
+        int firstRow = Math.max(0, (int) Math.floor((gridScroll - 2.0F) / rowStride));
+        int lastRow = Math.min(Math.max(0, rows - 1), (int) Math.ceil((gridScroll + gh + 2.0F) / rowStride));
+        int startIdx = Math.min(total, firstRow * cols);
+        int endIdx = Math.min(total, (lastRow + 1) * cols);
+
         boolean mouseInViewport = alpha > 0.72F && inside(dmx, dmy, gx, gy, gw, gh);
         int hoveredIdx = -1;
 
         NanoUiRenderer.beginBatch();
-        for (int i = 0; i < total; i++) {
+        for (int i = startIdx; i < endIdx; i++) {
             int col = i % cols;
             int row = i / cols;
             float cx = gx + col * (cardW + gapX);
@@ -782,7 +792,7 @@ public class GuiMashClientMenu extends GuiScreen {
         NanoUiRenderer.endBatch();
 
         cardTitleF.beginBatch();
-        for (int i = 0; i < total; i++) {
+        for (int i = startIdx; i < endIdx; i++) {
             int col = i % cols;
             int row = i / cols;
             float cx = gx + col * (cardW + gapX);
@@ -803,7 +813,7 @@ public class GuiMashClientMenu extends GuiScreen {
                     gx + gw * 0.5F, gy + gh * 0.44F, mulAlpha(0xFF949CB0, alpha), false
             );
         }
-        for (int i = 0; i < total; i++) {
+        for (int i = startIdx; i < endIdx; i++) {
             int col = i % cols;
             int row = i / cols;
             float cx = gx + col * (cardW + gapX);
@@ -819,7 +829,7 @@ public class GuiMashClientMenu extends GuiScreen {
 
         // Sous-titre anglais discret à droite du nom français
         smallF.beginBatch();
-        for (int i = 0; i < total; i++) {
+        for (int i = startIdx; i < endIdx; i++) {
             int col = i % cols;
             int row = i / cols;
             float cx = gx + col * (cardW + gapX);

@@ -305,6 +305,12 @@ pub struct PureClientSettings {
     pub max_particles_per_layer: i32,
     pub skip_client_skylight_updates: bool,
     pub unfocused_fps_limit: i32,
+    #[serde(default = "default_true")]
+    pub island_core_culling: bool,
+    #[serde(default = "default_true")]
+    pub smart_chunk_updates: bool,
+    #[serde(default = "default_true")]
+    pub menu_world_unload: bool,
 
     #[serde(skip)]
     extra_props: BTreeMap<String, String>,
@@ -359,6 +365,9 @@ impl Default for PureClientSettings {
             max_particles_per_layer: 1000,
             skip_client_skylight_updates: false,
             unfocused_fps_limit: 15,
+            island_core_culling: true,
+            smart_chunk_updates: true,
+            menu_world_unload: true,
             extra_props: BTreeMap::new(),
         }
     }
@@ -400,6 +409,9 @@ impl PureClientSettings {
                 self.max_particles_per_layer = 250;
                 self.skip_client_skylight_updates = true;
                 self.unfocused_fps_limit = 10;
+                self.island_core_culling = true;
+                self.smart_chunk_updates = true;
+                self.menu_world_unload = true;
             }
             PureProfile::Balanced => {
                 self.smart_animations = true;
@@ -414,6 +426,9 @@ impl PureClientSettings {
                 self.max_particles_per_layer = 1000;
                 self.skip_client_skylight_updates = false;
                 self.unfocused_fps_limit = 15;
+                self.island_core_culling = true;
+                self.smart_chunk_updates = true;
+                self.menu_world_unload = true;
             }
             PureProfile::Quality => {
                 self.smart_animations = false;
@@ -428,6 +443,9 @@ impl PureClientSettings {
                 self.max_particles_per_layer = 4000;
                 self.skip_client_skylight_updates = false;
                 self.unfocused_fps_limit = 30;
+                self.island_core_culling = false;
+                self.smart_chunk_updates = false;
+                self.menu_world_unload = false;
             }
             PureProfile::Custom => {}
         }
@@ -481,6 +499,9 @@ impl PureClientSettings {
             "entity_occlusion_culling" => { self.entity_occlusion_culling = as_bool; engine_edited = true; }
             "smart_animations" => { self.smart_animations = as_bool; engine_edited = true; }
             "skip_client_skylight_updates" => { self.skip_client_skylight_updates = as_bool; engine_edited = true; }
+            "island_core_culling" => { self.island_core_culling = as_bool; engine_edited = true; }
+            "smart_chunk_updates" => { self.smart_chunk_updates = as_bool; engine_edited = true; }
+            "menu_world_unload" => { self.menu_world_unload = as_bool; engine_edited = true; }
             "max_item_frame_distance" => {
                 self.max_item_frame_distance = as_i32.clamp(16, 160);
                 engine_edited = true;
@@ -588,6 +609,9 @@ impl PureClientSettings {
         s.skip_client_skylight_updates =
             b(&map, "skipClientSkylightUpdates", s.skip_client_skylight_updates);
         s.unfocused_fps_limit = i(&map, "unfocusedFpsLimit", s.unfocused_fps_limit);
+        s.island_core_culling = b(&map, "islandCoreCulling", s.island_core_culling);
+        s.smart_chunk_updates = b(&map, "smartChunkUpdates", s.smart_chunk_updates);
+        s.menu_world_unload = b(&map, "menuWorldUnload", s.menu_world_unload);
 
         s.extra_props = map;
         s
@@ -652,8 +676,11 @@ impl PureClientSettings {
             self.skip_client_skylight_updates.to_string(),
         );
         map.insert("unfocusedFpsLimit".into(), self.unfocused_fps_limit.to_string());
+        map.insert("islandCoreCulling".into(), self.island_core_culling.to_string());
+        map.insert("smartChunkUpdates".into(), self.smart_chunk_updates.to_string());
+        map.insert("menuWorldUnload".into(), self.menu_world_unload.to_string());
 
-        let mut out = String::from("# MashClient 4.0.0 Configuration\n");
+        let mut out = String::from("# MashClient 4.3.0 Configuration\n");
         for (k, v) in &map {
             out.push_str(k);
             out.push('=');
@@ -929,6 +956,9 @@ mod tests {
         assert_eq!(reloaded.max_item_frame_distance, 36);
         assert!(reloaded.fast_player_rendering);
         assert!(reloaded.fast_sign_text);
+        assert!(reloaded.island_core_culling);
+        assert!(reloaded.smart_chunk_updates);
+        assert!(reloaded.menu_world_unload);
 
         let patched_opts = std::fs::read_to_string(&opts_path).unwrap();
         assert!(patched_opts.contains("useVbo:true"));

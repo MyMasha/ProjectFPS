@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag de version à publier (ex: v4.2.0)"
+        description: "Tag de version à publier (ex: v4.3.0)"
         required: true
-        default: "v4.2.0"
+        default: "v4.3.0"
 
 permissions:
   contents: write
@@ -58,10 +58,10 @@ jobs:
           body: |
             ## MashClient ${{ steps.ver.outputs.version }}
 
-            - **Instance unique du Launcher (`MashClient.exe`)** : relancer `MashClient.exe` lorsqu'il est déjà ouvert (y compris réduit dans la zone de notification en bas à droite ou en arrière-plan) réveille et ramène immédiatement la fenêtre existante au premier plan au lieu d'empiler plusieurs processus.
-            - **Effets sonores (Launcher & Minecraft)** : ajout des sons d'interface (survol, clic, interrupteurs) et des effets sonores lors du plongeon dans le trou noir et de l'émergence en jeu, avec bouton muet intégré.
-            - **Interfaces épurées** : suppression des textes superflus, badges et slogans dans le Launcher, le menu principal Minecraft et le menu `RSHIFT` pour une présentation sobre et lisible.
-            - **Correction du logo et des icônes** : intégration du logo haute définition `mash_mark.png` + icône de fenêtre Minecraft, repli automatique des glyphes sous Windows (`Segoe UI` -> `Dialog`) et remplacement des caractères spéciaux par des icônes vectorielles.
+            - **Déchargement du coeur des îles (`IslandCoreCuller`)** : suppression complète en `0` sommet / `0` VBO des sous-chunks enfouis, du vide et des blocs intérieurs ou grottes scellées au centre des îles BedWars / SkyWars sans affecter les surfaces visibles.
+            - **Ordonnanceur dynamique vs statique (`SmartChunkUpdateScheduler`)** : actualisation instantanée (`0 ms`, Passe 1) des blocs posés/cassés par les joueurs, des lits (`BlockBed`) et des générateurs de ressources (`EntityItem` / `EntityArmorStand`), tout en raréfiant les recalculs et mises à jour lumineuses du décor statique.
+            - **Optimisation & déchargement maximal des menus (`MenuUnloadManager`)** : découpage `O(1)` de la grille du menu `RSHIFT`, cadence 60 Hz du FBO du menu principal (240 FPS), déchargement des chunks/entités/particules/nuages hors-champ sous menu, suppression des reflets non survolés dans les boutiques 54 slots et purge mémoire inter-mondes.
+            - **Optimisations bas-niveau & stabilité Hypixel** : cache d'identité MRU `O(1)` sur `TextureManager.bindTexture`, élagage des flèches plantées à distance (`MixinLayerArrow`) et protection anti-spam sur les paquets d'équipes `Scoreboard` (`S3EPacketTeams`).
           generate_release_notes: true
           files: build/libs/purefps-${{ steps.ver.outputs.version }}.jar
 

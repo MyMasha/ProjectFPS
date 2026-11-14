@@ -285,7 +285,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.2.0");
+        root.addProperty("version", "4.3.0");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
@@ -328,6 +328,9 @@ public final class MashModules {
         suppressCallbacks = true;
         try {
             setSilent("eng_region_multidraw", PureFPSConfig.regionMultiDraw);
+            setSilent("eng_island_core_cull", PureFPSConfig.islandCoreCulling);
+            setSilent("eng_smart_chunk_updates", PureFPSConfig.smartChunkUpdates);
+            setSilent("eng_menu_world_unload", PureFPSConfig.menuWorldUnload);
             setSilent("eng_lazy_terrain_bfs", PureFPSConfig.lazyTerrainSetup);
             setSilent("eng_frustum_pvertex", PureFPSConfig.fastFrustumPVertex);
             setSilent("eng_fbo_blit_gl30", PureFPSConfig.fastFboBlit);
@@ -402,6 +405,16 @@ public final class MashModules {
                 PureFPSConfig.regionMultiDraw = en;
                 PureFPSConfig.hardwareRegionVao = en;
                 reloadRenderersIfInWorld();
+                break;
+            case "eng_island_core_cull":
+                PureFPSConfig.islandCoreCulling = en;
+                reloadRenderersIfInWorld();
+                break;
+            case "eng_smart_chunk_updates":
+                PureFPSConfig.smartChunkUpdates = en;
+                break;
+            case "eng_menu_world_unload":
+                PureFPSConfig.menuWorldUnload = en;
                 break;
             case "eng_lazy_terrain_bfs": PureFPSConfig.lazyTerrainSetup = en; break;
             case "eng_frustum_pvertex": PureFPSConfig.fastFrustumPVertex = en; break;
@@ -1309,6 +1322,15 @@ public final class MashModules {
 
         m = regMod("eng_region_multidraw", "Moteur GPU Region EBO", "Rend tous les chunks en GL_TRIANGLES indexés avec 1 seul bind d'indices par couche !", "region multidraw vbo ebo triangles gpu fps", MashCategory.ENGINE, true);
         m.addSetting(new MashSetting.BooleanSetting("anti_seam", "Soudure Anti-Fissures T-Junction", "Élimine les micro-lignes blanches entre chunks sur workers", true));
+
+        m = regMod("eng_island_core_cull", "Déchargement Coeur des Îles", "Décharge à 100% les blocs enfouis au milieu des îles BedWars / SkyWars et grottes scellées", "island core cull bedwars skywars buried blocks", MashCategory.ENGINE, true);
+        m.addSetting(new MashSetting.BooleanSetting("preserve_beds", "Protéger Lits & Coffres", "Conserve toujours les TileEntities et lits BedWars", true));
+
+        m = regMod("eng_smart_chunk_updates", "Chunks Dynamiques 0ms / Statiques", "Actualise en 0ms les blocs joueurs, lits et générateurs ; raréfie la map statique", "smart chunk updates dynamic blocks beds generators", MashCategory.ENGINE, true);
+        m.addSetting(new MashSetting.BooleanSetting("priority_beds_gens", "Priorité Lits & Générateurs", "Mise à jour instantanée des ponts, lits et minerais", true));
+
+        m = regMod("eng_menu_world_unload", "Déchargement Maximal en Menu", "Décharge les chunks distants, particules, pluies et reflets d'inventaire dans les menus", "menu unload shop inventory fps boost", MashCategory.ENGINE, true);
+        m.addSetting(new MashSetting.BooleanSetting("shop_glint_opt", "Alléger reflets boutiques 54 slots", "Coupe les passes matricielles non survolées", true));
 
         m = regMod("eng_lazy_terrain_bfs", "Lazy Terrain Setup (BFS)", "Supprime 85% des traversées CPU de graphe de visibilité lorsque vous marchez !", "lazy terrain setup bfs chunks fps", MashCategory.ENGINE, true);
         m.addSetting(new MashSetting.BooleanSetting("frustum_fast", "Recalcul caméra angulaire", "Ne met à jour que si bloc ou angle change", true));

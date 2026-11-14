@@ -1,6 +1,7 @@
 package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
+import dev.purefps.core.MenuUnloadManager;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.tileentity.TileEntityRendererDispatcher;
@@ -50,9 +51,13 @@ public abstract class MixinTileEntityRendererDispatcher {
     @Overwrite
     public void renderTileEntity(TileEntity tileentityIn, float partialTicks, int destroyStage) {
         double distSq = tileentityIn.getDistanceSq(this.entityX, this.entityY, this.entityZ);
-        if (PureFPSConfig.enabled && destroyStage < 0 && PureFPSConfig.tileEntityDistanceCulling
+        boolean menuDimmed = MenuUnloadManager.isWorldDimmedByMenu();
+        if (PureFPSConfig.enabled && destroyStage < 0
+                && (PureFPSConfig.tileEntityDistanceCulling || menuDimmed)
                 && !(tileentityIn instanceof TileEntityBeacon)) {
-            double maxDist = PureFPSConfig.maxTileEntityRenderDistance;
+            double maxDist = menuDimmed
+                    ? Math.min(16.0D, (double) PureFPSConfig.maxTileEntityRenderDistance)
+                    : (double) PureFPSConfig.maxTileEntityRenderDistance;
             if (distSq > maxDist * maxDist) {
                 PureFPSConfig.frameTileEntitiesAccumulator++;
                 return;

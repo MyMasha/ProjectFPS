@@ -3,8 +3,7 @@ package dev.purefps.mixin;
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.BlackHoleEmergenceRenderer;
 import dev.purefps.core.BorderlessWindowHelper;
-import dev.purefps.core.ChunkRegionManager;
-import dev.purefps.core.FastSkullCache;
+import dev.purefps.core.MenuUnloadManager;
 import dev.purefps.core.SeamlessLaunchTransition;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
@@ -89,7 +88,7 @@ public abstract class MixinMinecraft {
             }
         }
         if (this.theWorld == null && this.currentScreen != null) {
-            return PureFPSConfig.enabled ? 144 : 30;
+            return PureFPSConfig.enabled ? 240 : 30;
         }
         return this.gameSettings.limitFramerate;
     }
@@ -170,7 +169,7 @@ public abstract class MixinMinecraft {
     private void purefps$syncStartupSettings(CallbackInfo ci) {
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle("MashClient 4.0 | Minecraft 1.8.9");
+            Display.setTitle("MashClient 4.3 | Minecraft 1.8.9");
         }
     }
 
@@ -248,9 +247,7 @@ public abstract class MixinMinecraft {
             at = @At("HEAD")
     )
     private void purefps$clearCachesOnWorldChange(WorldClient worldClientIn, String loadingMessage, CallbackInfo ci) {
-        BlackHoleEmergenceRenderer.releaseMenuResources();
-        FastSkullCache.clear();
-        ChunkRegionManager.clearAll();
+        MenuUnloadManager.onWorldChangeOrUnload();
         dev.purefps.module.MashModules.saveAsyncIfDirty();
         PureFPSConfig.saveIfDirty();
     }

@@ -700,7 +700,7 @@ public class PureFPSCoreTest {
             java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
             java.util.List<dev.purefps.module.MashModule> huds = dev.purefps.module.MashModules.getHudModules();
 
-            assertEquals("MashClient 4.0 must expose exactly 200 modules", 200, all.size());
+            assertEquals("MashClient 4.3 must expose exactly 203 modules", 203, all.size());
             assertEquals("MashClient 4.0 must expose 65 draggable HUD widgets", 65, huds.size());
 
             for (dev.purefps.module.MashModule mod : all) {
@@ -820,7 +820,7 @@ public class PureFPSCoreTest {
         dev.purefps.module.MashModules.init(tempDir);
 
         java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
-        assertEquals(200, all.size());
+        assertEquals(203, all.size());
         for (dev.purefps.module.MashModule mod : all) {
             dev.purefps.module.MashEnglishCatalog.Entry entry = dev.purefps.module.MashEnglishCatalog.lookup(mod.getId());
             assertNotNull("Catalogue anglais manquant pour " + mod.getId(), entry);
@@ -924,5 +924,92 @@ public class PureFPSCoreTest {
             assertFalse("Glyphe dingbat risquant un carré blanc sur " + mod.getId(),
                     combined.indexOf('\u25B6') >= 0 || combined.indexOf('\u2665') >= 0 || combined.indexOf('\u2605') >= 0);
         }
+    }
+
+    @Test
+    public void testIslandCoreCullerFullyBuriedAndSealedCaveUnloading() {
+        IslandCoreCuller.Context ctx = IslandCoreCuller.currentContext();
+        try {
+            long[] opaque = new long[64];
+            long[] outwardOpen = new long[64];
+            java.util.Arrays.fill(opaque, -1L);
+
+            // 1. Section 100% enfouie au coeur d'une île BedWars -> 100% déchargée (fullyBuried = true)
+            IslandCoreCuller.analyzeBitsets(opaque, outwardOpen, false, false, ctx);
+            assertTrue("Fully buried island core must unload 100% of geometry", ctx.fullyBuried);
+            assertTrue(ctx.active);
+
+            // 2. Île avec surface supérieure à l'air libre (ly=15 non-opaque) + grotte interne scellée (7..9, 7..9, 7..9)
+            for (int lz = 0; lz < 16; lz++) {
+                for (int lx = 0; lx < 16; lx++) {
+                    int airTop = IslandCoreCuller.packLocal(lx, 15, lz);
+                    opaque[airTop >>> 6] &= ~(1L << (airTop & 63));
+                    outwardOpen[airTop >>> 6] |= (1L << (airTop & 63));
+                }
+            }
+            for (int ly = 7; ly <= 9; ly++) {
+                for (int lz = 7; lz <= 9; lz++) {
+                    for (int lx = 7; lx <= 9; lx++) {
+                        int caveIdx = IslandCoreCuller.packLocal(lx, ly, lz);
+                        opaque[caveIdx >>> 6] &= ~(1L << (caveIdx & 63));
+                    }
+                }
+            }
+
+            ctx.baseX = 0;
+            ctx.baseY = 64;
+            ctx.baseZ = 0;
+            IslandCoreCuller.analyzeBitsets(opaque, outwardOpen, false, false, ctx);
+            assertFalse(ctx.fullyBuried);
+            assertTrue(ctx.active);
+
+            assertTrue("Top surface crust must remain visible", ctx.isBlockVisibleFromExterior(8, 14, 8));
+            assertTrue("Top UP face must remain visible", IslandCoreCuller.isFaceVisible(8, 78, 8, EnumFacing.UP));
+            assertFalse("Top crust DOWN face into solid core must be culled", IslandCoreCuller.isFaceVisible(8, 78, 8, EnumFacing.DOWN));
+
+            assertFalse("Deep core block must be unloaded", ctx.isBlockVisibleFromExterior(8, 10, 8));
+            assertFalse("Sealed cave floor must be unloaded", ctx.isBlockVisibleFromExterior(8, 6, 8));
+            assertFalse("Sealed cave UP face must be culled", IslandCoreCuller.isFaceVisible(8, 70, 8, EnumFacing.UP));
+        } finally {
+            IslandCoreCuller.clearCurrentThread();
+        }
+    }
+
+    @Test
+    public void testSmartChunkUpdateSchedulerDynamicBedsGeneratorsAndStaticThrottling() {
+        SmartChunkUpdateScheduler.clear();
+        long now = System.currentTimeMillis();
+
+        // 1. Blocs posés/cassés par un joueur -> section + voisins immédiats urgents (0 ms)
+        SmartChunkUpdateScheduler.markDynamicBlockChange(32, 64, 32, false);
+        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(2, 4, 2, now));
+        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(3, 4, 2, now));
+        assertFalse(SmartChunkUpdateScheduler.isUrgentSubchunk(10, 4, 10, now));
+
+        // 2. Lits BedWars -> priorité permanente sans expiration
+        SmartChunkUpdateScheduler.registerBedSubchunk(12, 4, 12);
+        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(12, 4, 12, now + 3_600_000L));
+        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(12, 5, 12, now + 3_600_000L));
+
+        // 3. Générateurs de minerais -> priorité immédiate sur la colonne du générateur
+        SmartChunkUpdateScheduler.markGeneratorActivity(160.5D, 65.0D, -31.5D);
+        assertTrue(SmartChunkUpdateScheduler.isUrgentSubchunk(10, 4, -2, now));
+
+        // 4. Filtrage notifyLightSet sur le décor statique vs lits/blocs joueurs
+        PureFPSConfig.applyProfile(PureFPSProfile.FPS, false);
+        assertFalse("Static island light update must be suppressed in FPS profile",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(800, 64, 800, now));
+        assertTrue("Bed subchunk light update must always pass",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(12 * 16, 64, 12 * 16, now));
+        assertTrue("Player-edited subchunk light update must always pass",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(32, 64, 32, now));
+
+        PureFPSConfig.applyProfile(PureFPSProfile.BALANCED, false);
+        assertTrue("First static light rebuild allowed in BALANCED",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(960, 64, 960, now));
+        assertFalse("Repeated static light rebuild within 4s cooldown must be throttled",
+                SmartChunkUpdateScheduler.shouldAllowLightRebuild(960, 64, 960, now + 500L));
+
+        SmartChunkUpdateScheduler.clear();
     }
 }

@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.util.List;
 
 /**
- * Affiche sur l'écran F3 le profil actif, le batching GPU MultiDraw VAO GL30 et la télémétrie temps-réel de PureClient 3.5.
+ * Affiche sur l'écran F3 le profil actif, le batching GPU VAO+EBO, le déchargement des coeurs d'îles et les compteurs temps-réel de MashClient 4.3.
  */
 @Mixin(GuiOverlayDebug.class)
 public class MixinGuiOverlayDebug {
@@ -25,15 +25,15 @@ public class MixinGuiOverlayDebug {
             return;
         }
         if (!PureFPSConfig.enabled) {
-            lines.add("\u00a7b[PureClient 3.5]\u00a7r Désactivé (/pureclient)");
+            lines.add("\u00a7b[MashClient 4.3]\u00a7r Désactivé (/pureclient)");
         } else {
             lines.add(String.format(
-                    "\u00a7b[PureClient 3.5 | %s\u00a7b]\u00a7r VAO+Triangles: %dc (%dd) | LazyBFS:%s | NoGLErr:%s | Culled E:%d TE:%d P:%d",
+                    "\u00a7b[MashClient 4.3 | %s\u00a7b]\u00a7r VAO+EBO: %dc (%dd) | CoreUnload:%d | StaticSkip:%d | Culled E:%d TE:%d P:%d",
                     PureFPSConfig.activeProfile.getColoredName(),
                     PureFPSConfig.chunksBatchedLastFrame,
                     PureFPSConfig.multiDrawsLastFrame,
-                    PureFPSConfig.lazyTerrainSetup ? "ON" : "OFF",
-                    PureFPSConfig.disableGlErrorChecks ? "ON" : "OFF",
+                    PureFPSConfig.unloadedIslandCoresTotal,
+                    PureFPSConfig.throttledStaticUpdatesTotal,
                     PureFPSConfig.culledEntitiesLastFrame,
                     PureFPSConfig.culledTileEntitiesLastFrame,
                     PureFPSConfig.culledParticlesLastFrame

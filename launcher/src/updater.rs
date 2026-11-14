@@ -16,7 +16,7 @@ use std::time::Duration;
 use tao::event_loop::EventLoopProxy;
 
 pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const USER_AGENT: &str = "MashClient-Updater/4.2";
+const USER_AGENT: &str = "MashClient-Updater/4.3";
 const GH_API_VERSION: &str = "2022-11-28";
 
 #[derive(Debug, Clone)]
@@ -39,6 +39,7 @@ pub struct PendingUpdate {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum UpdateCheckOutcome {
     UpToDate {
         latest_version: String,
@@ -455,6 +456,7 @@ fn open_github_asset_stream(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn stream_asset_to_part_file(
     standard_agent: &ureq::Agent,
     no_redirect_agent: &ureq::Agent,

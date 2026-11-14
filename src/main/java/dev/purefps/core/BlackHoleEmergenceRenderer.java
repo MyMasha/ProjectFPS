@@ -241,6 +241,7 @@ public final class BlackHoleEmergenceRenderer {
     private static float menuStartEmergence = 0.0F;
     private static float smoothMouseX = 0.0F;
     private static float smoothMouseY = 0.0F;
+    private static long lastMenuFboRenderNs = 0L;
 
     private static ByteBuffer cachedNoisePixels = null;
 
@@ -252,6 +253,7 @@ public final class BlackHoleEmergenceRenderer {
         latestEmergence = 0.0F;
         menuAttachMs = -1L;
         menuStartEmergence = 0.0F;
+        lastMenuFboRenderNs = 0L;
         dev.purefps.client.audio.MashAudioEngine.resetBootState();
     }
 
@@ -420,7 +422,8 @@ public final class BlackHoleEmergenceRenderer {
 
         int dispW = mc != null ? Math.max(1, mc.displayWidth) : Math.max(1, guiWidth * 2);
         int dispH = mc != null ? Math.max(1, mc.displayHeight) : Math.max(1, guiHeight * 2);
-        float timeSec = (float) ((System.nanoTime() - bootOriginNs) * 1.0E-9D);
+        long nowNs = System.nanoTime();
+        float timeSec = (float) ((nowNs - bootOriginNs) * 1.0E-9D);
 
         if (ensureMainShader() && OpenGlHelper.isFramebufferEnabled() && mc != null && mc.getFramebuffer() != null) {
             int fboH = Math.min(dispH, MAX_MENU_FBO_HEIGHT);
@@ -428,25 +431,31 @@ public final class BlackHoleEmergenceRenderer {
             ensureMenuFbo(fboW, fboH);
 
             if (menuFbo != null) {
-                menuFbo.bindFramebuffer(true);
-                drawWithShader(
-                        mainProg,
-                        mainNoiseTex,
-                        mainULocRes,
-                        mainULocTime,
-                        mainULocEmergence,
-                        mainULocMouse,
-                        mainULocOffsetX,
-                        mainULocNoise,
-                        fboW,
-                        fboH,
-                        timeSec,
-                        emergence,
-                        smoothMouseX,
-                        -smoothMouseY,
-                        0.14F
-                );
-                mc.getFramebuffer().bindFramebuffer(true);
+                boolean shouldRenderShader = emergence < 0.999F
+                        || lastMenuFboRenderNs == 0L
+                        || (nowNs - lastMenuFboRenderNs) >= 16_000_000L;
+                if (shouldRenderShader) {
+                    lastMenuFboRenderNs = nowNs;
+                    menuFbo.bindFramebuffer(true);
+                    drawWithShader(
+                            mainProg,
+                            mainNoiseTex,
+                            mainULocRes,
+                            mainULocTime,
+                            mainULocEmergence,
+                            mainULocMouse,
+                            mainULocOffsetX,
+                            mainULocNoise,
+                            fboW,
+                            fboH,
+                            timeSec,
+                            emergence,
+                            smoothMouseX,
+                            -smoothMouseY,
+                            0.14F
+                    );
+                    mc.getFramebuffer().bindFramebuffer(true);
+                }
 
                 GlStateManager.disableDepth();
                 GlStateManager.disableAlpha();
@@ -490,6 +499,7 @@ public final class BlackHoleEmergenceRenderer {
     }
 
     public static void releaseMenuFramebuffer() {
+        lastMenuFboRenderNs = 0L;
         if (menuFbo != null) {
             try {
                 menuFbo.deleteFramebuffer();
