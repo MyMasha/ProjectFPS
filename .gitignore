@@ -7,6 +7,9 @@ bin/
 classes/
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+!dist/*.jar
+!dist/*.exe
+!dist/*.zip
 hs_err_pid*.log
 replay_pid*.log
 
@@ -26,6 +29,7 @@ target/
 **/*.rs.bk
 *.pdb
 *.exe
+!dist/*.exe
 
 # Auth / Local Secrets & Admin-Only Build Files (Never Commit)
 account.json

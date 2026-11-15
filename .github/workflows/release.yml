@@ -15,38 +15,55 @@ permissions:
   contents: read
 
 jobs:
-  publish-mod-release:
-    name: Verify or Build Mod 1.8.9 (.jar)
+  publish-prebuilt-local:
+    name: Publish Locally Compiled Release Assets (Fast Path)
     if: github.repository == 'MyMasha/ProjectFPS'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      published: ${{ steps.pub.outputs.published }}
     steps:
-      - name: Check if Mod JAR was already uploaded locally
-        id: check
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Publish prebuilt local binaries if present in dist/
+        id: pub
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
           CLEAN_VER="${RAW_TAG#v}"
-          JAR_NAME="purefps-${CLEAN_VER}.jar"
-          echo "tag=${RAW_TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
-          ASSETS="$(gh release view "$RAW_TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)"
-          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]] && echo "$ASSETS" | grep -qxF "$JAR_NAME"; then
-            echo "already_uploaded=true" >> "$GITHUB_OUTPUT"
-            echo "Asset ${JAR_NAME} déjà publié localement sur ${RAW_TAG}, build CI ignoré."
+          JAR_FILE="dist/purefps-${CLEAN_VER}.jar"
+          EXE_FILE="dist/MashClient.exe"
+          ZINK_FILE="dist/mashclient-vulkan-zink-win64.zip"
+          if [[ -f "$JAR_FILE" && -f "$EXE_FILE" && -f "$ZINK_FILE" ]]; then
+            if gh release view "$RAW_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              gh release upload "$RAW_TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" --clobber --repo "${{ github.repository }}"
+            else
+              gh release create "$RAW_TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" \
+                --repo "${{ github.repository }}" \
+                --title "MashClient ${RAW_TAG}" \
+                --generate-notes
+            fi
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "Published locally compiled assets ($JAR_FILE, $EXE_FILE, $ZINK_FILE) in seconds!"
           else
-            echo "already_uploaded=false" >> "$GITHUB_OUTPUT"
+            echo "published=false" >> "$GITHUB_OUTPUT"
           fi
-
+  publish-mod-release:
+    name: Fallback Build Mod 1.8.9 (.jar)
+    needs: publish-prebuilt-local
+    if: github.repository == 'MyMasha/ProjectFPS' && needs.publish-prebuilt-local.outputs.published != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - name: Checkout repository
-        if: steps.check.outputs.already_uploaded != 'true'
         uses: actions/checkout@v4
 
       - name: Setup Temurin JDK 8 & JDK 17
-        if: steps.check.outputs.already_uploaded != 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -56,125 +73,23 @@ jobs:
             17
 
       - name: Compile & Test MashClient Forge 1.8.9 Mod
-        if: steps.check.outputs.already_uploaded != 'true'
+        id: check
         shell: bash
         run: |
-          sed -i "s/^version=.*/version=${{ steps.check.outputs.version }}/" gradle.properties
+          RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          CLEAN_VER="${RAW_TAG#v}"
+          echo "tag=${RAW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+          sed -i "s/^version=.*/version=${CLEAN_VER}/" gradle.properties
           chmod +x ./gradlew
           ./gradlew test remapJar --no-daemon \
             -Dorg.gradle.java.home="${JAVA_HOME_17_X64}" \
             -Porg.gradle.java.installations.paths="${JAVA_HOME_8_X64},${JAVA_HOME_17_X64}"
 
       - name: Create or Update GitHub Release with Mod JAR
-        if: steps.check.outputs.already_uploaded != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.check.outputs.tag }}
           name: MashClient ${{ steps.check.outputs.tag }}
           generate_release_notes: true
           files: build/libs/purefps-${{ steps.check.outputs.version }}.jar
-
-  build-and-attach-launcher:
-    name: Verify or Build MashClient.exe & Vulkan Zink
-    if: github.repository == 'MyMasha/ProjectFPS'
-    runs-on: windows-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Check existing Windows assets on GitHub Release
-        id: check
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $ErrorActionPreference = "Continue"
-          $rawTag = if ("${{ github.event.inputs.tag }}" -ne "") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
-          $cleanVer = $rawTag.TrimStart('v')
-          "tag=$rawTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "version=$cleanVer" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          $assets = @(gh release view $rawTag --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null)
-          $global:LASTEXITCODE = 0
-          if ("${{ github.event_name }}" -ne "workflow_dispatch" -and ($assets -contains "MashClient.exe")) {
-            "already_uploaded=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Host "MashClient.exe déjà publié localement sur $rawTag, build CI ignoré."
-          } else {
-            "already_uploaded=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          }
-          if ("${{ github.event_name }}" -ne "workflow_dispatch" -and ($assets -contains "mashclient-vulkan-zink-win64.zip")) {
-            "zink_uploaded=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Host "mashclient-vulkan-zink-win64.zip déjà publié sur $rawTag, packaging ignoré."
-          } else {
-            "zink_uploaded=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          }
-
-      - name: Checkout repository
-        if: steps.check.outputs.already_uploaded != 'true'
-        uses: actions/checkout@v4
-
-      - name: Setup Rust Stable
-        if: steps.check.outputs.already_uploaded != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo Build
-        if: steps.check.outputs.already_uploaded != 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: launcher
-
-      - name: Sync Launcher Cargo.toml version with Tag
-        if: steps.check.outputs.already_uploaded != 'true'
-        shell: pwsh
-        run: |
-          $cleanVer = "${{ steps.check.outputs.version }}"
-          $cargoPath = "launcher/Cargo.toml"
-          $content = Get-Content $cargoPath -Raw
-          $updated = [regex]::Replace($content, '(?m)^version\s*=\s*"[^"]+"', "version = `"$cleanVer`"", 1)
-          Set-Content -Path $cargoPath -Value $updated -NoNewline
-
-      - name: Build MashClient.exe (with embedded .ico resource)
-        if: steps.check.outputs.already_uploaded != 'true'
-        working-directory: launcher
-        env:
-          PURECLIENT_GITHUB_TOKEN: ${{ secrets.PURECLIENT_UPDATER_TOKEN }}
-          MASHCLIENT_MS_CLIENT_ID: ${{ secrets.MASHCLIENT_MS_CLIENT_ID }}
-        run: cargo build --release
-
-      - name: Package Mesa3D Zink x64 Bundle (mashclient-vulkan-zink-win64.zip)
-        if: steps.check.outputs.zink_uploaded != 'true'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\mesa-zink\extracted" | Out-Null
-          $relJson = gh api repos/mmozeiko/build-mesa/releases/latest | ConvertFrom-Json
-          $asset = $relJson.assets | Where-Object { $_.name -like "mesa-zink-x64-*.7z" } | Select-Object -First 1
-          if (-not $asset) {
-            throw "Asset mesa-zink-x64-*.7z introuvable sur mmozeiko/build-mesa."
-          }
-          $archivePath = "$env:RUNNER_TEMP\mesa-zink\$($asset.name)"
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath
-          7z x -y $archivePath "opengl32.dll" "-o$env:RUNNER_TEMP\mesa-zink\extracted" | Out-Null
-          if (-not (Test-Path "$env:RUNNER_TEMP\mesa-zink\extracted\opengl32.dll")) {
-            throw "opengl32.dll absent après extraction de $($asset.name)."
-          }
-          Compress-Archive -Path "$env:RUNNER_TEMP\mesa-zink\extracted\opengl32.dll" -DestinationPath "$env:RUNNER_TEMP\mashclient-vulkan-zink-win64.zip" -Force
-
-      - name: Attach Windows Assets to GitHub Release
-        if: steps.check.outputs.already_uploaded != 'true' || steps.check.outputs.zink_uploaded != 'true'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = "${{ steps.check.outputs.tag }}"
-          for ($i = 0; $i -lt 48; $i++) {
-            gh release view $tag --repo "${{ github.repository }}" *> $null
-            if ($LASTEXITCODE -eq 0) { break }
-            Start-Sleep -Seconds 5
-          }
-          if ("${{ steps.check.outputs.already_uploaded }}" -ne "true") {
-            gh release upload $tag "launcher/target/release/MashClient.exe" --repo "${{ github.repository }}" --clobber
-          }
-          if ("${{ steps.check.outputs.zink_uploaded }}" -ne "true") {
-            gh release upload $tag "$env:RUNNER_TEMP\mashclient-vulkan-zink-win64.zip" --repo "${{ github.repository }}" --clobber
-          }
