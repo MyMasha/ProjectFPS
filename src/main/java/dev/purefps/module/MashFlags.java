@@ -71,13 +71,21 @@ public final class MashFlags {
     public static boolean criticalHealthVignette = false;
     public static float criticalHealthThreshold = 6.0F;
 
-    // Freelook 360° (caméra locale uniquement, 0 paquet serveur modifié !)
+    // Freelook 360° & Snaplook (caméra locale uniquement, 0 paquet serveur modifié !)
     public static boolean freelookEnabled = false;
     public static int freelookKeyCode = Keyboard.KEY_LMENU;
     public static boolean freelookInvertY = false;
     public static boolean freelookActive = false;
     public static float freelookYaw = 0.0F;
     public static float freelookPitch = 0.0F;
+
+    public static boolean snaplookEnabled = false;
+    public static int snaplookKeyCode = Keyboard.KEY_V;
+    public static boolean snaplookActive = false;
+
+    // Synchronisation instantanée des touches et de la souris en sortie de menu (0 délai clavier)
+    public static boolean autoSprintResume = true;
+    public static boolean cursorLockFix = true;
 
     // Visuel (Fullbright, Time/Weather, Scoreboard, Tab Ping, Chat, TNT Timer, Block Overlay)
     public static boolean fullbrightEnabled = true;

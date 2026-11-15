@@ -277,7 +277,7 @@ public final class MashModules {
             suppressCallbacks = false;
         }
 
-        if (loadedVersion == null || !loadedVersion.startsWith("4.4.")) {
+        if (loadedVersion == null || (!loadedVersion.startsWith("4.4.") && !loadedVersion.startsWith("4.5."))) {
             if (num("eng_unfocused_saver", "fps_cap", 30.0F) < 20.0F) {
                 setNumSilent("eng_unfocused_saver", "fps_cap", 30.0F);
             }
@@ -304,7 +304,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.5.1");
+        root.addProperty("version", "4.5.2");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
@@ -606,6 +606,12 @@ public final class MashModules {
         MashFlags.freelookEnabled = isOn("pvp_freelook");
         MashFlags.freelookKeyCode = key("pvp_freelook", "keybind", Keyboard.KEY_LMENU);
         MashFlags.freelookInvertY = bool("pvp_freelook", "invert_y", false);
+
+        MashFlags.snaplookEnabled = isOn("pvp_snaplook");
+        MashFlags.snaplookKeyCode = key("pvp_snaplook", "keybind", Keyboard.KEY_V);
+
+        MashFlags.autoSprintResume = isOn("wld_auto_sprint_resume") && bool("wld_auto_sprint_resume", "sync_movement", true);
+        MashFlags.cursorLockFix = isOn("pvp_cursor_lock_fix");
 
         // Visuel, TNT Timer, Hypixel & Monde
         MashFlags.fullbrightEnabled = isOn("vis_fullbright");

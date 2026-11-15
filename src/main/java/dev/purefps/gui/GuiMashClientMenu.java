@@ -1434,8 +1434,10 @@ public class GuiMashClientMenu extends GuiScreen {
             this.mc.displayGuiScreen(this.parentScreen);
             return;
         }
-        if (!searchFocused && keyCode == Keyboard.KEY_RSHIFT) {
-            this.mc.displayGuiScreen(this.parentScreen);
+        if (keyCode == Keyboard.KEY_RSHIFT) {
+            if (!Keyboard.isRepeatEvent()) {
+                this.mc.displayGuiScreen(this.parentScreen);
+            }
             return;
         }
 
@@ -1461,11 +1463,15 @@ public class GuiMashClientMenu extends GuiScreen {
 
         if (!hudCanvasMode) {
             if (keyCode == Keyboard.KEY_BACK) {
-                if (!searchQuery.isEmpty()) {
+                if ((searchFocused || !Keyboard.isRepeatEvent()) && !searchQuery.isEmpty()) {
                     searchFocused = true;
                     searchQuery = searchQuery.substring(0, searchQuery.length() - 1);
                     rebuildFilteredList();
                 }
+                return;
+            }
+            // Empêche les touches de déplacement maintenues (ZQSD) à l'ouverture du menu RSHIFT d'écrire dans la recherche
+            if (!searchFocused && (Keyboard.isRepeatEvent() || (System.currentTimeMillis() - this.openedAtMs) < 120L)) {
                 return;
             }
             if (ChatAllowedCharacters.isAllowedCharacter(typedChar) && typedChar >= 32) {

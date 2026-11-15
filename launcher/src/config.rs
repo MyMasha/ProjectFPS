@@ -33,10 +33,12 @@ impl PureProfile {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LaunchMode {
-    PrismBridge,
+    #[default]
+    #[serde(alias = "PrismBridge", alias = "Microsoft")]
     DirectMicrosoft,
+    #[serde(alias = "Offline")]
     DirectOffline,
 }
 
@@ -116,7 +118,6 @@ pub struct LauncherPrefs {
     pub game_dir: String,
     pub libraries_dir: String,
     pub assets_dir: String,
-    pub prism_exe: String,
     #[serde(default = "default_github_repo")]
     pub github_repo: String,
     #[serde(default = "default_true")]
@@ -127,19 +128,6 @@ pub struct LauncherPrefs {
     pub selected_server: Option<QuickServerEntry>,
     #[serde(default)]
     pub custom_servers: Vec<QuickServerEntry>,
-}
-
-pub fn is_real_prism_instance(instance_root: &Path) -> bool {
-    instance_root.join("instance.cfg").is_file() || instance_root.join("mmc-pack.json").is_file()
-}
-
-pub fn resolve_prism_instance_game_dir(instance_root: &Path) -> PathBuf {
-    let dot_mc = instance_root.join(".minecraft");
-    if dot_mc.is_dir() {
-        dot_mc
-    } else {
-        instance_root.join("minecraft")
-    }
 }
 
 /// Détecte et classe toutes les installations Java 8 64-bit disponibles sur la machine
@@ -164,7 +152,6 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
         PathBuf::from(r"C:\Program Files\Zulu"),
         PathBuf::from(r"C:\Program Files\BellSoft"),
         PathBuf::from(r"C:\Program Files\Java"),
-        Path::new(appdata).join("PrismLauncher").join("java"),
     ];
     for root in &search_roots {
         let Ok(entries) = std::fs::read_dir(root) else {
@@ -183,7 +170,6 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
     // 3. Emplacements exacts connus (y compris fallback jre-legacy)
     let exact_fallbacks = [
         r"C:\Program Files\Eclipse Adoptium\jre-8.0.504.1-hotspot\bin\javaw.exe".to_owned(),
-        format!(r"{appdata}\PrismLauncher\java\jre-legacy\bin\javaw.exe"),
         format!(
             r"{local_appdata}\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime\jre-legacy\windows-x64\jre-legacy\bin\javaw.exe"
         ),
@@ -227,92 +213,12 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
         .unwrap_or_else(|| exact_fallbacks[0].clone())
 }
 
-pub fn detect_prism_exe(appdata: &str, local_appdata: &str) -> String {
-    let candidates = [
-        format!(r"{local_appdata}\Programs\PrismLauncher\prismlauncher.exe"),
-        r"C:\Program Files\PrismLauncher\prismlauncher.exe".to_owned(),
-        format!(r"{appdata}\PrismLauncher\prismlauncher.exe"),
-    ];
-    for c in &candidates {
-        if Path::new(c).is_file() {
-            return c.clone();
-        }
-    }
-    candidates[0].clone()
-}
-
-pub fn detect_minecraft_189_dirs(appdata: &str, local_appdata: &str) -> (String, String, String) {
-    let prism_roots = [
-        Path::new(appdata).join("PrismLauncher"),
-        Path::new(local_appdata).join("Programs").join("PrismLauncher"),
-    ];
-
-    let mut best_match: Option<(i32, PathBuf, PathBuf)> = None;
-    for prism_root in &prism_roots {
-        let instances_dir = prism_root.join("instances");
-        let Ok(entries) = std::fs::read_dir(&instances_dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let inst_path = entry.path();
-            if !inst_path.is_dir() || !is_real_prism_instance(&inst_path) {
-                continue;
-            }
-            let inst_name = entry.file_name().to_string_lossy().to_string();
-            // Ne jamais confondre l'instance séparée Vulkan Bêta avec l'instance OpenGL standard
-            if inst_name.to_ascii_lowercase().contains("vulkan") {
-                continue;
-            }
-            let mmc_pack = std::fs::read_to_string(inst_path.join("mmc-pack.json")).unwrap_or_default();
-            let inst_cfg = std::fs::read_to_string(inst_path.join("instance.cfg")).unwrap_or_default();
-
-            let mut score = 0;
-            if mmc_pack.contains("1.8.9") || inst_cfg.contains("1.8.9") || inst_name.contains("1.8.9") {
-                score += 100;
-            }
-            if mmc_pack.contains("net.minecraftforge") {
-                score += 50;
-            }
-            if inst_name.to_ascii_lowercase().contains("mash")
-                || inst_name.eq_ignore_ascii_case("1.8.9")
-            {
-                score += 25;
-            }
-            if score >= 100 {
-                let replace = match &best_match {
-                    None => true,
-                    Some((cur_score, _, _)) => score > *cur_score,
-                };
-                if replace {
-                    best_match = Some((score, prism_root.clone(), inst_path));
-                }
-            }
-        }
-    }
-
-    if let Some((_, prism_root, inst_path)) = best_match {
-        let game_dir = resolve_prism_instance_game_dir(&inst_path)
-            .to_string_lossy()
-            .to_string();
-        let libs_dir = prism_root.join("libraries").to_string_lossy().to_string();
-        let assets_dir = prism_root.join("assets").to_string_lossy().to_string();
-        return (game_dir, libs_dir, assets_dir);
-    }
-
+pub fn detect_minecraft_189_dirs(appdata: &str, _local_appdata: &str) -> (String, String, String) {
     let official_mc = Path::new(appdata).join(".minecraft");
-    if official_mc.is_dir() {
-        return (
-            official_mc.to_string_lossy().to_string(),
-            official_mc.join("libraries").to_string_lossy().to_string(),
-            official_mc.join("assets").to_string_lossy().to_string(),
-        );
-    }
-
-    (
-        format!(r"{appdata}\PrismLauncher\instances\1.8.9\minecraft"),
-        format!(r"{appdata}\PrismLauncher\libraries"),
-        format!(r"{appdata}\PrismLauncher\assets"),
-    )
+    let game_dir = official_mc.to_string_lossy().to_string();
+    let libs_dir = official_mc.join("libraries").to_string_lossy().to_string();
+    let assets_dir = official_mc.join("assets").to_string_lossy().to_string();
+    (game_dir, libs_dir, assets_dir)
 }
 
 impl Default for LauncherPrefs {
@@ -322,19 +228,17 @@ impl Default for LauncherPrefs {
             std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
 
         let java_path = detect_java8_path(&appdata, &local_appdata);
-        let prism_exe = detect_prism_exe(&appdata, &local_appdata);
         let (game_dir, libraries_dir, assets_dir) = detect_minecraft_189_dirs(&appdata, &local_appdata);
 
         Self {
             ram_mb: 3072,
             offline_username: "MashPlayer".to_owned(),
             quick_join_hypixel: false,
-            launch_mode: LaunchMode::PrismBridge,
+            launch_mode: LaunchMode::DirectMicrosoft,
             java_path,
             game_dir,
             libraries_dir,
             assets_dir,
-            prism_exe,
             github_repo: default_github_repo(),
             auto_update_check: true,
             instance_flavor: InstanceFlavor::Standard,
@@ -1330,6 +1234,38 @@ pub fn app_storage_dir() -> PathBuf {
     mash_dir
 }
 
+fn migrate_legacy_game_dir_contents(src_game_dir: &Path, dst_game_dir: &Path) {
+    if !src_game_dir.is_dir() || src_game_dir == dst_game_dir {
+        return;
+    }
+    let _ = std::fs::create_dir_all(dst_game_dir.join("config"));
+    let _ = std::fs::create_dir_all(dst_game_dir.join("mods"));
+    let _ = std::fs::create_dir_all(dst_game_dir.join("resourcepacks"));
+
+    for rel in ["config/purefps.properties", "config/mashclient_modules.json", "options.txt", "servers.dat"] {
+        let s = src_game_dir.join(rel);
+        let d = dst_game_dir.join(rel);
+        if s.is_file() && !d.exists() {
+            let _ = std::fs::copy(&s, &d);
+        }
+    }
+
+    for sub in ["resourcepacks", "mods"] {
+        let Ok(entries) = std::fs::read_dir(src_game_dir.join(sub)) else {
+            continue;
+        };
+        let dst_sub = dst_game_dir.join(sub);
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let fname = entry.file_name();
+            let dst_p = dst_sub.join(&fname);
+            if p.is_file() && !dst_p.exists() {
+                let _ = std::fs::copy(&p, &dst_p);
+            }
+        }
+    }
+}
+
 pub fn load_launcher_prefs() -> LauncherPrefs {
     let path = app_storage_dir().join("launcher.json");
     let mut prefs = std::fs::read_to_string(path)
@@ -1347,22 +1283,24 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
     let local_appdata =
         std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
 
-    // Auto-réparation si le chemin d'instance Prism configuré n'existe plus sur le disque
-    let game_path = Path::new(&prefs.game_dir);
-    let looks_like_uncreated_prism = prefs.game_dir.contains("PrismLauncher")
-        && game_path
-            .parent()
-            .map(|inst| !is_real_prism_instance(inst))
-            .unwrap_or(true);
-    if looks_like_uncreated_prism || !game_path.exists() {
-        let (detected_game, detected_libs, detected_assets) =
-            detect_minecraft_189_dirs(&appdata, &local_appdata);
-        if Path::new(&detected_game).exists() || looks_like_uncreated_prism {
-            prefs.game_dir = detected_game;
-            prefs.libraries_dir = detected_libs;
-            prefs.assets_dir = detected_assets;
-        }
+    // Migration automatique de toute ancienne configuration PrismLauncher vers le dossier autonome .minecraft
+    let is_legacy_prism = prefs.game_dir.to_ascii_lowercase().contains("prismlauncher")
+        || prefs.libraries_dir.to_ascii_lowercase().contains("prismlauncher")
+        || prefs.assets_dir.to_ascii_lowercase().contains("prismlauncher");
+    if is_legacy_prism || prefs.game_dir.trim().is_empty() {
+        let old_game_path = PathBuf::from(&prefs.game_dir);
+        let (std_game, std_libs, std_assets) = detect_minecraft_189_dirs(&appdata, &local_appdata);
+        migrate_legacy_game_dir_contents(&old_game_path, Path::new(&std_game));
+        prefs.game_dir = std_game;
+        prefs.libraries_dir = std_libs;
+        prefs.assets_dir = std_assets;
+        let _ = save_launcher_prefs(&prefs);
     }
+
+    let game_path = Path::new(&prefs.game_dir);
+    let _ = std::fs::create_dir_all(game_path.join("config"));
+    let _ = std::fs::create_dir_all(game_path.join("mods"));
+    let _ = std::fs::create_dir_all(game_path.join("resourcepacks"));
 
     let cur_java_file = Path::new(&prefs.java_path);
     let cur_probe = crate::runtimes::probe_java8_executable(cur_java_file);
@@ -1374,13 +1312,6 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
             if !cur_java_file.is_file() || det_probe.update_version > cur_probe.update_version {
                 prefs.java_path = detected_java;
             }
-        }
-    }
-
-    if !Path::new(&prefs.prism_exe).is_file() {
-        let detected_prism = detect_prism_exe(&appdata, &local_appdata);
-        if Path::new(&detected_prism).is_file() {
-            prefs.prism_exe = detected_prism;
         }
     }
 

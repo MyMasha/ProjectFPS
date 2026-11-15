@@ -1078,11 +1078,11 @@ public final class MashHudRenderer {
         mod.setBaseHudSize(bw, bh);
 
         GameSettings gs = mc.gameSettings;
-        boolean kw = gs.keyBindForward.isKeyDown();
-        boolean ka = gs.keyBindLeft.isKeyDown();
-        boolean ks = gs.keyBindBack.isKeyDown();
-        boolean kd = gs.keyBindRight.isKeyDown();
-        boolean kj = gs.keyBindJump.isKeyDown();
+        boolean kw = isKeyBindDownRealtime(mc, gs.keyBindForward);
+        boolean ka = isKeyBindDownRealtime(mc, gs.keyBindLeft);
+        boolean ks = isKeyBindDownRealtime(mc, gs.keyBindBack);
+        boolean kd = isKeyBindDownRealtime(mc, gs.keyBindRight);
+        boolean kj = isKeyBindDownRealtime(mc, gs.keyBindJump);
         boolean ml = Mouse.isCreated() && mc.currentScreen == null && Mouse.isButtonDown(0);
         boolean mr = Mouse.isCreated() && mc.currentScreen == null && Mouse.isButtonDown(1);
 
@@ -1137,6 +1137,16 @@ public final class MashHudRenderer {
             drawHudCard(mod, x, y, w, h, s, alphaMul);
             queueText(label, x + w * 0.5F * s, y + (h - 8.0F) * 0.5F * s, s, textCol, shadow, true);
         }
+    }
+
+    private static boolean isKeyBindDownRealtime(Minecraft mc, net.minecraft.client.settings.KeyBinding kb) {
+        if (kb == null) {
+            return false;
+        }
+        if (mc != null && mc.currentScreen == null) {
+            return dev.purefps.client.ClientEventBridge.isKeybindPhysicallyDown(kb.getKeyCode()) || kb.isKeyDown();
+        }
+        return kb.isKeyDown();
     }
 
     private static void renderArmorWidget(

@@ -27,15 +27,61 @@ public final class ResourcePackBrowserHelper {
     }
 
     public static File[] collectPackFilesRecursively(File rootDir, FileFilter vanillaPackFilter) {
-        if (rootDir == null || !rootDir.isDirectory()) {
-            return new File[0];
+        if (rootDir != null && !rootDir.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            rootDir.mkdirs();
         }
         List<File> collected = new ArrayList<>();
-        scanDirectory(rootDir, vanillaPackFilter, 0, collected);
+        java.util.Set<String> seenNames = new java.util.HashSet<>();
+        if (rootDir != null && rootDir.isDirectory()) {
+            scanDirectory(rootDir, vanillaPackFilter, 0, collected, seenNames);
+        }
+        File fallbackRoot = resolveDefaultMinecraftResourcePacksDir();
+        if (fallbackRoot != null && fallbackRoot.isDirectory() && (rootDir == null || !isSameDirectory(rootDir, fallbackRoot))) {
+            scanDirectory(fallbackRoot, vanillaPackFilter, 0, collected, seenNames);
+        }
         return collected.toArray(new File[0]);
     }
 
-    private static void scanDirectory(File dir, FileFilter packFilter, int depth, List<File> out) {
+    public static File resolveDefaultMinecraftResourcePacksDir() {
+        String appdata = System.getenv("APPDATA");
+        if (appdata != null && !appdata.trim().isEmpty()) {
+            File std = new File(new File(appdata.trim(), ".minecraft"), "resourcepacks");
+            if (std.isDirectory()) {
+                return std;
+            }
+        }
+        return null;
+    }
+
+    public static void openFolderInFileManager(File dir) {
+        if (dir == null) {
+            return;
+        }
+        if (!dir.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            dir.mkdirs();
+        }
+        String absPath = dir.getAbsolutePath();
+        String os = System.getProperty("os.name", "").toLowerCase();
+        try {
+            if (os.contains("win")) {
+                new ProcessBuilder("explorer.exe", absPath).start();
+                return;
+            }
+            if (java.awt.Desktop.isDesktopSupported()) {
+                java.awt.Desktop.getDesktop().open(dir);
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            org.lwjgl.Sys.openURL(dir.toURI().toString());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void scanDirectory(File dir, FileFilter packFilter, int depth, List<File> out, java.util.Set<String> seenNames) {
         File[] children = dir.listFiles();
         if (children == null) {
             return;
@@ -43,9 +89,12 @@ public final class ResourcePackBrowserHelper {
         Arrays.sort(children, Comparator.comparing(f -> f.getName().toLowerCase()));
         for (File child : children) {
             if (packFilter != null && packFilter.accept(child)) {
-                out.add(child);
+                String key = child.getName().toLowerCase();
+                if (seenNames.add(key)) {
+                    out.add(child);
+                }
             } else if (depth < MAX_SUBFOLDER_DEPTH && isNavigableSubfolder(child)) {
-                scanDirectory(child, packFilter, depth + 1, out);
+                scanDirectory(child, packFilter, depth + 1, out, seenNames);
             }
         }
     }

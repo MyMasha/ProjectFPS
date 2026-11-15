@@ -1,12 +1,9 @@
 //! Gestionnaire des runtimes MashClient 4.5.1 :
 //! 1. Détection, classement et installation automatique d'Eclipse Temurin Java 8 x64 récent (`8u400+`)
-//! 2. Isolation complète de l'instance `1.8.9 PureFPS Vulkan` (Bêta) et déploiement du traducteur
-//!    OpenGL -> Vulkan **Mesa3D Zink** (`opengl32.dll` + `javaw.exe.local`).
+//! 2. Déploiement du traducteur OpenGL -> Vulkan **Mesa3D Zink** (`opengl32.dll` + `javaw.exe.local`)
+//!    tout en conservant le même dossier `.minecraft` unifié (resourcepacks, mondes, serveurs, configs).
 
-use crate::config::{
-    app_storage_dir, effective_github_token, is_real_prism_instance, resolve_prism_instance_game_dir,
-    InstanceFlavor, LauncherPrefs,
-};
+use crate::config::{app_storage_dir, effective_github_token, LauncherPrefs};
 use crate::updater::sanitize_repo;
 use crate::AppEvent;
 use serde::Deserialize;
@@ -17,7 +14,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tao::event_loop::EventLoopProxy;
 
-pub const PRISM_VULKAN_INSTANCE_NAME: &str = "1.8.9 PureFPS Vulkan";
 pub const VULKAN_ZINK_ASSET_NAME: &str = "mashclient-vulkan-zink-win64.zip";
 pub const VULKAN_CORE_DLL: &str = "opengl32.dll";
 pub const VULKAN_OPTIONAL_COMPANION_DLLS: &[&str] = &[
@@ -383,42 +379,10 @@ pub fn install_temurin_jre8(proxy: &EventLoopProxy<AppEvent>) -> Result<(String,
     Ok((javaw.to_string_lossy().to_string(), probe.label))
 }
 
-/// Résout le dossier `.minecraft` / `minecraft` actif selon l'instance choisie (`1.8.9 PureFPS` vs `1.8.9 PureFPS Vulkan`).
+/// Résout le dossier `.minecraft` actif (partagé entre les moteurs OpenGL et Vulkan Bêta
+/// afin que les Resource Packs, mondes, serveurs et réglages restent toujours présents).
 pub fn resolve_active_game_dir(prefs: &LauncherPrefs) -> String {
-    if prefs.instance_flavor == InstanceFlavor::Standard {
-        return prefs.game_dir.clone();
-    }
-
-    let base_path = Path::new(&prefs.game_dir);
-    if let Some(inst_root) = base_path.parent() {
-        let inst_name = inst_root
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        if inst_name.eq_ignore_ascii_case(PRISM_VULKAN_INSTANCE_NAME) {
-            return prefs.game_dir.clone();
-        }
-        if is_real_prism_instance(inst_root) {
-            if let Some(instances_dir) = inst_root.parent() {
-                let mc_leaf = base_path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "minecraft".to_owned());
-                return instances_dir
-                    .join(PRISM_VULKAN_INSTANCE_NAME)
-                    .join(mc_leaf)
-                    .to_string_lossy()
-                    .to_string();
-            }
-        }
-    }
-
-    app_storage_dir()
-        .join("instances")
-        .join("1.8.9-vulkan")
-        .join("minecraft")
-        .to_string_lossy()
-        .to_string()
+    prefs.game_dir.clone()
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
@@ -436,74 +400,18 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Initialise (au premier usage) le répertoire isolé de l'instance `1.8.9 PureFPS Vulkan` (Bêta) :
-/// - En mode PrismLauncher : crée l'instance sœur `1.8.9 PureFPS Vulkan` avec `mmc-pack.json` et `instance.cfg` dédiés
-/// - Copie une seule fois `options.txt`, `servers.dat` et les réglages MashClient de base sans mélanger les `mods/`.
+/// Vérifie et prépare les sous-dossiers requis (`config`, `mods`, `resourcepacks`, `shaderpacks`)
+/// dans le répertoire `.minecraft` actif.
 pub fn ensure_vulkan_instance_initialized(prefs: &LauncherPrefs) -> Result<String, String> {
-    let vk_game_dir_str = resolve_active_game_dir(prefs);
-    let vk_game_dir = Path::new(&vk_game_dir_str);
-    let first_init = !vk_game_dir.join("config").join("purefps.properties").is_file();
+    let game_dir_str = resolve_active_game_dir(prefs);
+    let game_dir = Path::new(&game_dir_str);
 
     for sub in ["config", "mods", "resourcepacks", "shaderpacks"] {
-        std::fs::create_dir_all(vk_game_dir.join(sub))
-            .map_err(|e| format!("Création dossier instance Vulkan ({sub}) : {e}"))?;
+        std::fs::create_dir_all(game_dir.join(sub))
+            .map_err(|e| format!("Création dossier Minecraft ({sub}) : {e}"))?;
     }
 
-    let std_game_dir = Path::new(&prefs.game_dir);
-    if first_init && std_game_dir != vk_game_dir && std_game_dir.is_dir() {
-        for root_file in ["options.txt", "optionsof.txt", "servers.dat"] {
-            let s = std_game_dir.join(root_file);
-            let d = vk_game_dir.join(root_file);
-            if s.is_file() && !d.exists() {
-                let _ = std::fs::copy(&s, &d);
-            }
-        }
-        for cfg_file in ["purefps.properties", "mashclient_modules.json"] {
-            let s = std_game_dir.join("config").join(cfg_file);
-            let d = vk_game_dir.join("config").join(cfg_file);
-            if s.is_file() && !d.exists() {
-                let _ = std::fs::copy(&s, &d);
-            }
-        }
-    }
-
-    // Si l'instance de base est une instance PrismLauncher, prépare aussi les métadonnées Prism de `1.8.9 PureFPS Vulkan`
-    if let (Some(std_inst_root), Some(vk_inst_root)) = (std_game_dir.parent(), vk_game_dir.parent()) {
-        if std_inst_root != vk_inst_root && is_real_prism_instance(std_inst_root) {
-            let src_mmc = std_inst_root.join("mmc-pack.json");
-            let dst_mmc = vk_inst_root.join("mmc-pack.json");
-            if src_mmc.is_file() && !dst_mmc.is_file() {
-                let _ = std::fs::copy(&src_mmc, &dst_mmc);
-            }
-            let src_patches = std_inst_root.join("patches");
-            let dst_patches = vk_inst_root.join("patches");
-            if src_patches.is_dir() && !dst_patches.is_dir() {
-                let _ = copy_dir_recursive(&src_patches, &dst_patches);
-            }
-            let dst_cfg = vk_inst_root.join("instance.cfg");
-            if !dst_cfg.is_file() {
-                let base_cfg = std::fs::read_to_string(std_inst_root.join("instance.cfg"))
-                    .unwrap_or_else(|_| "InstanceType=OneSix\niconKey=default\n".to_owned());
-                let mut lines: Vec<String> = Vec::new();
-                let mut saw_name = false;
-                for line in base_cfg.lines() {
-                    if line.starts_with("name=") {
-                        lines.push(format!("name={PRISM_VULKAN_INSTANCE_NAME} (Bêta)"));
-                        saw_name = true;
-                    } else {
-                        lines.push(line.to_owned());
-                    }
-                }
-                if !saw_name {
-                    lines.push(format!("name={PRISM_VULKAN_INSTANCE_NAME} (Bêta)"));
-                }
-                let _ = std::fs::write(&dst_cfg, lines.join("\n") + "\n");
-            }
-        }
-    }
-
-    let _ = resolve_prism_instance_game_dir;
-    Ok(vk_game_dir_str)
+    Ok(game_dir_str)
 }
 
 fn vulkan_zink_cache_dir() -> PathBuf {
@@ -792,36 +700,30 @@ mod tests {
         );
         assert_eq!(parse_java8_update_number("OpenJDK8U-jdk8u412-b08"), Some(412));
         assert_eq!(
-            parse_java8_update_number(r"C:\PrismLauncher\java\jre-legacy\bin\javaw.exe"),
+            parse_java8_update_number(r"C:\Minecraft\runtime\jre-legacy\bin\javaw.exe"),
             Some(51)
         );
     }
 
     #[test]
-    fn test_vulkan_instance_path_isolation() {
-        let tmp = std::env::temp_dir().join("mashclient_vk_inst_test");
+    fn test_vulkan_unified_standalone_game_dir() {
+        let tmp = std::env::temp_dir().join("mashclient_vk_standalone_test");
         let _ = std::fs::remove_dir_all(&tmp);
-        let base_inst = tmp.join("instances").join("1.8.9");
-        let base_mc = base_inst.join("minecraft");
+        let base_mc = tmp.join(".minecraft");
         std::fs::create_dir_all(base_mc.join("config")).unwrap();
-        std::fs::write(base_inst.join("mmc-pack.json"), r#"{"components":[{"uid":"net.minecraft","version":"1.8.9"}]}"#).unwrap();
-        std::fs::write(base_inst.join("instance.cfg"), "InstanceType=OneSix\nname=1.8.9\n").unwrap();
         std::fs::write(base_mc.join("options.txt"), "fov:0.5\n").unwrap();
-        std::fs::write(base_mc.join("config").join("purefps.properties"), "enabled=true\n").unwrap();
 
         let mut prefs = LauncherPrefs::default();
         prefs.game_dir = base_mc.to_string_lossy().to_string();
-        prefs.instance_flavor = InstanceFlavor::Standard;
+        prefs.instance_flavor = crate::config::InstanceFlavor::Standard;
         assert_eq!(resolve_active_game_dir(&prefs), prefs.game_dir);
 
-        prefs.instance_flavor = InstanceFlavor::VulkanBeta;
+        prefs.instance_flavor = crate::config::InstanceFlavor::VulkanBeta;
         let vk_dir = ensure_vulkan_instance_initialized(&prefs).unwrap();
-        assert_ne!(vk_dir, prefs.game_dir);
-        assert!(vk_dir.contains(PRISM_VULKAN_INSTANCE_NAME));
+        assert_eq!(vk_dir, prefs.game_dir);
+        assert!(Path::new(&vk_dir).join("resourcepacks").is_dir());
+        assert!(Path::new(&vk_dir).join("mods").is_dir());
         assert!(Path::new(&vk_dir).join("options.txt").is_file());
-        assert!(Path::new(&vk_dir).parent().unwrap().join("mmc-pack.json").is_file());
-        let vk_cfg = std::fs::read_to_string(Path::new(&vk_dir).parent().unwrap().join("instance.cfg")).unwrap();
-        assert!(vk_cfg.contains("1.8.9 PureFPS Vulkan (Bêta)"));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

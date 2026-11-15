@@ -4,6 +4,7 @@ import dev.purefps.client.ui.ResourcePackBrowserHelper;
 import dev.purefps.client.ui.ResourcePackFolderEntry;
 import dev.purefps.config.PureFPSConfig;
 import net.minecraft.client.gui.Gui;
+import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiResourcePackAvailable;
 import net.minecraft.client.gui.GuiResourcePackSelected;
 import net.minecraft.client.gui.GuiScreen;
@@ -28,8 +29,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Ajoute une barre de recherche instantanée et la navigation par sous-dossiers
- * directement dans l'écran Resource Packs de Minecraft 1.8.9.
+ * Ajoute une barre de recherche instantanée, la navigation par sous-dossiers et l'ouverture fiable
+ * de l'Explorateur Windows directement dans l'écran Resource Packs de Minecraft 1.8.9.
  */
 @Mixin(GuiScreenResourcePacks.class)
 public abstract class MixinGuiScreenResourcePacks extends GuiScreen {
@@ -66,13 +67,17 @@ public abstract class MixinGuiScreenResourcePacks extends GuiScreen {
 
     @Inject(method = "initGui", at = @At("RETURN"))
     private void purefps$onInitGuiReturn(CallbackInfo ci) {
+        ResourcePackRepository repo = this.mc.getResourcePackRepository();
+        this.purefps$rootDir = repo.getDirResourcepacks();
+        if (this.purefps$rootDir != null && !this.purefps$rootDir.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            this.purefps$rootDir.mkdirs();
+        }
         if (!PureFPSConfig.enabled || this.availableResourcePacksList == null) {
             return;
         }
         Keyboard.enableRepeatEvents(true);
 
-        ResourcePackRepository repo = this.mc.getResourcePackRepository();
-        this.purefps$rootDir = repo.getDirResourcepacks();
         if (this.purefps$currentDir == null
                 || !this.purefps$currentDir.isDirectory()
                 || (!ResourcePackBrowserHelper.isSameDirectory(this.purefps$currentDir, this.purefps$rootDir)
@@ -90,6 +95,21 @@ public abstract class MixinGuiScreenResourcePacks extends GuiScreen {
         this.purefps$searchBox.setText(purefps$persistedQuery != null ? purefps$persistedQuery : "");
 
         purefps$rebuildAvailablePacks();
+    }
+
+    @Inject(method = "actionPerformed", at = @At("HEAD"), cancellable = true)
+    private void purefps$onActionPerformedHead(GuiButton button, CallbackInfo ci) {
+        // Intercepte le bouton "Ouvrir le dossier des packs" (id == 2) dont l'appel Vanilla Sys.openURL("file://" + path)
+        // échoue sur Windows avec '\C:\Users\...\resourcepacks\'.
+        if (button != null && button.enabled && button.id == 2) {
+            File targetDir = (this.purefps$currentDir != null)
+                    ? this.purefps$currentDir
+                    : this.mc.getResourcePackRepository().getDirResourcepacks();
+            if (targetDir != null) {
+                ResourcePackBrowserHelper.openFolderInFileManager(targetDir);
+                ci.cancel();
+            }
+        }
     }
 
     @Override
@@ -118,7 +138,7 @@ public abstract class MixinGuiScreenResourcePacks extends GuiScreen {
         String text = this.purefps$searchBox.getText();
         if ((text == null || text.isEmpty()) && !this.purefps$searchBox.isFocused()) {
             String hint = (this.purefps$currentDir != null && !ResourcePackBrowserHelper.isSameDirectory(this.purefps$currentDir, this.purefps$rootDir))
-                    ? "Rechercher (\uD83D\uDCC1 " + this.purefps$currentDir.getName() + ")..."
+                    ? "Rechercher (" + this.purefps$currentDir.getName() + ")..."
                     : "Rechercher un pack...";
             this.fontRendererObj.drawStringWithShadow(
                     this.fontRendererObj.trimStringToWidth(hint, 188),
@@ -193,6 +213,7 @@ public abstract class MixinGuiScreenResourcePacks extends GuiScreen {
     private void purefps$indexAllPacks() {
         this.purefps$allDiscoveredPacks.clear();
         Set<ResourcePackRepository.Entry> seen = new HashSet<>();
+        GuiScreenResourcePacks self = (GuiScreenResourcePacks) (Object) this;
 
         if (this.selectedResourcePacks != null) {
             for (ResourcePackListEntry entry : this.selectedResourcePacks) {
@@ -210,6 +231,17 @@ public abstract class MixinGuiScreenResourcePacks extends GuiScreen {
                     ResourcePackListEntryFound found = (ResourcePackListEntryFound) entry;
                     if (seen.add(found.func_148318_i())) {
                         this.purefps$allDiscoveredPacks.add(found);
+                    }
+                }
+            }
+        }
+        ResourcePackRepository repo = this.mc.getResourcePackRepository();
+        if (repo != null) {
+            List<ResourcePackRepository.Entry> allRepoEntries = repo.getRepositoryEntriesAll();
+            if (allRepoEntries != null) {
+                for (ResourcePackRepository.Entry repoEntry : allRepoEntries) {
+                    if (repoEntry != null && seen.add(repoEntry)) {
+                        this.purefps$allDiscoveredPacks.add(new ResourcePackListEntryFound(self, repoEntry));
                     }
                 }
             }
@@ -248,9 +280,13 @@ public abstract class MixinGuiScreenResourcePacks extends GuiScreen {
 
         this.availableResourcePacks.clear();
         GuiScreenResourcePacks self = (GuiScreenResourcePacks) (Object) this;
+        boolean atRoot = this.purefps$currentDir == null
+                || this.purefps$rootDir == null
+                || ResourcePackBrowserHelper.isSameDirectory(this.purefps$currentDir, this.purefps$rootDir);
+        File fallbackRoot = ResourcePackBrowserHelper.resolveDefaultMinecraftResourcePacksDir();
 
         if (!hasQuery && this.purefps$rootDir != null && this.purefps$currentDir != null) {
-            if (!ResourcePackBrowserHelper.isSameDirectory(this.purefps$currentDir, this.purefps$rootDir)) {
+            if (!atRoot) {
                 File parent = this.purefps$currentDir.getParentFile();
                 final File targetParent = (parent != null && (ResourcePackBrowserHelper.isSameDirectory(parent, this.purefps$rootDir)
                         || ResourcePackBrowserHelper.isInsideDirectory(parent, this.purefps$rootDir)))
@@ -266,6 +302,20 @@ public abstract class MixinGuiScreenResourcePacks extends GuiScreen {
             }
 
             List<File> subfolders = ResourcePackBrowserHelper.listSubfolders(this.purefps$currentDir);
+            if (atRoot && fallbackRoot != null && !ResourcePackBrowserHelper.isSameDirectory(this.purefps$rootDir, fallbackRoot)) {
+                for (File extraFolder : ResourcePackBrowserHelper.listSubfolders(fallbackRoot)) {
+                    boolean duplicate = false;
+                    for (File existing : subfolders) {
+                        if (existing.getName().equalsIgnoreCase(extraFolder.getName())) {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (!duplicate) {
+                        subfolders.add(extraFolder);
+                    }
+                }
+            }
             for (final File folder : subfolders) {
                 int countInSubtree = purefps$countAvailableInSubtree(folder, selectedSet);
                 this.availableResourcePacks.add(new ResourcePackFolderEntry(
@@ -295,9 +345,11 @@ public abstract class MixinGuiScreenResourcePacks extends GuiScreen {
                 }
             } else {
                 File parentDir = packFile != null ? packFile.getParentFile() : this.purefps$rootDir;
-                if (this.purefps$currentDir == null
+                boolean matchesCurrent = this.purefps$currentDir == null
                         || parentDir == null
-                        || ResourcePackBrowserHelper.isSameDirectory(parentDir, this.purefps$currentDir)) {
+                        || ResourcePackBrowserHelper.isSameDirectory(parentDir, this.purefps$currentDir)
+                        || (atRoot && fallbackRoot != null && ResourcePackBrowserHelper.isSameDirectory(parentDir, fallbackRoot));
+                if (matchesCurrent) {
                     this.availableResourcePacks.add(packEntry);
                 }
             }

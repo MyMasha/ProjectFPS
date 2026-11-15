@@ -7,9 +7,8 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Pont de connexion rapide aux serveurs depuis MashClient.exe :
- * Fonctionne aussi bien en lancement Direct qu'en pont PrismLauncher grâce au fichier éphémère
- * {@code config/.purefps_quick_server} consommé une seule fois à l'ouverture du menu principal.
+ * Pont de connexion rapide aux serveurs depuis le launcher autonome MashClient :
+ * Consomme le fichier éphémère {@code config/.purefps_quick_server} une seule fois à l'ouverture du menu principal.
  */
 public final class QuickServerLaunchBridge {
 

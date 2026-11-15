@@ -35,10 +35,8 @@ use config::{
 };
 use mods_manager::InstalledModEntry;
 use runner::{
-    auto_fetch_mod_jar_if_needed, collect_watched_189_game_dirs, focus_visible_lwjgl_window,
-    has_visible_lwjgl_window, offline_uuid_hex, prepare_prism_bridge_files,
-    run_direct_jvm_blocking, spawn_prism_bridge_now, sync_configs_across_watched_189_dirs,
-    CrashReportInfo,
+    auto_fetch_mod_jar_if_needed, focus_visible_lwjgl_window, has_visible_lwjgl_window,
+    offline_uuid_hex, run_direct_jvm_blocking, CrashReportInfo,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -586,36 +584,6 @@ impl Controller {
 
     fn pull_newer_watched_configs_and_reload(&mut self) {
         let active_dir_str = self.active_game_dir();
-        let primary_dir = Path::new(&active_dir_str);
-        let primary_cfg = primary_dir.join("config");
-        let watched = collect_watched_189_game_dirs(&self.prefs, &active_dir_str);
-        for fname in ["mashclient_modules.json", "purefps.properties"] {
-            let dst = primary_cfg.join(fname);
-            let dst_mtime = std::fs::metadata(&dst).and_then(|m| m.modified()).ok();
-            let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
-            for dir in &watched {
-                if dir == primary_dir {
-                    continue;
-                }
-                let cand = dir.join("config").join(fname);
-                let Ok(mt) = std::fs::metadata(&cand).and_then(|m| m.modified()) else {
-                    continue;
-                };
-                if dst_mtime.is_none_or(|dmt| mt > dmt)
-                    && newest.as_ref().is_none_or(|(cur_t, _)| mt > *cur_t)
-                {
-                    newest = Some((mt, cand));
-                }
-            }
-            if let Some((_, src)) = newest {
-                let src_bytes = std::fs::read(&src).ok();
-                let dst_bytes = std::fs::read(&dst).ok();
-                if src_bytes.is_some() && src_bytes != dst_bytes {
-                    let _ = std::fs::create_dir_all(&primary_cfg);
-                    let _ = std::fs::copy(&src, &dst);
-                }
-            }
-        }
         let (settings, modules_json) = load_synced_configs(&active_dir_str);
         self.settings = settings;
         self.modules_json = modules_json;
@@ -769,7 +737,7 @@ impl Controller {
 
         Self::set_webview_suspended(webview, false);
 
-        // Maintient l'écran noir #000000 au premier plan pendant l'initialisation Forge/PrismLauncher
+        // Maintient l'écran noir #000000 au premier plan pendant l'initialisation Forge 1.8.9
         // sans appeler ShowCursor(FALSE) Win32 (le masquage visuel du curseur est géré en CSS).
         window.set_minimized(false);
         window.set_visible(true);
@@ -879,53 +847,16 @@ fn begin_singularity_launch_now(
     ctrl: &mut Controller,
     window: &Window,
     webview: &wry::WebView,
-    tray: &SystemTray,
+    _tray: &SystemTray,
     proxy: &EventLoopProxy<AppEvent>,
 ) {
     let active_dir = ctrl.active_game_dir();
     let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
-    sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
     let _ = save_launcher_prefs(&ctrl.prefs);
 
     let (screen_w, screen_h) = current_monitor_resolution(window);
 
     match ctrl.prefs.launch_mode {
-        LaunchMode::PrismBridge => {
-            match prepare_prism_bridge_files(&ctrl.prefs, screen_w, screen_h, proxy) {
-                Ok((inst_id, watched_dirs)) => {
-                    ctrl.enter_singularity_curtain(window, webview);
-                    if let Err(e) =
-                        spawn_prism_bridge_now(&ctrl.prefs, &inst_id, watched_dirs, proxy)
-                    {
-                        ctrl.restore_normal_window(window, webview, tray);
-                        Controller::push_crash(
-                            webview,
-                            &CrashReportInfo {
-                                title: "Impossible de lancer Minecraft".to_owned(),
-                                summary: e.clone(),
-                                details: e,
-                                exit_code: None,
-                                report_path: None,
-                                suspected_mod_file: None,
-                            },
-                        );
-                    }
-                }
-                Err(e) => {
-                    Controller::push_crash(
-                        webview,
-                        &CrashReportInfo {
-                            title: "Impossible de préparer le lancement".to_owned(),
-                            summary: e.clone(),
-                            details: e,
-                            exit_code: None,
-                            report_path: None,
-                            suspected_mod_file: None,
-                        },
-                    );
-                }
-            }
-        }
         LaunchMode::DirectMicrosoft => {
             let Some(acc) = ctrl.account.clone() else {
                 Controller::push_toast(
@@ -1019,28 +950,7 @@ fn try_trigger_game_launch(
         );
         return;
     }
-    if ctrl.prefs.launch_mode == LaunchMode::PrismBridge
-        && !Path::new(&ctrl.prefs.prism_exe).is_file()
-    {
-        let err_msg = format!("PrismLauncher introuvable : {}", ctrl.prefs.prism_exe);
-        Controller::push_crash(
-            webview,
-            &CrashReportInfo {
-                title: "PrismLauncher introuvable".to_owned(),
-                summary: err_msg.clone(),
-                details: format!(
-                    "{err_msg}\n\nVérifiez l'installation de PrismLauncher ou passez en mode Lancement Direct (Microsoft / Hors-ligne) dans l'onglet Paramètres."
-                ),
-                exit_code: None,
-                report_path: None,
-                suspected_mod_file: None,
-            },
-        );
-        return;
-    }
-    let needs_java = ctrl.prefs.launch_mode != LaunchMode::PrismBridge
-        || ctrl.prefs.instance_flavor == InstanceFlavor::VulkanBeta;
-    if needs_java && !Path::new(&ctrl.prefs.java_path).is_file() {
+    if !Path::new(&ctrl.prefs.java_path).is_file() {
         let err_msg = format!("Java 8 introuvable : {}", ctrl.prefs.java_path);
         Controller::push_crash(
             webview,
@@ -1190,7 +1100,6 @@ fn handle_ipc(
             {
                 Controller::push_toast(webview, &e, true);
             } else {
-                sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
                 Controller::push_toast(
                     webview,
                     &format!("Profil '{}' synchronisé.", target.id().to_uppercase()),
@@ -1207,7 +1116,6 @@ fn handle_ipc(
                     ctrl.refresh_custom_profiles_cache();
                     let active_dir = ctrl.active_game_dir();
                     let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
-                    sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
                     Controller::push_toast(
                         webview,
                         &format!("Profil '{}' enregistré.", saved.name),
@@ -1226,7 +1134,6 @@ fn handle_ipc(
                 ctrl.active_custom_profile_id = Some(found.id);
                 let active_dir = ctrl.active_game_dir();
                 let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
-                sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
                 Controller::push_toast(
                     webview,
                     &format!("Profil '{}' appliqué.", found.name),
@@ -1323,7 +1230,6 @@ fn handle_ipc(
                 sync_pure_settings_to_modules_json(&ctrl.settings, &mut ctrl.modules_json);
                 let active_dir = ctrl.active_game_dir();
                 let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
-                sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
                 ctrl.push_full_state(webview);
             }
         }
@@ -1339,7 +1245,6 @@ fn handle_ipc(
             }
             let active_dir = ctrl.active_game_dir();
             let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
-            sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
             ctrl.push_full_state(webview);
         }
         IpcCommand::ResetModuleEntry {
@@ -1354,7 +1259,6 @@ fn handle_ipc(
             }
             let active_dir = ctrl.active_game_dir();
             let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
-            sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
             Controller::push_toast(webview, "Réglages du module réinitialisés.", false);
             ctrl.push_full_state(webview);
         }
@@ -1362,14 +1266,12 @@ fn handle_ipc(
             apply_hud_positions_map(&mut ctrl.modules_json, &positions);
             let active_dir = ctrl.active_game_dir();
             let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
-            sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
             ctrl.push_full_state(webview);
         }
         IpcCommand::ResetHudLayout { defaults } => {
             apply_hud_positions_map(&mut ctrl.modules_json, &defaults);
             let active_dir = ctrl.active_game_dir();
             let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
-            sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
             Controller::push_toast(webview, "Positions du HUD réinitialisées.", false);
             ctrl.push_full_state(webview);
         }
@@ -1471,19 +1373,8 @@ fn handle_ipc(
             if !clean.is_empty() {
                 ctrl.prefs.game_dir = clean.to_owned();
                 let p = Path::new(clean);
-                if p.join("libraries").is_dir() && p.join("assets").is_dir() {
-                    ctrl.prefs.libraries_dir = p.join("libraries").to_string_lossy().to_string();
-                    ctrl.prefs.assets_dir = p.join("assets").to_string_lossy().to_string();
-                } else if let Some(prism_root) =
-                    p.parent().and_then(|i| i.parent()).and_then(|r| r.parent())
-                {
-                    if prism_root.join("libraries").is_dir() {
-                        ctrl.prefs.libraries_dir =
-                            prism_root.join("libraries").to_string_lossy().to_string();
-                        ctrl.prefs.assets_dir =
-                            prism_root.join("assets").to_string_lossy().to_string();
-                    }
-                }
+                ctrl.prefs.libraries_dir = p.join("libraries").to_string_lossy().to_string();
+                ctrl.prefs.assets_dir = p.join("assets").to_string_lossy().to_string();
                 ctrl.reload_active_instance_state();
                 let _ = save_launcher_prefs(&ctrl.prefs);
                 ctrl.push_full_state(webview);
@@ -1639,7 +1530,7 @@ fn handle_ipc(
             Ok(_) => {
                 ctrl.refresh_accounts_cache();
                 if ctrl.account.is_none() && ctrl.prefs.launch_mode == LaunchMode::DirectMicrosoft {
-                    ctrl.prefs.launch_mode = LaunchMode::PrismBridge;
+                    ctrl.prefs.launch_mode = LaunchMode::DirectOffline;
                     let _ = save_launcher_prefs(&ctrl.prefs);
                 }
                 Controller::push_toast(webview, "Compte Microsoft retiré.", false);
@@ -1651,7 +1542,7 @@ fn handle_ipc(
             clear_microsoft_account();
             ctrl.refresh_accounts_cache();
             if ctrl.account.is_none() && ctrl.prefs.launch_mode == LaunchMode::DirectMicrosoft {
-                ctrl.prefs.launch_mode = LaunchMode::PrismBridge;
+                ctrl.prefs.launch_mode = LaunchMode::DirectOffline;
                 let _ = save_launcher_prefs(&ctrl.prefs);
             }
             Controller::push_toast(webview, "Compte Microsoft déconnecté.", false);
@@ -1885,7 +1776,6 @@ fn main() -> wry::Result<()> {
                         let active_dir = ctrl.active_game_dir();
                         let _ =
                             save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
-                        sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
                         Controller::push_toast(
                             &webview,
                             &format!("Profil '{}' importé et activé.", imported.name),

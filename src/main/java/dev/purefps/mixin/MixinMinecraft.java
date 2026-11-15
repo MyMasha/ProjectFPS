@@ -186,7 +186,7 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.1"));
+            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.2"));
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
     }
@@ -203,6 +203,20 @@ public abstract class MixinMinecraft {
         }
     }
 
+    @Inject(method = "setIngameFocus", at = @At("RETURN"))
+    private void purefps$resyncKeysAndMouseOnIngameFocus(CallbackInfo ci) {
+        org.lwjgl.input.Keyboard.enableRepeatEvents(false);
+        if (PureFPSConfig.enabled) {
+            if (dev.purefps.module.MashFlags.cursorLockFix && org.lwjgl.input.Mouse.isCreated()) {
+                org.lwjgl.input.Mouse.getDX();
+                org.lwjgl.input.Mouse.getDY();
+            }
+            if (dev.purefps.module.MashFlags.autoSprintResume) {
+                dev.purefps.client.ClientEventBridge.resyncMovementKeys(this.gameSettings);
+            }
+        }
+    }
+
     @Inject(method = "setIngameNotInFocus", at = @At("RETURN"))
     private void purefps$ensureCursorOnUngrab(CallbackInfo ci) {
         BorderlessWindowHelper.ensureMenuCursorVisible();
@@ -210,6 +224,19 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "runGameLoop", at = @At("HEAD"))
     private void purefps$restoreCursorOnFocusRegain(CallbackInfo ci) {
+        if (Display.isCreated()) {
+            // Pompe immédiatement la file d'événements clavier/souris Windows en début de frame
+            // (au lieu d'attendre Display.update() en fin de frame) pour éliminer 1 frame de latence d'entrée.
+            if (PureFPSConfig.enabled) {
+                Display.processMessages();
+                if (this.currentScreen != null) {
+                    try {
+                        this.currentScreen.handleInput();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }
         boolean activeNow = Display.isCreated() && Display.isActive();
         if (activeNow && !this.purefps$wasDisplayActive && this.currentScreen != null) {
             BorderlessWindowHelper.ensureMenuCursorVisible();
