@@ -701,7 +701,7 @@ public class PureFPSCoreTest {
             java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
             java.util.List<dev.purefps.module.MashModule> huds = dev.purefps.module.MashModules.getHudModules();
 
-            assertEquals("MashClient 4.4.5 must expose exactly 204 modules", 204, all.size());
+            assertEquals("MashClient 4.4.6 must expose exactly 204 modules", 204, all.size());
             assertEquals("MashClient 4.0 must expose 65 draggable HUD widgets", 65, huds.size());
 
             for (dev.purefps.module.MashModule mod : all) {
@@ -1282,5 +1282,96 @@ public class PureFPSCoreTest {
         dev.purefps.client.audio.MashAudioEngine.ensurePrewarmed();
         dev.purefps.client.audio.MashAudioEngine.migrateToOpenALIfReady();
         dev.purefps.client.audio.MashAudioEngine.onOpenALUnloading();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testAllMixinsCompatibleWithMixin0711Runtime() throws Exception {
+        java.io.InputStream cfgStream = PureFPSCoreTest.class.getResourceAsStream("/mixins.purefps.json");
+        assertNotNull("mixins.purefps.json must be present on classpath", cfgStream);
+        String jsonText;
+        try (java.util.Scanner sc = new java.util.Scanner(cfgStream, "UTF-8").useDelimiter("\\A")) {
+            jsonText = sc.hasNext() ? sc.next() : "";
+        }
+        com.google.gson.JsonObject root = new com.google.gson.JsonParser().parse(jsonText).getAsJsonObject();
+        java.util.List<String> mixinNames = new java.util.ArrayList<>();
+        for (String section : new String[]{"mixins", "client", "server"}) {
+            if (root.has(section) && root.get(section).isJsonArray()) {
+                for (com.google.gson.JsonElement el : root.getAsJsonArray(section)) {
+                    mixinNames.add(el.getAsString());
+                }
+            }
+        }
+        assertTrue("Expected at least 55 Mixins registered", mixinNames.size() >= 55);
+
+        for (String mixinSimpleName : mixinNames) {
+            String resPath = "/dev/purefps/mixin/" + mixinSimpleName + ".class";
+            java.io.InputStream clsIn = PureFPSCoreTest.class.getResourceAsStream(resPath);
+            assertNotNull("Compiled Mixin class missing: " + resPath, clsIn);
+            org.spongepowered.asm.lib.tree.ClassNode cn = new org.spongepowered.asm.lib.tree.ClassNode();
+            try {
+                new org.spongepowered.asm.lib.ClassReader(clsIn).accept(cn, 0);
+            } finally {
+                clsIn.close();
+            }
+
+            if (cn.methods == null) {
+                continue;
+            }
+            for (Object mObj : cn.methods) {
+                org.spongepowered.asm.lib.tree.MethodNode mn = (org.spongepowered.asm.lib.tree.MethodNode) mObj;
+                if (mn.visibleAnnotations == null) {
+                    continue;
+                }
+                for (Object annObj : mn.visibleAnnotations) {
+                    org.spongepowered.asm.lib.tree.AnnotationNode an = (org.spongepowered.asm.lib.tree.AnnotationNode) annObj;
+                    if (!"Lorg/spongepowered/asm/mixin/injection/Inject;".equals(an.desc) || an.values == null) {
+                        continue;
+                    }
+                    boolean targetsCtor = false;
+                    java.util.List<String> atValues = new java.util.ArrayList<>();
+                    for (int i = 0; i + 1 < an.values.size(); i += 2) {
+                        String key = String.valueOf(an.values.get(i));
+                        Object val = an.values.get(i + 1);
+                        if ("method".equals(key) && val instanceof java.util.List) {
+                            for (Object targetM : (java.util.List<?>) val) {
+                                String tStr = String.valueOf(targetM);
+                                if ("<init>".equals(tStr) || tStr.startsWith("<init>(")) {
+                                    targetsCtor = true;
+                                }
+                            }
+                        } else if ("at".equals(key)) {
+                            java.util.List<?> ats = (val instanceof java.util.List)
+                                    ? (java.util.List<?>) val
+                                    : java.util.Collections.singletonList(val);
+                            for (Object atItem : ats) {
+                                if (atItem instanceof org.spongepowered.asm.lib.tree.AnnotationNode) {
+                                    org.spongepowered.asm.lib.tree.AnnotationNode atNode =
+                                            (org.spongepowered.asm.lib.tree.AnnotationNode) atItem;
+                                    if (atNode.values != null) {
+                                        for (int j = 0; j + 1 < atNode.values.size(); j += 2) {
+                                            if ("value".equals(String.valueOf(atNode.values.get(j)))) {
+                                                atValues.add(String.valueOf(atNode.values.get(j + 1)));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (targetsCtor) {
+                        assertFalse("Ctor @Inject missing @At in " + mixinSimpleName + "::" + mn.name, atValues.isEmpty());
+                        for (String atVal : atValues) {
+                            assertEquals(
+                                    "Mixin 0.7.11 CallbackInjector forbids @At(\"" + atVal + "\") on <init> in "
+                                            + mixinSimpleName + "::" + mn.name + " (must be RETURN)",
+                                    "RETURN",
+                                    atVal
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }

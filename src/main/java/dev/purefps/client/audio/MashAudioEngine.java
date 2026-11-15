@@ -17,7 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Moteur audio zéro latence MashClient 4.4.5 :
+ * Moteur audio zéro latence MashClient 4.4.6 :
  * - Dès que le contexte OpenAL (WASAPI mmdevapi basse latence) est actif, joue tous les effets UI
  *   et l'ambiance du Trou Noir directement via des tampons matériels OpenAL 2D pré-chargés (< 0.05 ms,
  *   zéro ouverture de ligne DirectSound, session audio unique partagée avec Minecraft pour Discord).
@@ -65,6 +65,7 @@ public final class MashAudioEngine {
     private static volatile long lastHoverNs = 0L;
     private static volatile boolean menuAmbientDesired = false;
     private static volatile boolean menuAmbientLastDispatched = false;
+    private static volatile boolean alAmbientPlaying = false;
     private static Clip activeAmbientClip = null;
 
     private static final ExecutorService AUDIO_EXEC = Executors.newSingleThreadExecutor(r -> {
@@ -140,26 +141,32 @@ public final class MashAudioEngine {
             alAmbientSource = 0;
             alUiRoundRobin = 0;
         }
+        alAmbientPlaying = false;
         menuAmbientLastDispatched = false;
     }
 
     /**
-     * Appelé dès que SoundManager a démarré OpenAL : ferme immédiatement toute boucle JavaSound
-     * résiduelle pour unifier 100 % du mixage dans l'unique flux WASAPI OpenAL basse latence.
+     * Appelé sur le thread client dès que SoundManager a démarré OpenAL : ferme immédiatement toute boucle
+     * JavaSound résiduelle et bascule l'ambiance sur OpenAL 2D depuis le thread client.
      */
     public static void migrateToOpenALIfReady() {
         if (!isOpenALReady()) {
             return;
         }
-        AUDIO_EXEC.execute(() -> {
-            closeFallbackAmbientClip();
-            syncAmbientPlayback();
-        });
+        AUDIO_EXEC.execute(MashAudioEngine::closeFallbackAmbientClip);
+        boolean shouldPlay = menuAmbientDesired
+                && PureFPSConfig.enabled
+                && PureFPSConfig.sfxEnabled
+                && PureFPSConfig.blackHoleMenuSound;
+        byte[] data = pcmAmbientLoop;
+        if (shouldPlay && data != null && !alAmbientPlaying) {
+            alAmbientPlaying = startOpenALAmbientImmediate(data);
+        }
     }
 
     /**
      * Pilote la boucle sonore gravitationnelle du Trou Noir sur le menu principal.
-     * Zéro allocation par frame : ne synchronise que lors d'une transition d'état.
+     * Zéro allocation par frame : tous les appels OpenAL s'exécutent sur le thread client.
      */
     public static void updateMenuAmbientLoop(boolean onBlackHoleMenu) {
         boolean shouldPlay = onBlackHoleMenu
@@ -167,19 +174,42 @@ public final class MashAudioEngine {
                 && PureFPSConfig.sfxEnabled
                 && PureFPSConfig.blackHoleMenuSound;
         menuAmbientDesired = shouldPlay;
-        if (shouldPlay == menuAmbientLastDispatched) {
+
+        if (!shouldPlay) {
+            if (alAmbientPlaying) {
+                stopOpenALAmbientImmediate();
+            }
+            if (menuAmbientLastDispatched) {
+                menuAmbientLastDispatched = false;
+                AUDIO_EXEC.execute(MashAudioEngine::closeFallbackAmbientClip);
+            }
             return;
         }
-        menuAmbientLastDispatched = shouldPlay;
+
         ensurePrewarmed();
-        if (!shouldPlay && isOpenALReady()) {
-            stopOpenALAmbientImmediate();
+        if (isOpenALReady()) {
+            if (menuAmbientLastDispatched) {
+                menuAmbientLastDispatched = false;
+                AUDIO_EXEC.execute(MashAudioEngine::closeFallbackAmbientClip);
+            }
+            if (!alAmbientPlaying) {
+                byte[] data = pcmAmbientLoop;
+                if (data != null) {
+                    alAmbientPlaying = startOpenALAmbientImmediate(data);
+                }
+            }
+            return;
         }
-        AUDIO_EXEC.execute(MashAudioEngine::syncAmbientPlayback);
+
+        if (!menuAmbientLastDispatched) {
+            menuAmbientLastDispatched = true;
+            AUDIO_EXEC.execute(MashAudioEngine::syncFallbackAmbientPlayback);
+        }
     }
 
     private static void stopOpenALAmbientImmediate() {
         synchronized (OPENAL_LOCK) {
+            alAmbientPlaying = false;
             if (alAmbientSource != 0 && isOpenALReady()) {
                 try {
                     if (AL10.alIsSource(alAmbientSource)) {
@@ -202,13 +232,13 @@ public final class MashAudioEngine {
         }
     }
 
-    private static void syncAmbientPlayback() {
+    private static void syncFallbackAmbientPlayback() {
         boolean want = menuAmbientDesired
                 && PureFPSConfig.enabled
                 && PureFPSConfig.sfxEnabled
-                && PureFPSConfig.blackHoleMenuSound;
+                && PureFPSConfig.blackHoleMenuSound
+                && !isOpenALReady();
         if (!want) {
-            stopOpenALAmbientImmediate();
             closeFallbackAmbientClip();
             return;
         }
@@ -216,14 +246,9 @@ public final class MashAudioEngine {
             bakeAmbientLoopIfNeeded();
         }
         byte[] data = pcmAmbientLoop;
-        if (data == null || data.length == 0) {
-            return;
-        }
-        if (isOpenALReady()) {
+        if (data == null || data.length == 0 || isOpenALReady()) {
             closeFallbackAmbientClip();
-            if (startOpenALAmbientImmediate(data)) {
-                return;
-            }
+            return;
         }
         if (activeAmbientClip != null && activeAmbientClip.isOpen() && activeAmbientClip.isRunning()) {
             return;
@@ -286,7 +311,7 @@ public final class MashAudioEngine {
             if (pcmEmergence == null) {
                 bakeInteractiveClips();
             }
-            dispatchClip(CLIP_EMERGENCE, pcmEmergence);
+            dispatchFallbackClip(pcmEmergence);
         });
     }
 
@@ -307,7 +332,7 @@ public final class MashAudioEngine {
         if (isOpenALReady() && playOpenALOneShotImmediate(CLIP_HOVER, data)) {
             return;
         }
-        AUDIO_EXEC.execute(() -> dispatchClip(CLIP_HOVER, data));
+        AUDIO_EXEC.execute(() -> dispatchFallbackClip(data));
     }
 
     public static void playClick() {
@@ -323,7 +348,7 @@ public final class MashAudioEngine {
             if (pcmClick == null) {
                 bakeInteractiveClips();
             }
-            dispatchClip(CLIP_CLICK, pcmClick);
+            dispatchFallbackClip(pcmClick);
         });
     }
 
@@ -341,7 +366,7 @@ public final class MashAudioEngine {
             if (pcmToggleOn == null || pcmToggleOff == null) {
                 bakeInteractiveClips();
             }
-            dispatchClip(idx, enabled ? pcmToggleOn : pcmToggleOff);
+            dispatchFallbackClip(enabled ? pcmToggleOn : pcmToggleOff);
         });
     }
 
@@ -358,7 +383,7 @@ public final class MashAudioEngine {
             if (pcmMenuOpen == null) {
                 bakeInteractiveClips();
             }
-            dispatchClip(CLIP_MENU_OPEN, pcmMenuOpen);
+            dispatchFallbackClip(pcmMenuOpen);
         });
     }
 
@@ -375,7 +400,7 @@ public final class MashAudioEngine {
             if (pcmJoin == null) {
                 bakeInteractiveClips();
             }
-            dispatchClip(CLIP_JOIN, pcmJoin);
+            dispatchFallbackClip(pcmJoin);
         });
     }
 
@@ -405,11 +430,8 @@ public final class MashAudioEngine {
         }
     }
 
-    private static void dispatchClip(int clipIdx, byte[] pcm) {
-        if (pcm == null || pcm.length == 0 || !PureFPSConfig.sfxEnabled) {
-            return;
-        }
-        if (isOpenALReady() && playOpenALOneShotImmediate(clipIdx, pcm)) {
+    private static void dispatchFallbackClip(byte[] pcm) {
+        if (pcm == null || pcm.length == 0 || !PureFPSConfig.sfxEnabled || isOpenALReady()) {
             return;
         }
         playFallbackJavaSoundNow(pcm);

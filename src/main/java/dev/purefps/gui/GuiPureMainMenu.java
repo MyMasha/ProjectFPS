@@ -260,7 +260,7 @@ public class GuiPureMainMenu extends GuiScreen {
         boldSmallF.beginBatch();
         boldSmallF.drawString("MASHCLIENT", 56.0F, 28.0F, mulAlpha(0xFFF5F3EE, uiAlpha));
         float topBrandW = boldSmallF.getStringWidth("MASHCLIENT");
-        boldSmallF.drawString("4.4.5  \u00B7  1.8.9", 56.0F + topBrandW + 7.0F, 28.0F, mulAlpha(0xFF7D869C, uiAlpha));
+        boldSmallF.drawString("4.4.6  \u00B7  1.8.9", 56.0F + topBrandW + 7.0F, 28.0F, mulAlpha(0xFF7D869C, uiAlpha));
         boldSmallF.drawCentered("MULTIJOUEUR", STACK_X + STACK_W * 0.5F + 4.0F, multiY + (MULTI_H - boldSmallF.getHeight()) * 0.5F + 0.5F, mulAlpha(0xFF0A0B0E, uiAlpha), false);
         boldSmallF.endBatch();
 

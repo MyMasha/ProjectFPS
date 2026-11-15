@@ -33,7 +33,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Pipeline audio temps réel pour Minecraft 1.8.9 (MashClient 4.4.5) :
+ * Pipeline audio temps réel pour Minecraft 1.8.9 (MashClient 4.4.6) :
  * 1. Configure OpenAL Soft (WASAPI mmdevapi, tampons courts ~20 ms au lieu de ~93-180 ms) AVANT AL.create().
  * 2. Monte le plafond Paulscode de 28 à 64 canaux normaux (+ 8 streaming) pour éliminer les coupures/retards en PvP.
  * 3. Élève la priorité du CommandThread Paulscode à MAX_PRIORITY - 1 et pré-décode progressivement les sons
@@ -73,7 +73,7 @@ public abstract class MixinSoundManager {
 
     @Shadow
     @Final
-    private SoundHandler sndHandler;
+    public SoundHandler sndHandler;
 
     @Shadow
     private boolean loaded;
@@ -105,7 +105,7 @@ public abstract class MixinSoundManager {
     @Unique
     private float purefps$lastListPitch;
 
-    @Inject(method = "<init>", at = @At("HEAD"))
+    @Inject(method = "<init>", at = @At("RETURN"))
     private void purefps$configureOpenALBeforeInit(SoundHandler handler, GameSettings settings, CallbackInfo ci) {
         Minecraft mc = Minecraft.getMinecraft();
         LowLatencyAudioConfigurator.applyBeforeOpenALInit(mc != null ? mc.mcDataDir : null);

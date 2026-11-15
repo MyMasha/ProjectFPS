@@ -13,16 +13,27 @@ use crate::updater::{
     installed_mod_version, parse_semver, UpdateCheckOutcome, LAUNCHER_VERSION,
 };
 use crate::AppEvent;
+use serde::Serialize;
+use std::collections::VecDeque;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.5.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.6.jar";
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CrashReportInfo {
+    pub title: String,
+    pub summary: String,
+    pub details: String,
+    pub exit_code: Option<i32>,
+    pub report_path: Option<String>,
+}
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -276,7 +287,7 @@ pub fn resolve_prism_instance_id(prefs: &LauncherPrefs) -> String {
     "1.8.9".to_owned()
 }
 
-fn collect_watched_189_game_dirs(primary_game_dir: &str) -> Vec<PathBuf> {
+pub fn collect_watched_189_game_dirs(primary_game_dir: &str) -> Vec<PathBuf> {
     let mut dirs = vec![PathBuf::from(primary_game_dir)];
     if let Some(instances_dir) = Path::new(primary_game_dir)
         .parent()
@@ -583,6 +594,10 @@ fn detect_new_lwjgl_window(_existing_hwnd: usize) -> Option<usize> {
     None
 }
 
+pub fn has_visible_lwjgl_window() -> bool {
+    current_visible_lwjgl_hwnd() != 0
+}
+
 fn spawn_display_ready_watcher(
     watched_game_dirs: Vec<PathBuf>,
     proxy: EventLoopProxy<AppEvent>,
@@ -604,7 +619,7 @@ fn spawn_display_ready_watcher(
                     return;
                 }
             }
-            // Fallback tardif (14s) uniquement si une instance externe non-moddée n'écrit jamais .purefps_menu_ready
+            // Fallback tardif (14s) uniquement si une vraie nouvelle fenêtre LWJGL est visible
             if start.elapsed() >= Duration::from_secs(14)
                 && detect_new_lwjgl_window(pre_existing_lwjgl).is_some()
             {
@@ -614,14 +629,255 @@ fn spawn_display_ready_watcher(
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        if !stop_flag.load(Ordering::Relaxed) {
+        if !stop_flag.load(Ordering::Relaxed)
+            && detect_new_lwjgl_window(pre_existing_lwjgl).is_some()
+        {
             let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
         }
     });
 }
 
+fn read_file_tail_lossy(path: &Path, max_bytes: u64) -> Option<String> {
+    let mut f = File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    if len > max_bytes {
+        let _ = f.seek(SeekFrom::Start(len - max_bytes));
+    }
+    let mut buf = Vec::with_capacity(len.min(max_bytes) as usize);
+    f.read_to_end(&mut buf).ok()?;
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+fn read_file_head_lossy(path: &Path, max_bytes: usize) -> Option<String> {
+    let mut f = File::open(path).ok()?;
+    let mut buf = vec![0u8; max_bytes];
+    let n = f.read(&mut buf).ok()?;
+    buf.truncate(n);
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+fn extract_crash_summary_from_report(text: &str) -> String {
+    for line in text.lines() {
+        let t = line.trim();
+        if let Some(desc) = t.strip_prefix("Description:") {
+            let d = desc.trim();
+            if !d.is_empty() {
+                return d.to_owned();
+            }
+        }
+        if let Some(frame) = t.strip_prefix("# Problematic frame:") {
+            let f = frame.trim();
+            if !f.is_empty() {
+                return format!("Crash natif JVM ({f})");
+            }
+        }
+    }
+    for line in text.lines() {
+        let t = line.trim();
+        if (t.contains("Exception") || t.contains("Error")) && !t.starts_with("at ") {
+            return t.chars().take(180).collect();
+        }
+    }
+    "Minecraft s'est arrêté suite à une erreur inattendue.".to_owned()
+}
+
+fn find_newest_matching_file(
+    dir: &Path,
+    cutoff: SystemTime,
+    predicate: impl Fn(&str) -> bool,
+) -> Option<(SystemTime, PathBuf)> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut newest: Option<(SystemTime, PathBuf)> = None;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !predicate(&name) {
+            continue;
+        }
+        let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) else {
+            continue;
+        };
+        if mtime < cutoff {
+            continue;
+        }
+        if newest.as_ref().is_none_or(|(cur_t, _)| mtime > *cur_t) {
+            newest = Some((mtime, p));
+        }
+    }
+    newest
+}
+
+const FATAL_LOG_MARKERS: &[&str] = &[
+    "---- Minecraft Crash Report ----",
+    "#@!@# Game crashed!",
+    "MixinTransformerError",
+    "InvalidInjectionException",
+    "MixinApplyError",
+    "Unable to launch",
+    "Pixel format not accelerated",
+    "java.lang.OutOfMemoryError",
+    "Exception in thread \"main\"",
+    "Exception in thread \"Client thread\"",
+    "A fatal error has been detected by the Java Runtime Environment",
+];
+
+pub fn detect_recent_crash_in_dirs(
+    dirs: &[PathBuf],
+    since: SystemTime,
+    console_tail: &[String],
+    exit_code: Option<i32>,
+) -> Option<CrashReportInfo> {
+    let cutoff = since.checked_sub(Duration::from_secs(2)).unwrap_or(since);
+
+    // 1. Rapports officiels Minecraft (`crash-reports/crash-*.txt`) et JVM (`hs_err_pid*.log`)
+    let mut newest_report: Option<(SystemTime, PathBuf)> = None;
+    for dir in dirs {
+        if let Some(cand) = find_newest_matching_file(&dir.join("crash-reports"), cutoff, |n| {
+            n.starts_with("crash-") && n.ends_with(".txt")
+        }) {
+            if newest_report.as_ref().is_none_or(|(t, _)| cand.0 > *t) {
+                newest_report = Some(cand);
+            }
+        }
+        if let Some(cand) = find_newest_matching_file(dir, cutoff, |n| {
+            n.starts_with("hs_err_pid") && n.ends_with(".log")
+        }) {
+            if newest_report.as_ref().is_none_or(|(t, _)| cand.0 > *t) {
+                newest_report = Some(cand);
+            }
+        }
+    }
+
+    if let Some((_, report_path)) = newest_report {
+        if let Some(text) = read_file_head_lossy(&report_path, 24_576) {
+            let summary = extract_crash_summary_from_report(&text);
+            return Some(CrashReportInfo {
+                title: "Minecraft a planté".to_owned(),
+                summary,
+                details: text,
+                exit_code,
+                report_path: Some(report_path.to_string_lossy().to_string()),
+            });
+        }
+    }
+
+    // 2. Journaux Forge / Minecraft (`logs/fml-client-latest.log`, `logs/latest.log`)
+    for dir in dirs {
+        for rel in ["fml-client-latest.log", "latest.log"] {
+            let log_path = dir.join("logs").join(rel);
+            let Ok(mtime) = std::fs::metadata(&log_path).and_then(|m| m.modified()) else {
+                continue;
+            };
+            if mtime < cutoff {
+                continue;
+            }
+            let Some(tail_text) = read_file_tail_lossy(&log_path, 32_768) else {
+                continue;
+            };
+            let lines: Vec<&str> = tail_text.lines().collect();
+            let hit_idx = lines
+                .iter()
+                .position(|line| FATAL_LOG_MARKERS.iter().any(|m| line.contains(m)));
+            if let Some(idx) = hit_idx {
+                let start_line = idx.saturating_sub(4);
+                let end_line = (idx + 75).min(lines.len());
+                let snippet = lines[start_line..end_line].join("\n");
+                let summary = lines[idx..]
+                    .iter()
+                    .map(|l| l.trim())
+                    .find(|l| {
+                        l.starts_with("Description:")
+                            || l.contains("Exception")
+                            || l.contains("Error")
+                            || l.contains("Unable to launch")
+                            || l.contains("Pixel format not accelerated")
+                    })
+                    .map(|s| {
+                        s.strip_prefix("Description:")
+                            .map(str::trim)
+                            .filter(|d| !d.is_empty())
+                            .unwrap_or(s)
+                            .chars()
+                            .take(180)
+                            .collect::<String>()
+                    })
+                    .unwrap_or_else(|| {
+                        "Erreur critique détectée pendant le chargement de Forge 1.8.9.".to_owned()
+                    });
+
+                return Some(CrashReportInfo {
+                    title: "Erreur au lancement de Minecraft".to_owned(),
+                    summary,
+                    details: snippet,
+                    exit_code,
+                    report_path: Some(log_path.to_string_lossy().to_string()),
+                });
+            }
+        }
+    }
+
+    // 3. Code de sortie JVM anormal ou trace fatale sur stdout/stderr
+    let fatal_in_console = console_tail
+        .iter()
+        .any(|line| FATAL_LOG_MARKERS.iter().any(|m| line.contains(m)));
+    if exit_code.is_some_and(|c| c != 0) || fatal_in_console {
+        let code_str = exit_code
+            .map(|c| format!(" (code {c})"))
+            .unwrap_or_default();
+        let summary = console_tail
+            .iter()
+            .rev()
+            .map(|l| l.trim())
+            .find(|l| {
+                (l.contains("Exception")
+                    || l.contains("Error")
+                    || l.contains("Invalid")
+                    || l.contains("Could not create the Java Virtual Machine")
+                    || l.contains("Unrecognized VM option"))
+                    && !l.starts_with("at ")
+                    && !l.starts_with("[STDERR] \tat ")
+            })
+            .map(|s| {
+                s.strip_prefix("[STDERR] ")
+                    .unwrap_or(s)
+                    .chars()
+                    .take(180)
+                    .collect::<String>()
+            })
+            .unwrap_or_else(|| {
+                format!("Le processus Minecraft s'est arrêté de manière inattendue{code_str}.")
+            });
+
+        let start = console_tail.len().saturating_sub(90);
+        let details = if console_tail.is_empty() {
+            summary.clone()
+        } else {
+            console_tail[start..].join("\n")
+        };
+
+        let fallback_log = dirs
+            .first()
+            .map(|d| d.join("logs").join("latest.log"))
+            .filter(|p| p.is_file())
+            .map(|p| p.to_string_lossy().to_string());
+
+        return Some(CrashReportInfo {
+            title: "Minecraft s'est fermé avec une erreur".to_owned(),
+            summary,
+            details,
+            exit_code,
+            report_path: fallback_log,
+        });
+    }
+
+    None
+}
+
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.4.5 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.4.6 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\
@@ -753,6 +1009,7 @@ pub fn run_direct_jvm_blocking(
 
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
+    let launch_time = SystemTime::now();
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Impossible de lancer javaw.exe : {e}"))?;
@@ -766,9 +1023,13 @@ pub fn run_direct_jvm_blocking(
         Arc::clone(&stop_watcher),
     );
 
-    if let Some(stdout) = child.stdout.take() {
+    let console_tail: Arc<Mutex<VecDeque<String>>> =
+        Arc::new(Mutex::new(VecDeque::with_capacity(180)));
+
+    let out_handle = child.stdout.take().map(|stdout| {
         let p_out = proxy.clone();
         let stop_on_ready = Arc::clone(&stop_watcher);
+        let tail_out = Arc::clone(&console_tail);
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
@@ -776,28 +1037,88 @@ pub fn run_direct_jvm_blocking(
                     stop_on_ready.store(true, Ordering::Relaxed);
                     let _ = p_out.send_event(AppEvent::MinecraftMenuReady);
                 }
+                if let Ok(mut guard) = tail_out.lock() {
+                    if guard.len() >= 180 {
+                        guard.pop_front();
+                    }
+                    guard.push_back(line.clone());
+                }
                 let _ = p_out.send_event(AppEvent::LogLine(line));
             }
-        });
-    }
+        })
+    });
 
-    if let Some(stderr) = child.stderr.take() {
+    let err_handle = child.stderr.take().map(|stderr| {
         let p_err = proxy.clone();
+        let tail_err = Arc::clone(&console_tail);
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().map_while(Result::ok) {
-                let _ = p_err.send_event(AppEvent::LogLine(format!("[STDERR] {line}")));
+                let tagged = format!("[STDERR] {line}");
+                if let Ok(mut guard) = tail_err.lock() {
+                    if guard.len() >= 180 {
+                        guard.pop_front();
+                    }
+                    guard.push_back(tagged.clone());
+                }
+                let _ = p_err.send_event(AppEvent::LogLine(tagged));
             }
-        });
-    }
+        })
+    });
 
     let status = child.wait().map_err(|e| e.to_string())?;
     stop_watcher.store(true, Ordering::Relaxed);
+    if let Some(h) = out_handle {
+        let _ = h.join();
+    }
+    if let Some(h) = err_handle {
+        let _ = h.join();
+    }
+
+    let exit_code = status.code().or(if status.success() { Some(0) } else { Some(-1) });
+    if !status.success() {
+        std::thread::sleep(Duration::from_millis(120));
+    }
+
+    let tail_lines: Vec<String> = console_tail
+        .lock()
+        .map(|g| g.iter().cloned().collect())
+        .unwrap_or_default();
+
     let _ = proxy.send_event(AppEvent::LogLine(format!(
         "[MashClient] Processus Minecraft terminé ({status})."
     )));
-    let _ = proxy.send_event(AppEvent::GameRunning(false));
+
+    if let Some(crash_info) = detect_recent_crash_in_dirs(
+        &[PathBuf::from(&prefs.game_dir)],
+        launch_time,
+        &tail_lines,
+        if status.success() { None } else { exit_code },
+    ) {
+        let _ = proxy.send_event(AppEvent::GameCrashed(crash_info));
+    } else {
+        let _ = proxy.send_event(AppEvent::GameRunning(false));
+    }
     Ok(())
+}
+
+pub fn sync_configs_across_watched_189_dirs(primary_game_dir: &str) {
+    let primary_cfg = Path::new(primary_game_dir).join("config");
+    let src_props = primary_cfg.join("purefps.properties");
+    let src_mods = primary_cfg.join("mashclient_modules.json");
+    for gdir in collect_watched_189_game_dirs(primary_game_dir) {
+        if gdir == Path::new(primary_game_dir) {
+            continue;
+        }
+        let dst_cfg = gdir.join("config");
+        let _ = std::fs::create_dir_all(&dst_cfg);
+        if src_props.is_file() {
+            let _ = std::fs::copy(&src_props, dst_cfg.join("purefps.properties"));
+        }
+        if src_mods.is_file() {
+            let _ = std::fs::copy(&src_mods, dst_cfg.join("mashclient_modules.json"));
+        }
+    }
 }
 
 pub fn prepare_prism_bridge_files(
@@ -814,6 +1135,7 @@ pub fn prepare_prism_bridge_files(
 
     let instance_id = resolve_prism_instance_id(prefs);
     let watched_dirs = collect_watched_189_game_dirs(&prefs.game_dir);
+    sync_configs_across_watched_189_dirs(&prefs.game_dir);
 
     let mut synced_any = false;
     let mut last_err = String::new();
@@ -855,6 +1177,7 @@ pub fn spawn_prism_bridge_now(
     proxy: &EventLoopProxy<AppEvent>,
 ) -> Result<(), String> {
     let pre_existing_lwjgl = current_visible_lwjgl_hwnd();
+    let launch_time = SystemTime::now();
 
     let _ = proxy.send_event(AppEvent::LogLine(format!(
         "[MashClient] PrismLauncher : lancement de '{}' ({} Mo RAM)...",
@@ -879,20 +1202,23 @@ pub fn spawn_prism_bridge_now(
         cmd.arg("--server").arg("mc.hypixel.net");
     }
 
-    cmd.spawn()
+    let mut prism_child = cmd
+        .spawn()
         .map_err(|e| format!("Échec lancement PrismLauncher : {e}"))?;
 
     let _ = proxy.send_event(AppEvent::GameRunning(true));
 
     let stop_watcher = Arc::new(AtomicBool::new(false));
-    spawn_display_ready_watcher(watched_dirs, proxy.clone(), stop_watcher);
+    let crash_dirs = watched_dirs.clone();
+    spawn_display_ready_watcher(watched_dirs, proxy.clone(), Arc::clone(&stop_watcher));
 
+    let inst_label = instance_id.to_owned();
     let p_life = proxy.clone();
     std::thread::spawn(move || {
         let start = Instant::now();
         let mut tracked_hwnd: usize = 0;
 
-        while start.elapsed() < Duration::from_secs(36) {
+        while start.elapsed() < Duration::from_secs(34) {
             if let Some(hwnd) = detect_new_lwjgl_window(pre_existing_lwjgl) {
                 tracked_hwnd = hwnd;
                 break;
@@ -902,18 +1228,76 @@ pub fn spawn_prism_bridge_now(
                 tracked_hwnd = any;
                 break;
             }
-            std::thread::sleep(Duration::from_millis(250));
+
+            if let Some(crash_info) =
+                detect_recent_crash_in_dirs(&crash_dirs, launch_time, &[], None)
+            {
+                stop_watcher.store(true, Ordering::Relaxed);
+                let _ = p_life.send_event(AppEvent::GameCrashed(crash_info));
+                return;
+            }
+
+            if let Ok(Some(exit_status)) = prism_child.try_wait() {
+                if !exit_status.success() {
+                    std::thread::sleep(Duration::from_millis(200));
+                    stop_watcher.store(true, Ordering::Relaxed);
+                    let code = exit_status.code();
+                    let info = detect_recent_crash_in_dirs(&crash_dirs, launch_time, &[], code)
+                        .unwrap_or_else(|| CrashReportInfo {
+                            title: "Échec du lancement via PrismLauncher".to_owned(),
+                            summary: format!(
+                                "PrismLauncher s'est arrêté avant l'ouverture de l'instance '{inst_label}'."
+                            ),
+                            details: format!(
+                                "Instance Prism : {inst_label}\nStatut de sortie : {exit_status}\nVérifiez que l'instance 1.8.9 existe et qu'un compte est sélectionné dans PrismLauncher."
+                            ),
+                            exit_code: code,
+                            report_path: None,
+                        });
+                    let _ = p_life.send_event(AppEvent::GameCrashed(info));
+                    return;
+                }
+            }
+
+            std::thread::sleep(Duration::from_millis(300));
         }
 
         if tracked_hwnd != 0 {
             loop {
-                std::thread::sleep(Duration::from_millis(1200));
+                std::thread::sleep(Duration::from_millis(1000));
                 if current_visible_lwjgl_hwnd() == 0 {
                     break;
                 }
             }
+            std::thread::sleep(Duration::from_millis(250));
+            if let Some(crash_info) =
+                detect_recent_crash_in_dirs(&crash_dirs, launch_time, &[], None)
+            {
+                let _ = p_life.send_event(AppEvent::GameCrashed(crash_info));
+                return;
+            }
+            let _ = p_life.send_event(AppEvent::GameRunning(false));
+        } else {
+            stop_watcher.store(true, Ordering::Relaxed);
+            let fallback_log = crash_dirs
+                .first()
+                .map(|d| d.join("logs").join("latest.log"))
+                .filter(|p| p.is_file())
+                .map(|p| p.to_string_lossy().to_string());
+            let info = detect_recent_crash_in_dirs(&crash_dirs, launch_time, &[], None)
+                .unwrap_or_else(|| CrashReportInfo {
+                    title: "Minecraft ne s'est pas ouvert".to_owned(),
+                    summary: format!(
+                        "Aucune fenêtre Minecraft 1.8.9 détectée après le lancement de '{inst_label}'."
+                    ),
+                    details: format!(
+                        "Instance ciblée : {inst_label}\nMode : PrismLauncher Bridge\n\nCauses possibles :\n- Aucun compte actif sélectionné dans PrismLauncher\n- Chemin Java 8 invalide dans la configuration de l'instance\n- Conflit avec un autre mod dans le dossier mods/"
+                    ),
+                    exit_code: None,
+                    report_path: fallback_log,
+                });
+            let _ = p_life.send_event(AppEvent::GameCrashed(info));
         }
-        let _ = p_life.send_event(AppEvent::GameRunning(false));
     });
 
     Ok(())
@@ -958,5 +1342,39 @@ mod tests {
         assert!(ini.contains("periods = 3"));
         assert!(ini.contains("period_size = 320"));
         assert!(ini.contains("sources = 256"));
+    }
+
+    #[test]
+    fn test_detect_recent_crash_from_fml_log_and_crash_report() {
+        let tmp = std::env::temp_dir().join("mashclient_crash_detect_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let logs_dir = tmp.join("logs");
+        let crash_dir = tmp.join("crash-reports");
+        std::fs::create_dir_all(&logs_dir).unwrap();
+        std::fs::create_dir_all(&crash_dir).unwrap();
+
+        let since = SystemTime::now();
+        std::fs::write(
+            logs_dir.join("fml-client-latest.log"),
+            "[Client thread/INFO]: Loading...\norg.spongepowered.asm.mixin.injection.throwables.InvalidInjectionException: Critical injection failure\n\tat dev.purefps.Test\n",
+        )
+        .unwrap();
+
+        let detected_log =
+            detect_recent_crash_in_dirs(&[tmp.clone()], since, &[], None).expect("doit détecter fml log");
+        assert!(detected_log.summary.contains("InvalidInjectionException"));
+
+        std::fs::write(
+            crash_dir.join("crash-2026-11-15_client.txt"),
+            "---- Minecraft Crash Report ----\nTime: 11/15/26\nDescription: Initializing game\n\njava.lang.RuntimeException: Boom\n",
+        )
+        .unwrap();
+
+        let detected_rep =
+            detect_recent_crash_in_dirs(&[tmp.clone()], since, &[], Some(-1)).expect("doit détecter crash-report");
+        assert_eq!(detected_rep.summary, "Initializing game");
+        assert_eq!(detected_rep.exit_code, Some(-1));
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

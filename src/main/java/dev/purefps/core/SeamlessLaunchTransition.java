@@ -117,7 +117,7 @@ public final class SeamlessLaunchTransition {
                 cfgDir.mkdirs();
             }
             File splashFile = new File(cfgDir, "splash.properties");
-            String content = "# MashClient 4.4.5 — Single-Context DWM-Composed Fast Boot\n"
+            String content = "# MashClient 4.4.6 — Single-Context DWM-Composed Fast Boot\n"
                     + "enabled=false\n"
                     + "background=0x000000\n"
                     + "font=0x000000\n"

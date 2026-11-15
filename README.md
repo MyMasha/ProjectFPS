@@ -18,7 +18,7 @@ Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://
 
 2. **Mod seul (`purefps-*.jar`)**
    - Installez **Minecraft Forge 1.8.9** (`11.15.1.2318`).
-   - Placez `purefps-4.4.5.jar` dans votre dossier `.minecraft/mods/`.
+   - Placez `purefps-4.4.6.jar` dans votre dossier `.minecraft/mods/`.
 
 ---
 
@@ -32,11 +32,12 @@ Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://
 ### Modules et configuration en jeu (`RSHIFT`)
 - **200+ modules** répartis en 6 catégories : *HUD*, *PvP*, *Visuel*, *Hypixel*, *Monde* et *FPS* (incluant `TNT Timer` 3D interpolé BedWars/Vanilla, *Armor Status*, *Toggle Sprint*, *Custom Crosshair*, *Time Changer*, *Zoom*, etc.).
 - **Recherche bilingue FR / EN** dans le menu `RSHIFT` et dans le launcher.
-- **Sous-paramètres au clic droit** sur chaque module : curseur personnalisé avec aperçu, FOV dynamique, zoom progressif à la molette, position du bras/objet (*Viewmodel*), intensité HurtCam, couleurs et échelles.
+- **Sous-paramètres au clic droit** sur chaque module (dans le launcher comme en jeu) : curseur personnalisé, FOV dynamique, zoom progressif à la molette, position du bras/objet (*Viewmodel*), intensité HurtCam, couleurs et échelles.
 - **Éditeur HUD magnétique** : déplacement direct des widgets à l'écran avec lignes guides d'alignement.
 
 ### Launcher Windows (`MashClient.exe`)
 - Instance unique sous Windows : relancer `MashClient.exe` réactive la fenêtre existante (même réduite dans la zone de notification).
+- Configuration complète des modules et de leurs sous-paramètres au clic droit directement depuis le launcher sans avoir à lancer Minecraft, et pop-up de diagnostic détaillé en cas de crash du jeu.
 - Réduction automatique dans la zone de notification système (*System Tray*, `0 %` d'activité WebView2/GPU) dès l'ouverture de Minecraft.
 - Effets sonores d'interface et son d'ambiance du trou noir désactivables en un clic.
 - Connexion **Microsoft OAuth2** officielle (*Device Code Flow*) ou mode hors-ligne.
@@ -82,7 +83,7 @@ Si vos JDK ne sont pas dans les emplacements standards détectés automatiquemen
   -Porg.gradle.java.installations.paths=/chemin/vers/jdk8,/chemin/vers/jdk17
 ```
 
-Le fichier final obfusqué est généré dans `build/libs/purefps-4.4.5.jar`.
+Le fichier final obfusqué est généré dans `build/libs/purefps-4.4.6.jar`.
 
 ### 2. Launcher Windows (`MashClient.exe`)
 

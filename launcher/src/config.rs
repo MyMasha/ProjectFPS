@@ -697,7 +697,7 @@ impl PureClientSettings {
         map.insert("smartChunkUpdates".into(), self.smart_chunk_updates.to_string());
         map.insert("menuWorldUnload".into(), self.menu_world_unload.to_string());
 
-        let mut out = String::from("# MashClient 4.4.5 Configuration\n");
+        let mut out = String::from("# MashClient 4.4.6 Configuration\n");
         for (k, v) in &map {
             out.push_str(k);
             out.push('=');
@@ -788,6 +788,369 @@ impl PureClientSettings {
             let _ = std::fs::write(&options_path, updated_lines.join("\n") + "\n");
         }
     }
+}
+
+pub fn empty_modules_json() -> serde_json::Value {
+    serde_json::json!({
+        "client": "MashClient",
+        "version": "4.4.6",
+        "modules": {}
+    })
+}
+
+pub fn load_modules_json(game_dir: &str) -> serde_json::Value {
+    let path = Path::new(game_dir).join("config").join("mashclient_modules.json");
+    let mut root = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .filter(|v| v.is_object())
+        .unwrap_or_else(empty_modules_json);
+
+    if let Some(obj) = root.as_object_mut() {
+        obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.4.6".to_owned()));
+        if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
+            obj.insert("modules".to_owned(), serde_json::json!({}));
+        }
+    }
+    root
+}
+
+pub fn save_modules_json(game_dir: &str, data: &serde_json::Value) -> Result<(), String> {
+    let config_dir = Path::new(game_dir).join("config");
+    std::fs::create_dir_all(&config_dir).map_err(|e| format!("Création dossier config: {e}"))?;
+    let mut normalized = if data.is_object() {
+        data.clone()
+    } else {
+        empty_modules_json()
+    };
+    if let Some(obj) = normalized.as_object_mut() {
+        obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.4.6".to_owned()));
+        if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
+            obj.insert("modules".to_owned(), serde_json::json!({}));
+        }
+    }
+    let json = serde_json::to_string_pretty(&normalized)
+        .map_err(|e| format!("Sérialisation mashclient_modules.json: {e}"))?;
+    std::fs::write(config_dir.join("mashclient_modules.json"), json)
+        .map_err(|e| format!("Écriture mashclient_modules.json: {e}"))
+}
+
+fn ensure_mod_obj<'a>(
+    mods_map: &'a mut serde_json::Map<String, serde_json::Value>,
+    mod_id: &str,
+) -> &'a mut serde_json::Map<String, serde_json::Value> {
+    if !mods_map.get(mod_id).is_some_and(serde_json::Value::is_object) {
+        mods_map.insert(mod_id.to_owned(), serde_json::json!({}));
+    }
+    mods_map
+        .get_mut(mod_id)
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("objet module valide")
+}
+
+fn set_mod_enabled_in_map(
+    mods_map: &mut serde_json::Map<String, serde_json::Value>,
+    mod_id: &str,
+    enabled: bool,
+) {
+    let m = ensure_mod_obj(mods_map, mod_id);
+    m.insert("enabled".to_owned(), serde_json::Value::Bool(enabled));
+}
+
+fn set_mod_setting_in_map(
+    mods_map: &mut serde_json::Map<String, serde_json::Value>,
+    mod_id: &str,
+    setting_key: &str,
+    val: serde_json::Value,
+) {
+    let m = ensure_mod_obj(mods_map, mod_id);
+    if !m.get("settings").is_some_and(serde_json::Value::is_object) {
+        m.insert("settings".to_owned(), serde_json::json!({}));
+    }
+    if let Some(s_obj) = m.get_mut("settings").and_then(serde_json::Value::as_object_mut) {
+        s_obj.insert(setting_key.to_owned(), val);
+    }
+}
+
+/// Synchronise les réglages `PureClientSettings` (`purefps.properties`) vers l'arbre JSON des modules (`mashclient_modules.json`).
+pub fn sync_pure_settings_to_modules_json(
+    settings: &PureClientSettings,
+    root: &mut serde_json::Value,
+) {
+    if !root.is_object() {
+        *root = empty_modules_json();
+    }
+    let Some(root_obj) = root.as_object_mut() else {
+        return;
+    };
+    root_obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
+    root_obj.insert("version".to_owned(), serde_json::Value::String("4.4.6".to_owned()));
+    if !root_obj.get("modules").is_some_and(serde_json::Value::is_object) {
+        root_obj.insert("modules".to_owned(), serde_json::json!({}));
+    }
+    let Some(mods) = root_obj.get_mut("modules").and_then(serde_json::Value::as_object_mut) else {
+        return;
+    };
+
+    set_mod_enabled_in_map(mods, "eng_region_multidraw", settings.region_multi_draw);
+    set_mod_enabled_in_map(mods, "eng_island_core_cull", settings.island_core_culling);
+    set_mod_enabled_in_map(mods, "eng_smart_chunk_updates", settings.smart_chunk_updates);
+    set_mod_enabled_in_map(mods, "eng_menu_world_unload", settings.menu_world_unload);
+    set_mod_enabled_in_map(mods, "eng_lazy_terrain_bfs", settings.lazy_terrain_setup);
+    set_mod_enabled_in_map(mods, "eng_frustum_pvertex", settings.fast_frustum_pvertex);
+    set_mod_enabled_in_map(mods, "eng_fbo_blit_gl30", settings.fast_fbo_blit);
+    set_mod_enabled_in_map(mods, "eng_no_gl_error", settings.disable_gl_error_checks);
+    set_mod_enabled_in_map(mods, "eng_smart_animations", settings.smart_animations);
+    set_mod_enabled_in_map(mods, "eng_entity_culling", settings.entity_occlusion_culling);
+    set_mod_enabled_in_map(mods, "eng_item_frame_opt", settings.fast_item_frames);
+    set_mod_enabled_in_map(mods, "eng_player_opt", settings.fast_player_rendering);
+    set_mod_enabled_in_map(mods, "eng_baked_items", settings.fast_baked_item_models);
+    set_mod_enabled_in_map(mods, "eng_fast_scoreboard_gpu", settings.fast_scoreboard);
+    set_mod_enabled_in_map(mods, "eng_armor_stand_opt", settings.fast_armor_stands);
+    set_mod_enabled_in_map(mods, "eng_chunk_threads", settings.multi_threaded_chunk_build);
+    set_mod_enabled_in_map(mods, "eng_skin_pacing", settings.async_skin_upload_pacing);
+    set_mod_enabled_in_map(mods, "eng_distant_glint", settings.limit_distant_glint);
+    set_mod_enabled_in_map(mods, "eng_void_fog_skip", settings.skip_void_fog_loop);
+
+    set_mod_enabled_in_map(mods, "pvp_toggle_sprint", settings.toggle_sprint);
+    set_mod_enabled_in_map(mods, "pvp_zoom", settings.zoom_enabled);
+    set_mod_enabled_in_map(mods, "pvp_low_fire", settings.low_fire);
+    set_mod_enabled_in_map(mods, "pvp_no_hurtcam", settings.no_hurt_cam);
+    set_mod_enabled_in_map(mods, "vis_fullbright", settings.fullbright);
+    set_mod_enabled_in_map(mods, "vis_tnt_timer", settings.tnt_timer);
+    set_mod_enabled_in_map(mods, "vis_gui_font_hd", settings.smooth_client_font);
+    set_mod_enabled_in_map(mods, "wld_borderless", settings.borderless_fullscreen);
+    set_mod_enabled_in_map(mods, "wld_custom_main_menu", settings.custom_main_menu);
+    set_mod_enabled_in_map(mods, "hud_fps", settings.hud_fps_cps);
+    set_mod_enabled_in_map(mods, "hud_ping", settings.hud_ping);
+    set_mod_enabled_in_map(mods, "hud_keystrokes", settings.hud_keystrokes);
+    set_mod_enabled_in_map(mods, "hud_armor", settings.hud_armor);
+
+    set_mod_setting_in_map(
+        mods,
+        "eng_entity_culling",
+        "max_dist",
+        serde_json::json!(settings.max_entity_render_distance),
+    );
+    set_mod_setting_in_map(
+        mods,
+        "eng_entity_culling",
+        "occlusion",
+        serde_json::json!(settings.entity_occlusion_culling),
+    );
+    set_mod_setting_in_map(
+        mods,
+        "eng_item_frame_opt",
+        "max_dist",
+        serde_json::json!(settings.max_item_frame_distance),
+    );
+    set_mod_setting_in_map(
+        mods,
+        "eng_tile_culling",
+        "max_dist",
+        serde_json::json!(settings.max_tile_entity_render_distance),
+    );
+    set_mod_setting_in_map(
+        mods,
+        "eng_particle_engine",
+        "max_particles",
+        serde_json::json!(settings.max_particles_per_layer),
+    );
+    set_mod_setting_in_map(
+        mods,
+        "eng_unfocused_saver",
+        "fps_cap",
+        serde_json::json!(settings.unfocused_fps_limit),
+    );
+    set_mod_setting_in_map(
+        mods,
+        "wld_custom_main_menu",
+        "black_hole_sound",
+        serde_json::json!(settings.black_hole_menu_sound),
+    );
+    set_mod_setting_in_map(
+        mods,
+        "pvp_zoom",
+        "cinematic_cam",
+        serde_json::json!(settings.zoom_smooth_camera),
+    );
+}
+
+/// Répercute la modification d'un module (`mashclient_modules.json`) vers `PureClientSettings` (`purefps.properties`).
+pub fn apply_module_entry_to_pure_settings(
+    mod_id: &str,
+    entry: &serde_json::Value,
+    settings: &mut PureClientSettings,
+) {
+    let mut engine_edited = false;
+    if let Some(en) = entry.get("enabled").and_then(serde_json::Value::as_bool) {
+        match mod_id {
+            "hud_fps" => settings.hud_fps_cps = en,
+            "hud_ping" => settings.hud_ping = en,
+            "hud_keystrokes" => settings.hud_keystrokes = en,
+            "hud_armor" => settings.hud_armor = en,
+            "pvp_toggle_sprint" => settings.toggle_sprint = en,
+            "pvp_zoom" => settings.zoom_enabled = en,
+            "pvp_low_fire" => settings.low_fire = en,
+            "pvp_no_hurtcam" => settings.no_hurt_cam = en,
+            "vis_fullbright" => settings.fullbright = en,
+            "vis_tnt_timer" => settings.tnt_timer = en,
+            "vis_gui_font_hd" => settings.smooth_client_font = en,
+            "wld_borderless" => settings.borderless_fullscreen = en,
+            "wld_custom_main_menu" => settings.custom_main_menu = en,
+            "eng_region_multidraw" => {
+                settings.region_multi_draw = en;
+                settings.hardware_region_vao = en;
+                engine_edited = true;
+            }
+            "eng_island_core_cull" => {
+                settings.island_core_culling = en;
+                engine_edited = true;
+            }
+            "eng_smart_chunk_updates" => {
+                settings.smart_chunk_updates = en;
+                engine_edited = true;
+            }
+            "eng_menu_world_unload" => {
+                settings.menu_world_unload = en;
+                engine_edited = true;
+            }
+            "eng_lazy_terrain_bfs" => {
+                settings.lazy_terrain_setup = en;
+                engine_edited = true;
+            }
+            "eng_frustum_pvertex" => {
+                settings.fast_frustum_pvertex = en;
+                engine_edited = true;
+            }
+            "eng_fbo_blit_gl30" => {
+                settings.fast_fbo_blit = en;
+                engine_edited = true;
+            }
+            "eng_no_gl_error" => {
+                settings.disable_gl_error_checks = en;
+                engine_edited = true;
+            }
+            "eng_smart_animations" => {
+                settings.smart_animations = en;
+                engine_edited = true;
+            }
+            "eng_entity_culling" => {
+                settings.entity_occlusion_culling = en;
+                engine_edited = true;
+            }
+            "eng_item_frame_opt" => {
+                settings.fast_item_frames = en;
+                engine_edited = true;
+            }
+            "eng_player_opt" => {
+                settings.fast_player_rendering = en;
+                engine_edited = true;
+            }
+            "eng_baked_items" => {
+                settings.fast_baked_item_models = en;
+                settings.fast_item_render = en;
+                engine_edited = true;
+            }
+            "eng_fast_scoreboard_gpu" => {
+                settings.fast_scoreboard = en;
+                engine_edited = true;
+            }
+            "eng_armor_stand_opt" => {
+                settings.fast_armor_stands = en;
+                engine_edited = true;
+            }
+            "eng_chunk_threads" => {
+                settings.multi_threaded_chunk_build = en;
+                engine_edited = true;
+            }
+            "eng_skin_pacing" => {
+                settings.async_skin_upload_pacing = en;
+                engine_edited = true;
+            }
+            "eng_distant_glint" => {
+                settings.limit_distant_glint = en;
+                engine_edited = true;
+            }
+            "eng_void_fog_skip" => {
+                settings.skip_void_fog_loop = en;
+                engine_edited = true;
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(cfg) = entry.get("settings").and_then(serde_json::Value::as_object) {
+        let num_i32 = |k: &str| -> Option<i32> {
+            cfg.get(k)
+                .and_then(serde_json::Value::as_f64)
+                .map(|v| v.round() as i32)
+        };
+        match mod_id {
+            "eng_entity_culling" => {
+                if let Some(d) = num_i32("max_dist") {
+                    settings.max_entity_render_distance = d.clamp(16, 160);
+                    engine_edited = true;
+                }
+                if let Some(occ) = cfg.get("occlusion").and_then(serde_json::Value::as_bool) {
+                    settings.entity_occlusion_culling = occ;
+                    engine_edited = true;
+                }
+            }
+            "eng_item_frame_opt" => {
+                if let Some(d) = num_i32("max_dist") {
+                    settings.max_item_frame_distance = d.clamp(16, 160);
+                    engine_edited = true;
+                }
+            }
+            "eng_tile_culling" => {
+                if let Some(d) = num_i32("max_dist") {
+                    settings.max_tile_entity_render_distance = d.clamp(16, 160);
+                    engine_edited = true;
+                }
+            }
+            "eng_particle_engine" => {
+                if let Some(p) = num_i32("max_particles") {
+                    settings.max_particles_per_layer = p.clamp(100, 4000);
+                    engine_edited = true;
+                }
+            }
+            "eng_unfocused_saver" => {
+                if let Some(fps) = num_i32("fps_cap") {
+                    settings.unfocused_fps_limit = fps.clamp(5, 60);
+                    engine_edited = true;
+                }
+            }
+            "wld_custom_main_menu" => {
+                if let Some(bh) = cfg.get("black_hole_sound").and_then(serde_json::Value::as_bool) {
+                    settings.black_hole_menu_sound = bh;
+                }
+            }
+            "pvp_zoom" => {
+                if let Some(cam) = cfg.get("cinematic_cam").and_then(serde_json::Value::as_bool) {
+                    settings.zoom_smooth_camera = cam;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if engine_edited {
+        settings.active_profile = PureProfile::Custom;
+    }
+}
+
+/// Sauvegarde `purefps.properties` PUIS `mashclient_modules.json` afin que l'horodatage de
+/// `mashclient_modules.json` soit toujours >= `purefps.properties` au chargement de `MashModules`.
+pub fn save_all_client_configs(
+    game_dir: &str,
+    settings: &PureClientSettings,
+    modules_json: &serde_json::Value,
+) -> Result<(), String> {
+    settings.save_to_game_dir(game_dir)?;
+    save_modules_json(game_dir, modules_json)
 }
 
 pub fn app_storage_dir() -> PathBuf {
@@ -1006,6 +1369,37 @@ mod tests {
         let splash = std::fs::read_to_string(tmp.join("config").join("splash.properties")).unwrap();
         assert!(splash.contains("enabled=false"));
         assert!(splash.contains("background=0x000000"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_modules_json_bidirectional_sync() {
+        let tmp = std::env::temp_dir().join("mashclient_mods_sync_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let dir_str = tmp.to_string_lossy().to_string();
+
+        let mut cfg = PureClientSettings::default();
+        let mut mods = load_modules_json(&dir_str);
+        sync_pure_settings_to_modules_json(&cfg, &mut mods);
+
+        let item_frame_entry = serde_json::json!({
+            "enabled": false,
+            "settings": { "max_dist": 72 }
+        });
+        mods["modules"]["eng_item_frame_opt"] = item_frame_entry.clone();
+        apply_module_entry_to_pure_settings("eng_item_frame_opt", &item_frame_entry, &mut cfg);
+
+        assert!(!cfg.fast_item_frames);
+        assert_eq!(cfg.max_item_frame_distance, 72);
+        assert_eq!(cfg.active_profile, PureProfile::Custom);
+
+        save_all_client_configs(&dir_str, &cfg, &mods).unwrap();
+        let reloaded_mods = load_modules_json(&dir_str);
+        assert_eq!(reloaded_mods["version"], "4.4.6");
+        assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["enabled"], false);
+        assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["settings"]["max_dist"], 72);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

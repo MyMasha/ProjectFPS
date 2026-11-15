@@ -20,13 +20,17 @@ use auth::{
     refresh_microsoft_session, start_device_code_flow, DeviceCodeChallenge,
 };
 use config::{
-    app_storage_dir, clear_microsoft_account, effective_github_token, load_launcher_prefs,
-    load_microsoft_account, save_launcher_prefs, save_microsoft_account, LaunchMode, LauncherPrefs,
-    MicrosoftAccount, PublicAccountView, PureClientSettings, PureProfile,
+    apply_module_entry_to_pure_settings, app_storage_dir, clear_microsoft_account,
+    effective_github_token, load_launcher_prefs, load_microsoft_account, load_modules_json,
+    save_all_client_configs, save_launcher_prefs, save_microsoft_account,
+    sync_pure_settings_to_modules_json, LaunchMode, LauncherPrefs, MicrosoftAccount,
+    PublicAccountView, PureClientSettings, PureProfile,
 };
 use runner::{
-    auto_fetch_mod_jar_if_needed, focus_visible_lwjgl_window, offline_uuid_hex,
-    prepare_prism_bridge_files, run_direct_jvm_blocking, spawn_prism_bridge_now,
+    auto_fetch_mod_jar_if_needed, collect_watched_189_game_dirs, focus_visible_lwjgl_window,
+    has_visible_lwjgl_window, offline_uuid_hex, prepare_prism_bridge_files,
+    run_direct_jvm_blocking, spawn_prism_bridge_now, sync_configs_across_watched_189_dirs,
+    CrashReportInfo,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -38,7 +42,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tao::dpi::{LogicalSize, Size};
 use tao::event::{Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
+use tao::event_loop::{ControlFlow, EventLoopProxy, EventLoopBuilder};
 use tao::window::{Fullscreen, Icon, Window, WindowBuilder};
 use tray::{SingleInstanceGuard, SystemTray};
 use updater::{
@@ -47,6 +51,8 @@ use updater::{
     PendingUpdate, UiUpdateView, UpdateCheckOutcome, LAUNCHER_VERSION,
 };
 use wry::WebViewBuilder;
+#[cfg(windows)]
+use wry::WebViewBuilderExtWindows;
 
 const UI_HTML: &str = include_str!("ui.html");
 const WINDOW_ICON_64_RGBA: &[u8] = include_bytes!("../assets/icon_64.rgba");
@@ -191,6 +197,7 @@ pub enum AppEvent {
     UpdateInstalled(Result<InstallOutcome, String>),
     PreLaunchModSynced,
     GameRunning(bool),
+    GameCrashed(CrashReportInfo),
     MinecraftMenuReady,
     RevealMinecraftNow(u64),
     CurtainSafetyTimeout(u64),
@@ -219,6 +226,21 @@ enum IpcCommand {
     SetSetting {
         key: String,
         value: serde_json::Value,
+    },
+    SaveModuleEntry {
+        mod_id: String,
+        entry: serde_json::Value,
+        #[serde(default)]
+        setting_key: Option<String>,
+    },
+    ResetModuleEntry {
+        mod_id: String,
+        default_entry: serde_json::Value,
+        #[serde(default)]
+        setting_key: Option<String>,
+    },
+    OpenCrashReport {
+        path: String,
     },
     SetRam {
         ram_mb: u32,
@@ -271,6 +293,7 @@ struct UiDeviceCodeView {
 #[derive(Serialize)]
 struct UiStateSnapshot<'a> {
     settings: &'a PureClientSettings,
+    modules: &'a serde_json::Value,
     prefs: &'a LauncherPrefs,
     account: Option<PublicAccountView>,
     game_running: bool,
@@ -278,9 +301,84 @@ struct UiStateSnapshot<'a> {
     update: &'a UiUpdateView,
 }
 
+fn load_synced_configs(game_dir: &str) -> (PureClientSettings, serde_json::Value) {
+    let mut settings = PureClientSettings::load_from_game_dir(game_dir);
+    let cfg_dir = Path::new(game_dir).join("config");
+    let mods_path = cfg_dir.join("mashclient_modules.json");
+    let props_path = cfg_dir.join("purefps.properties");
+    let had_mods = mods_path.is_file();
+    let mut modules_json = load_modules_json(game_dir);
+
+    if !had_mods {
+        sync_pure_settings_to_modules_json(&settings, &mut modules_json);
+    } else {
+        let mods_mtime = std::fs::metadata(&mods_path).and_then(|m| m.modified()).ok();
+        let props_mtime = std::fs::metadata(&props_path).and_then(|m| m.modified()).ok();
+        let props_strictly_newer = match (props_mtime, mods_mtime) {
+            (Some(pt), Some(mt)) => pt > mt,
+            _ => false,
+        };
+        if props_strictly_newer {
+            sync_pure_settings_to_modules_json(&settings, &mut modules_json);
+        } else if let Some(mods_map) = modules_json.get("modules").and_then(serde_json::Value::as_object) {
+            for (mod_id, entry) in mods_map {
+                apply_module_entry_to_pure_settings(mod_id, entry, &mut settings);
+            }
+        }
+    }
+    (settings, modules_json)
+}
+
+fn merge_module_entry(
+    modules_json: &mut serde_json::Value,
+    mod_id: &str,
+    incoming: &serde_json::Value,
+    replace_settings: bool,
+) -> serde_json::Value {
+    if !modules_json.is_object() {
+        *modules_json = json!({ "client": "MashClient", "version": "4.4.6", "modules": {} });
+    }
+    let root_obj = modules_json.as_object_mut().expect("objet racine modules_json");
+    if !root_obj.get("modules").is_some_and(serde_json::Value::is_object) {
+        root_obj.insert("modules".to_owned(), json!({}));
+    }
+    let mods_map = root_obj
+        .get_mut("modules")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("map modules");
+    if !mods_map.get(mod_id).is_some_and(serde_json::Value::is_object) {
+        mods_map.insert(mod_id.to_owned(), json!({}));
+    }
+    let target = mods_map
+        .get_mut(mod_id)
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("objet module");
+
+    if let Some(inc_obj) = incoming.as_object() {
+        for (k, v) in inc_obj {
+            if k == "settings" && v.is_object() {
+                if replace_settings || !target.get("settings").is_some_and(serde_json::Value::is_object) {
+                    target.insert("settings".to_owned(), v.clone());
+                } else if let (Some(t_set), Some(v_set)) = (
+                    target.get_mut("settings").and_then(serde_json::Value::as_object_mut),
+                    v.as_object(),
+                ) {
+                    for (sk, sv) in v_set {
+                        t_set.insert(sk.clone(), sv.clone());
+                    }
+                }
+            } else {
+                target.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    serde_json::Value::Object(target.clone())
+}
+
 struct Controller {
     prefs: LauncherPrefs,
     settings: PureClientSettings,
+    modules_json: serde_json::Value,
     account: Option<MicrosoftAccount>,
     game_running: bool,
     prelaunch_syncing: bool,
@@ -301,7 +399,7 @@ struct Controller {
 impl Controller {
     fn new() -> Self {
         let mut prefs = load_launcher_prefs();
-        let settings = PureClientSettings::load_from_game_dir(&prefs.game_dir);
+        let (settings, modules_json) = load_synced_configs(&prefs.game_dir);
         let account = load_microsoft_account();
         if account.is_some() && prefs.launch_mode == LaunchMode::DirectOffline {
             prefs.launch_mode = LaunchMode::DirectMicrosoft;
@@ -310,6 +408,7 @@ impl Controller {
         Self {
             prefs,
             settings,
+            modules_json,
             account,
             game_running: false,
             prelaunch_syncing: false,
@@ -326,6 +425,42 @@ impl Controller {
             startup_update_checked: false,
             deferred_logs: VecDeque::with_capacity(200),
         }
+    }
+
+    fn pull_newer_watched_configs_and_reload(&mut self) {
+        let primary_dir = Path::new(&self.prefs.game_dir);
+        let primary_cfg = primary_dir.join("config");
+        let watched = collect_watched_189_game_dirs(&self.prefs.game_dir);
+        for fname in ["mashclient_modules.json", "purefps.properties"] {
+            let dst = primary_cfg.join(fname);
+            let dst_mtime = std::fs::metadata(&dst).and_then(|m| m.modified()).ok();
+            let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+            for dir in &watched {
+                if dir == primary_dir {
+                    continue;
+                }
+                let cand = dir.join("config").join(fname);
+                let Ok(mt) = std::fs::metadata(&cand).and_then(|m| m.modified()) else {
+                    continue;
+                };
+                if dst_mtime.is_none_or(|dmt| mt > dmt)
+                    && newest.as_ref().is_none_or(|(cur_t, _)| mt > *cur_t)
+                {
+                    newest = Some((mt, cand));
+                }
+            }
+            if let Some((_, src)) = newest {
+                let src_bytes = std::fs::read(&src).ok();
+                let dst_bytes = std::fs::read(&dst).ok();
+                if src_bytes.is_some() && src_bytes != dst_bytes {
+                    let _ = std::fs::create_dir_all(&primary_cfg);
+                    let _ = std::fs::copy(&src, &dst);
+                }
+            }
+        }
+        let (settings, modules_json) = load_synced_configs(&self.prefs.game_dir);
+        self.settings = settings;
+        self.modules_json = modules_json;
     }
 
     fn spawn_update_check(
@@ -358,8 +493,12 @@ impl Controller {
         if self.hidden_in_tray {
             return;
         }
+        static EMPTY_OBJ: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        let fallback = EMPTY_OBJ.get_or_init(|| json!({}));
+        let mods_ref = self.modules_json.get("modules").unwrap_or(fallback);
         let snap = UiStateSnapshot {
             settings: &self.settings,
+            modules: mods_ref,
             prefs: &self.prefs,
             account: self.account.as_ref().map(PublicAccountView::from),
             game_running: self.game_running,
@@ -372,6 +511,16 @@ impl Controller {
         let msg = json!({
             "kind": "state",
             "data": snap
+        });
+        if let Ok(serialized) = serde_json::to_string(&msg) {
+            let _ = webview.evaluate_script(&format!("window.__purePush({serialized});"));
+        }
+    }
+
+    fn push_crash(webview: &wry::WebView, report: &CrashReportInfo) {
+        let msg = json!({
+            "kind": "crash",
+            "report": report
         });
         if let Ok(serialized) = serde_json::to_string(&msg) {
             let _ = webview.evaluate_script(&format!("window.__purePush({serialized});"));
@@ -564,7 +713,8 @@ fn begin_singularity_launch_now(
     tray: &SystemTray,
     proxy: &EventLoopProxy<AppEvent>,
 ) {
-    let _ = ctrl.settings.save_to_game_dir(&ctrl.prefs.game_dir);
+    let _ = save_all_client_configs(&ctrl.prefs.game_dir, &ctrl.settings, &ctrl.modules_json);
+    sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
     let _ = save_launcher_prefs(&ctrl.prefs);
 
     let (screen_w, screen_h) = current_monitor_resolution(window);
@@ -578,11 +728,29 @@ fn begin_singularity_launch_now(
                         spawn_prism_bridge_now(&ctrl.prefs, &inst_id, watched_dirs, proxy)
                     {
                         ctrl.restore_normal_window(window, webview, tray);
-                        Controller::push_toast(webview, &e, true);
+                        Controller::push_crash(
+                            webview,
+                            &CrashReportInfo {
+                                title: "Impossible de lancer Minecraft".to_owned(),
+                                summary: e.clone(),
+                                details: e,
+                                exit_code: None,
+                                report_path: None,
+                            },
+                        );
                     }
                 }
                 Err(e) => {
-                    Controller::push_toast(webview, &e, true);
+                    Controller::push_crash(
+                        webview,
+                        &CrashReportInfo {
+                            title: "Impossible de préparer le lancement".to_owned(),
+                            summary: e.clone(),
+                            details: e,
+                            exit_code: None,
+                            report_path: None,
+                        },
+                    );
                 }
             }
         }
@@ -705,9 +873,13 @@ fn handle_ipc(
         IpcCommand::SetProfile { profile } => {
             let target = PureProfile::from_id(&profile);
             ctrl.settings.apply_profile(target);
-            if let Err(e) = ctrl.settings.save_to_game_dir(&ctrl.prefs.game_dir) {
+            sync_pure_settings_to_modules_json(&ctrl.settings, &mut ctrl.modules_json);
+            if let Err(e) =
+                save_all_client_configs(&ctrl.prefs.game_dir, &ctrl.settings, &ctrl.modules_json)
+            {
                 Controller::push_toast(webview, &e, true);
             } else {
+                sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
                 Controller::push_toast(
                     webview,
                     &format!("Profil '{}' synchronisé.", target.id().to_uppercase()),
@@ -718,8 +890,61 @@ fn handle_ipc(
         }
         IpcCommand::SetSetting { key, value } => {
             if ctrl.settings.set_field(&key, &value) {
-                let _ = ctrl.settings.save_to_game_dir(&ctrl.prefs.game_dir);
+                sync_pure_settings_to_modules_json(&ctrl.settings, &mut ctrl.modules_json);
+                let _ = save_all_client_configs(
+                    &ctrl.prefs.game_dir,
+                    &ctrl.settings,
+                    &ctrl.modules_json,
+                );
+                sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
                 ctrl.push_full_state(webview);
+            }
+        }
+        IpcCommand::SaveModuleEntry {
+            mod_id,
+            entry,
+            setting_key,
+        } => {
+            let merged = merge_module_entry(&mut ctrl.modules_json, &mod_id, &entry, false);
+            apply_module_entry_to_pure_settings(&mod_id, &merged, &mut ctrl.settings);
+            if let (Some(sk), Some(en)) = (setting_key.as_deref(), merged.get("enabled")) {
+                let _ = ctrl.settings.set_field(sk, en);
+            }
+            let _ = save_all_client_configs(
+                &ctrl.prefs.game_dir,
+                &ctrl.settings,
+                &ctrl.modules_json,
+            );
+            sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
+            ctrl.push_full_state(webview);
+        }
+        IpcCommand::ResetModuleEntry {
+            mod_id,
+            default_entry,
+            setting_key,
+        } => {
+            let merged = merge_module_entry(&mut ctrl.modules_json, &mod_id, &default_entry, true);
+            apply_module_entry_to_pure_settings(&mod_id, &merged, &mut ctrl.settings);
+            if let (Some(sk), Some(en)) = (setting_key.as_deref(), merged.get("enabled")) {
+                let _ = ctrl.settings.set_field(sk, en);
+            }
+            let _ = save_all_client_configs(
+                &ctrl.prefs.game_dir,
+                &ctrl.settings,
+                &ctrl.modules_json,
+            );
+            sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
+            Controller::push_toast(webview, "Réglages du module réinitialisés.", false);
+            ctrl.push_full_state(webview);
+        }
+        IpcCommand::OpenCrashReport { path } => {
+            let p = Path::new(&path);
+            if p.is_file() {
+                if Command::new("notepad.exe").arg(p).spawn().is_err() {
+                    let _ = Command::new("explorer.exe")
+                        .arg(format!("/select,{}", p.display()))
+                        .spawn();
+                }
             }
         }
         IpcCommand::SetRam { ram_mb } => {
@@ -760,7 +985,9 @@ fn handle_ipc(
                             prism_root.join("assets").to_string_lossy().to_string();
                     }
                 }
-                ctrl.settings = PureClientSettings::load_from_game_dir(&ctrl.prefs.game_dir);
+                let (settings, modules_json) = load_synced_configs(&ctrl.prefs.game_dir);
+                ctrl.settings = settings;
+                ctrl.modules_json = modules_json;
                 ctrl.update_view.installed_jar_version =
                     installed_mod_version(&ctrl.prefs.game_dir).map(format_semver);
                 let _ = save_launcher_prefs(&ctrl.prefs);
@@ -924,20 +1151,36 @@ fn handle_ipc(
             if ctrl.prefs.launch_mode == LaunchMode::PrismBridge
                 && !Path::new(&ctrl.prefs.prism_exe).is_file()
             {
-                Controller::push_toast(
+                let err_msg = format!("PrismLauncher introuvable : {}", ctrl.prefs.prism_exe);
+                Controller::push_crash(
                     webview,
-                    &format!("PrismLauncher introuvable : {}", ctrl.prefs.prism_exe),
-                    true,
+                    &CrashReportInfo {
+                        title: "PrismLauncher introuvable".to_owned(),
+                        summary: err_msg.clone(),
+                        details: format!(
+                            "{err_msg}\n\nVérifiez l'installation de PrismLauncher ou passez en mode Lancement Direct (Microsoft / Hors-ligne) dans l'onglet Système."
+                        ),
+                        exit_code: None,
+                        report_path: None,
+                    },
                 );
                 return false;
             }
             if ctrl.prefs.launch_mode != LaunchMode::PrismBridge
                 && !Path::new(&ctrl.prefs.java_path).is_file()
             {
-                Controller::push_toast(
+                let err_msg = format!("Java 8 introuvable : {}", ctrl.prefs.java_path);
+                Controller::push_crash(
                     webview,
-                    &format!("Java 8 introuvable : {}", ctrl.prefs.java_path),
-                    true,
+                    &CrashReportInfo {
+                        title: "Java 8 introuvable".to_owned(),
+                        summary: err_msg.clone(),
+                        details: format!(
+                            "{err_msg}\n\nIndiquez le chemin vers un exécutable javaw.exe Java 8 64-bit valide dans l'onglet Système."
+                        ),
+                        exit_code: None,
+                        report_path: None,
+                    },
                 );
                 return false;
             }
@@ -1003,14 +1246,19 @@ fn main() -> wry::Result<()> {
     let mut context = wry::WebContext::new(Some(webview_data_dir));
 
     let ipc_proxy = proxy.clone();
-    let webview = WebViewBuilder::new_with_web_context(&mut context)
+    let builder = WebViewBuilder::new_with_web_context(&mut context)
         .with_autoplay(true)
+        .with_devtools(false)
         .with_background_color((0, 0, 0, 255))
         .with_html(UI_HTML)
         .with_ipc_handler(move |req: wry::http::Request<String>| {
             let _ = ipc_proxy.send_event(AppEvent::IpcRaw(req.body().clone()));
-        })
-        .build(&window)?;
+        });
+    #[cfg(windows)]
+    let builder = builder
+        .with_default_context_menus(false)
+        .with_browser_accelerator_keys(false);
+    let webview = builder.build(&window)?;
 
     let mut ctrl = Controller::new();
 
@@ -1263,15 +1511,28 @@ fn main() -> wry::Result<()> {
                 AppEvent::GameRunning(running) => {
                     ctrl.game_running = running;
                     tray.set_game_running_mode(running);
-                    if !running
-                        && (ctrl.curtain_active
+                    if !running {
+                        ctrl.pull_newer_watched_configs_and_reload();
+                        if ctrl.curtain_active
                             || ctrl.hidden_in_tray
                             || window.is_minimized()
-                            || !window.is_visible())
-                    {
-                        ctrl.restore_normal_window(&window, &webview, &tray);
+                            || !window.is_visible()
+                        {
+                            ctrl.restore_normal_window(&window, &webview, &tray);
+                        }
                     }
                     ctrl.push_full_state(&webview);
+                }
+                AppEvent::GameCrashed(report) => {
+                    ctrl.game_running = false;
+                    ctrl.pull_newer_watched_configs_and_reload();
+                    ctrl.restore_normal_window(&window, &webview, &tray);
+                    ctrl.push_full_state(&webview);
+                    Controller::push_log(
+                        &webview,
+                        &format!("[ERREUR] {} : {}", report.title, report.summary),
+                    );
+                    Controller::push_crash(&webview, &report);
                 }
                 AppEvent::MinecraftMenuReady => {
                     ctrl.mc_menu_ready = true;
@@ -1294,12 +1555,16 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::CurtainSafetyTimeout(id) => {
                     if ctrl.curtain_active && ctrl.curtain_id == id {
-                        ctrl.plunge_darkness_reached = true;
-                        ctrl.mc_menu_ready = true;
-                        if !ctrl.handoff_dispatched {
-                            ctrl.try_schedule_seamless_handoff(&window, &proxy);
+                        if ctrl.mc_menu_ready || has_visible_lwjgl_window() {
+                            ctrl.plunge_darkness_reached = true;
+                            ctrl.mc_menu_ready = true;
+                            if !ctrl.handoff_dispatched {
+                                ctrl.try_schedule_seamless_handoff(&window, &proxy);
+                            } else {
+                                ctrl.dismiss_curtain_for_game(&window, &webview, &tray);
+                            }
                         } else {
-                            ctrl.dismiss_curtain_for_game(&window, &webview, &tray);
+                            ctrl.restore_normal_window(&window, &webview, &tray);
                         }
                     }
                 }
@@ -1307,7 +1572,17 @@ fn main() -> wry::Result<()> {
                     ctrl.game_running = false;
                     ctrl.restore_normal_window(&window, &webview, &tray);
                     ctrl.push_full_state(&webview);
-                    Controller::push_toast(&webview, &err_msg, true);
+                    Controller::push_log(&webview, &format!("[ERREUR] {err_msg}"));
+                    Controller::push_crash(
+                        &webview,
+                        &CrashReportInfo {
+                            title: "Échec du lancement de Minecraft".to_owned(),
+                            summary: err_msg.clone(),
+                            details: err_msg,
+                            exit_code: None,
+                            report_path: None,
+                        },
+                    );
                 }
                 AppEvent::TrayRestore => {
                     ctrl.restore_normal_window(&window, &webview, &tray);

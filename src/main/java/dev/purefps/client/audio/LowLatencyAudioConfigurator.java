@@ -27,10 +27,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class LowLatencyAudioConfigurator {
 
-    public interface Win32KernelEnv extends Library {
-        boolean SetEnvironmentVariableW(WString lpName, WString lpValue);
-    }
-
     public static final String ALSOFT_INI_FILENAME = "mashclient_alsoft.ini";
     public static final int TARGET_NORMAL_CHANNELS = 64;
     public static final int TARGET_STREAMING_CHANNELS = 8;
@@ -39,8 +35,6 @@ public final class LowLatencyAudioConfigurator {
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
 
     private static final AtomicBoolean ENV_APPLIED = new AtomicBoolean(false);
-    private static Win32KernelEnv kernelEnvLib;
-    private static boolean kernelEnvFailed = false;
 
     // État O(1) du limiteur de sons par tick client (thread client uniquement)
     private static int currentSoundTick = Integer.MIN_VALUE;
@@ -50,7 +44,7 @@ public final class LowLatencyAudioConfigurator {
     }
 
     public static String buildAlsoftIniContent() {
-        return "# MashClient 4.4.5 — Profil OpenAL Soft WASAPI Basse Latence\n"
+        return "# MashClient 4.4.6 — Profil OpenAL Soft WASAPI Basse Latence\n"
                 + "[general]\n"
                 + "drivers = mmdevapi,dsound\n"
                 + "periods = 3\n"
@@ -91,7 +85,7 @@ public final class LowLatencyAudioConfigurator {
     /**
      * Écrit mashclient_alsoft.ini et positionne ALSOFT_CONF / ALSOFT_DRIVERS au niveau Win32
      * avant que LibraryLWJGLOpenAL n'appelle System.loadLibrary("OpenAL64").
-     * Respecte toute variable ALSOFT_CONF déjà définie explicitement par l'utilisateur hors MashClient.
+     * Si MashClient.exe a déjà injecté ALSOFT_CONF dans l'environnement du processus, aucun appel JNA n'est requis.
      */
     public static void applyBeforeOpenALInit(File mcDir) {
         File iniFile = ensureConfigFile(mcDir);
@@ -105,35 +99,41 @@ public final class LowLatencyAudioConfigurator {
         }
         try {
             String existingConf = System.getenv("ALSOFT_CONF");
-            if (existingConf != null && !existingConf.trim().isEmpty()
-                    && !existingConf.contains(ALSOFT_INI_FILENAME)) {
+            if (existingConf != null && !existingConf.trim().isEmpty()) {
                 return;
             }
-            Win32KernelEnv k32 = getKernelEnv();
-            if (k32 != null) {
-                k32.SetEnvironmentVariableW(new WString("ALSOFT_CONF"), new WString(absPath));
-                String existingDrivers = System.getenv("ALSOFT_DRIVERS");
-                if (existingDrivers == null || existingDrivers.trim().isEmpty()) {
-                    k32.SetEnvironmentVariableW(new WString("ALSOFT_DRIVERS"), new WString("mmdevapi,dsound"));
-                }
-            }
+            Win32EnvBridge.setProcessEnv(absPath);
         } catch (Throwable ignored) {
         }
     }
 
-    private static Win32KernelEnv getKernelEnv() {
-        if (kernelEnvFailed) {
-            return null;
+    private static final class Win32EnvBridge {
+        public interface Win32KernelEnv extends Library {
+            boolean SetEnvironmentVariableW(WString lpName, WString lpValue);
         }
-        if (kernelEnvLib == null) {
+
+        private static Win32KernelEnv kernelEnvLib;
+        private static boolean kernelEnvFailed = false;
+
+        static void setProcessEnv(String absPath) {
+            if (kernelEnvFailed) {
+                return;
+            }
             try {
-                kernelEnvLib = (Win32KernelEnv) Native.loadLibrary("kernel32", Win32KernelEnv.class);
+                if (kernelEnvLib == null) {
+                    kernelEnvLib = (Win32KernelEnv) Native.loadLibrary("kernel32", Win32KernelEnv.class);
+                }
+                if (kernelEnvLib != null) {
+                    kernelEnvLib.SetEnvironmentVariableW(new WString("ALSOFT_CONF"), new WString(absPath));
+                    String existingDrivers = System.getenv("ALSOFT_DRIVERS");
+                    if (existingDrivers == null || existingDrivers.trim().isEmpty()) {
+                        kernelEnvLib.SetEnvironmentVariableW(new WString("ALSOFT_DRIVERS"), new WString("mmdevapi,dsound"));
+                    }
+                }
             } catch (Throwable t) {
                 kernelEnvFailed = true;
-                return null;
             }
         }
-        return kernelEnvLib;
     }
 
     public static void onSoundTick(int playTime) {

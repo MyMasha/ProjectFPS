@@ -695,7 +695,7 @@ public final class PureFPSConfig {
         props.setProperty("hudKeystrokesY", Integer.toString(hudKeystrokesY));
 
         try (FileOutputStream out = new FileOutputStream(configFile)) {
-            props.store(out, "MashClient 4.4.5 Configuration");
+            props.store(out, "MashClient 4.4.6 Configuration");
         } catch (IOException ignored) {
         }
     }
