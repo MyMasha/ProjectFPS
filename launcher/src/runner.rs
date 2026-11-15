@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.3.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.4.jar";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -226,7 +226,7 @@ fn build_download_agent() -> Result<ureq::Agent, String> {
 fn download_file_to_path(agent: &ureq::Agent, url: &str, dst: &Path) -> Result<(), String> {
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.3")
+        .set("User-Agent", "MashClient/4.5.4")
         .call()
         .map_err(|e| format!("Échec téléchargement {url}: {e}"))?;
     if let Some(parent) = dst.parent() {
@@ -280,8 +280,8 @@ fn copy_dir_tree_missing(src_dir: &Path, dst_dir: &Path) {
     }
 }
 
-/// Vérifie et récupère de manière 100% autonome toutes les bibliothèques 1.8.9 + Forge 11.15.1.2318,
-/// les natives 64-bit, `minecraft-1.8.9-client.jar` et l'index d'assets `1.8.json`.
+/// Ensures 100% standalone availability of all 1.8.9 + Forge 11.15.1.2318 libraries,
+/// 64-bit natives, `minecraft-1.8.9-client.jar`, and `assets/indexes/1.8.json` + `assets/objects`.
 pub fn ensure_standalone_189_files(
     libraries_dir: &str,
     assets_dir: &str,
@@ -289,15 +289,13 @@ pub fn ensure_standalone_189_files(
 ) -> Result<(), String> {
     let lib_root = Path::new(libraries_dir);
     std::fs::create_dir_all(lib_root)
-        .map_err(|e| format!("Création dossier libraries: {e}"))?;
+        .map_err(|e| format!("Failed to create libraries directory: {e}"))?;
 
     let appdata = std::env::var("APPDATA").unwrap_or_else(|_| r"C:\Users\Default\AppData\Roaming".to_owned());
-    let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Default\AppData\Local".to_owned());
     let default_mc_root = PathBuf::from(&appdata).join(".minecraft");
     let local_lib_caches = [
         default_mc_root.join("libraries"),
-        PathBuf::from(&appdata).join("PrismLauncher").join("libraries"),
-        PathBuf::from(&local_appdata).join("Programs").join("PrismLauncher").join("libraries"),
+        PathBuf::from(&appdata).join("MashClient").join("libraries"),
     ];
 
     let all_required: Vec<&str> = REQUIRED_LIBRARIES_189_FORGE
@@ -315,7 +313,7 @@ pub fn ensure_standalone_189_files(
             continue;
         }
 
-        // 1. Recherche dans les caches locaux existants sur le disque
+        // 1. Check existing local caches on disk (.minecraft/libraries)
         let mut copied_locally = false;
         for cache_root in &local_lib_caches {
             let local_candidate = cache_root.join(&rel_os);
@@ -347,7 +345,7 @@ pub fn ensure_standalone_189_files(
             continue;
         }
 
-        // 2. Téléchargement direct HTTPS (avec connecteur TLS natif Windows SChannel)
+        // 2. Direct HTTPS download (Windows SChannel native TLS)
         let agent = match &http_agent {
             Some(a) => a,
             None => {
@@ -362,7 +360,7 @@ pub fn ensure_standalone_189_files(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| rel_url.clone());
         let _ = proxy.send_event(AppEvent::LogLine(format!(
-            "[MashClient] Téléchargement de {file_label}..."
+            "[MashClient] Downloading {file_label}..."
         )));
 
         let mut candidate_urls: Vec<String> = Vec::new();
@@ -378,7 +376,6 @@ pub fn ensure_standalone_189_files(
         } else {
             candidate_urls.push(format!("https://libraries.minecraft.net/{rel_url}"));
             candidate_urls.push(format!("https://maven.minecraftforge.net/{rel_url}"));
-            candidate_urls.push(format!("https://files.prism-launcher.org/maven/{rel_url}"));
             candidate_urls.push(format!("https://repo1.maven.org/maven2/{rel_url}"));
             candidate_urls.push(format!("https://bmclapi2.bangbang93.com/maven/{rel_url}"));
             if rel_url.contains("2.0-beta9-fixed") {
@@ -401,7 +398,7 @@ pub fn ensure_standalone_189_files(
         }
         if !downloaded {
             return Err(format!(
-                "Impossible de télécharger la bibliothèque requise {file_label} ({last_err})"
+                "Failed to download required library {file_label} ({last_err})"
             ));
         }
     }
@@ -409,7 +406,7 @@ pub fn ensure_standalone_189_files(
     let assets_root = Path::new(assets_dir);
     let local_asset_caches = [
         default_mc_root.join("assets"),
-        PathBuf::from(&appdata).join("PrismLauncher").join("assets"),
+        PathBuf::from(&appdata).join("MashClient").join("assets"),
     ];
     let index_dst = assets_root.join("indexes").join("1.8.json");
     if !index_dst.metadata().map(|m| m.len() > 0).unwrap_or(false) {
@@ -433,7 +430,7 @@ pub fn ensure_standalone_189_files(
                 }
             };
             let _ = proxy.send_event(AppEvent::LogLine(
-                "[MashClient] Téléchargement de l'index d'assets 1.8.json...".to_owned(),
+                "[MashClient] Downloading asset index 1.8.json...".to_owned(),
             ));
             let _ = download_file_to_path(
                 agent,
@@ -444,6 +441,7 @@ pub fn ensure_standalone_189_files(
     }
 
     let dst_objects = assets_root.join("objects");
+    let _ = std::fs::create_dir_all(&dst_objects);
     let objects_empty = std::fs::read_dir(&dst_objects)
         .map(|mut it| it.next().is_none())
         .unwrap_or(true);
@@ -453,6 +451,86 @@ pub fn ensure_standalone_189_files(
             if src_objects != dst_objects && src_objects.is_dir() {
                 copy_dir_tree_missing(&src_objects, &dst_objects);
                 break;
+            }
+        }
+    }
+
+    // Verify all asset objects listed in 1.8.json and download any missing ones from Mojang CDN
+    if let Ok(idx_raw) = std::fs::read_to_string(&index_dst) {
+        if let Ok(idx_json) = serde_json::from_str::<serde_json::Value>(&idx_raw) {
+            if let Some(objs) = idx_json.get("objects").and_then(serde_json::Value::as_object) {
+                let mut missing_hashes: Vec<String> = Vec::new();
+                let mut seen = std::collections::HashSet::new();
+                for entry in objs.values() {
+                    let Some(hash) = entry.get("hash").and_then(serde_json::Value::as_str) else {
+                        continue;
+                    };
+                    if hash.len() < 4 || !seen.insert(hash.to_owned()) {
+                        continue;
+                    }
+                    let sub = &hash[..2];
+                    let obj_path = dst_objects.join(sub).join(hash);
+                    if !obj_path.is_file() {
+                        // Try local caches first
+                        let mut copied = false;
+                        for asset_cache in &local_asset_caches {
+                            let cand = asset_cache.join("objects").join(sub).join(hash);
+                            if cand.is_file() {
+                                if let Some(p) = obj_path.parent() {
+                                    let _ = std::fs::create_dir_all(p);
+                                }
+                                if std::fs::copy(&cand, &obj_path).is_ok() {
+                                    copied = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if !copied {
+                            missing_hashes.push(hash.to_owned());
+                        }
+                    }
+                }
+
+                if !missing_hashes.is_empty() {
+                    let total_missing = missing_hashes.len();
+                    let _ = proxy.send_event(AppEvent::LogLine(format!(
+                        "[MashClient] Downloading {total_missing} Minecraft 1.8.9 sound/lang assets..."
+                    )));
+                    let queue = Arc::new(Mutex::new(VecDeque::from(missing_hashes)));
+                    let done_count = Arc::new( std::sync::atomic::AtomicUsize::new(0) );
+                    let mut handles = Vec::new();
+                    for _ in 0..8 {
+                        let q = Arc::clone(&queue);
+                        let done = Arc::clone(&done_count);
+                        let objs_root = dst_objects.clone();
+                        let p_log = proxy.clone();
+                        handles.push(std::thread::spawn(move || {
+                            let Ok(worker_agent) = build_download_agent() else {
+                                return;
+                            };
+                            loop {
+                                let next_hash = {
+                                    let Ok(mut guard) = q.lock() else { break };
+                                    guard.pop_front()
+                                };
+                                let Some(hash) = next_hash else { break };
+                                let sub = &hash[..2];
+                                let target = objs_root.join(sub).join(&hash);
+                                let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
+                                let _ = download_file_to_path(&worker_agent, &url, &target);
+                                let cur = done.fetch_add(1, Ordering::Relaxed) + 1;
+                                if cur % 100 == 0 || cur == total_missing {
+                                    let _ = p_log.send_event(AppEvent::LogLine(format!(
+                                        "[MashClient] Assets 1.8.9: {cur}/{total_missing}..."
+                                    )));
+                                }
+                            }
+                        }));
+                    }
+                    for h in handles {
+                        let _ = h.join();
+                    }
+                }
             }
         }
     }
@@ -1072,7 +1150,7 @@ fn ensure_low_latency_alsoft_ini(game_dir: &Path) -> Option<PathBuf> {
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_direct_jvm_blocking(
-    prefs: LauncherPrefs,
+    mut prefs: LauncherPrefs,
     username: String,
     uuid: String,
     access_token: String,
@@ -1082,7 +1160,13 @@ pub fn run_direct_jvm_blocking(
     proxy: EventLoopProxy<AppEvent>,
 ) -> Result<(), String> {
     if !Path::new(&prefs.java_path).is_file() {
-        return Err(format!("Java introuvable : {}", prefs.java_path));
+        let _ = proxy.send_event(AppEvent::LogLine(
+            "[MashClient] Java 8 not found on this PC — automatically installing Eclipse Temurin Java 8 x64...".to_owned(),
+        ));
+        let (installed_javaw, label) = crate::runtimes::install_temurin_jre8(&proxy)?;
+        prefs.java_path = installed_javaw.clone();
+        let _ = crate::config::save_launcher_prefs(&prefs);
+        let _ = proxy.send_event(AppEvent::TemurinInstalled(Ok((installed_javaw, label))));
     }
 
     let is_vulkan = prefs.instance_flavor == InstanceFlavor::VulkanBeta;
@@ -1117,7 +1201,7 @@ pub fn run_direct_jvm_blocking(
 
     let natives_dir = extract_natives_if_needed(&prefs.libraries_dir)?;
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[MashClient] Natives 64-bit prêtes : {}",
+        "[MashClient] 64-bit natives ready: {}",
         natives_dir.display()
     )));
 
@@ -1125,13 +1209,19 @@ pub fn run_direct_jvm_blocking(
     let game_dir_path = Path::new(&active_game_dir);
     let alsoft_ini = ensure_low_latency_alsoft_ini(game_dir_path);
     let (win_w, win_h) = compute_launch_window_dimensions(game_dir_path, screen_w, screen_h);
-    let flavor_tag = if is_vulkan { "Vulkan Bêta" } else { "OpenGL" };
+    let flavor_tag = if is_vulkan { "Vulkan Beta" } else { "OpenGL" };
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[MashClient] Démarrage de Minecraft 1.8.9 [{}] ({} Mo, {}x{}, {})...",
+        "[MashClient] Starting Minecraft 1.8.9 [{}] ({} MB, {}x{}, {})...",
         flavor_tag, prefs.ram_mb, screen_w, screen_h, username
     )));
 
-    let min_mem_mb = prefs.ram_mb.min(8192);
+    let min_mem_mb = 512u32.min(prefs.ram_mb);
+    let cpu_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let conc_gc_threads = (cpu_threads / 4).clamp(1, 4);
+    let region_size_mb = if prefs.ram_mb > 4096 { 16 } else { 8 };
+
     let mut cmd = Command::new(&effective_java);
     cmd.current_dir(&active_game_dir)
         .env_remove("SHIM_MCCOMPAT")
@@ -1154,17 +1244,11 @@ pub fn run_direct_jvm_blocking(
         .arg("-XX:+IgnoreUnrecognizedVMOptions")
         .arg("-XX:+UnlockExperimentalVMOptions")
         .arg("-XX:+UseG1GC")
-        .arg("-XX:ConcGCThreads=4")
-        .arg("-XX:+AlwaysPreTouch")
-        .arg("-XX:G1NewSizePercent=35")
-        .arg("-XX:G1MaxNewSizePercent=60")
-        .arg("-XX:G1ReservePercent=15")
-        .arg("-XX:MaxGCPauseMillis=15")
-        .arg("-XX:G1HeapRegionSize=32M")
-        .arg("-XX:MaxInlineLevel=15")
-        .arg("-XX:MaxInlineSize=64")
-        .arg("-XX:FreqInlineSize=512")
-        .arg("-XX:AllocatePrefetchStyle=1")
+        .arg(format!("-XX:ConcGCThreads={conc_gc_threads}"))
+        .arg("-XX:G1NewSizePercent=20")
+        .arg("-XX:G1ReservePercent=20")
+        .arg("-XX:MaxGCPauseMillis=50")
+        .arg(format!("-XX:G1HeapRegionSize={region_size_mb}M"))
         .arg("-XX:+DisableExplicitGC")
         .arg("-XX:+ParallelRefProcEnabled")
         .arg("-Djava.net.preferIPv4Stack=true")

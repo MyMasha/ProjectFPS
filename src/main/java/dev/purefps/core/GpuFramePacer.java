@@ -19,6 +19,7 @@ import java.util.concurrent.locks.LockSupport;
 public final class GpuFramePacer {
 
     private static final long MAX_PARK_BUDGET_NS = 6_000_000L;
+    private static final long VULKAN_MAX_PARK_BUDGET_NS = 33_000_000L;
     private static final long PARK_SLICE_NS = 350_000L;
     private static final long HIGH_FPS_BYPASS_NS = 4_000_000L; // > 250 FPS : zéro appel JNI/fence, pipeline libre 2000+ FPS
 
@@ -54,9 +55,8 @@ public final class GpuFramePacer {
 
     /**
      * Appelé juste après Display.update() à la fin de chaque frame :
-     * - En mode Vulkan (Zink gère nativement ses files VkSwapchain) ou au-delà de 250 FPS (< 4 ms/frame),
-     *   court-circuite intégralement glFenceSync / glClientWaitSync / parkNanos pour libérer 2000+ FPS.
-     * - N'intervient que lorsque le GPU OpenGL sature réellement (< 250 FPS) pour protéger DWM/Discord.
+     * - En mode Vulkan (Zink), maintient strictement 1 frame en vol pour éliminer tout retard d'input clavier/souris.
+     * - En mode OpenGL au-delà de 250 FPS (< 4 ms/frame), court-circuite glFenceSync pour libérer 2000+ FPS.
      */
     public static void onFramePresented() {
         if (!Display.isCreated()) {
@@ -68,7 +68,8 @@ public final class GpuFramePacer {
         long dt = lastPresentNs == 0L ? 0L : (now - lastPresentNs);
         lastPresentNs = now;
 
-        if (VulkanBackendHelper.isVulkanActive() || dt < HIGH_FPS_BYPASS_NS) {
+        boolean vulkanActive = VulkanBackendHelper.isVulkanActive();
+        if (!vulkanActive && dt < HIGH_FPS_BYPASS_NS) {
             if (previousFrameFence != null) {
                 release();
             }
@@ -79,12 +80,13 @@ public final class GpuFramePacer {
         if (backend <= 0) {
             return;
         }
+        long parkBudgetNs = vulkanActive ? VULKAN_MAX_PARK_BUDGET_NS : MAX_PARK_BUDGET_NS;
         try {
             if (previousFrameFence != null) {
                 if (backend == 1) {
                     int status = GL32.glClientWaitSync(previousFrameFence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
                     if (status == GL32.GL_TIMEOUT_EXPIRED) {
-                        long deadline = System.nanoTime() + MAX_PARK_BUDGET_NS;
+                        long deadline = System.nanoTime() + parkBudgetNs;
                         while (status == GL32.GL_TIMEOUT_EXPIRED && System.nanoTime() < deadline) {
                             LockSupport.parkNanos(PARK_SLICE_NS);
                             status = GL32.glClientWaitSync(previousFrameFence, 0, 0L);
@@ -94,7 +96,7 @@ public final class GpuFramePacer {
                 } else {
                     int status = ARBSync.glClientWaitSync(previousFrameFence, ARBSync.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
                     if (status == ARBSync.GL_TIMEOUT_EXPIRED) {
-                        long deadline = System.nanoTime() + MAX_PARK_BUDGET_NS;
+                        long deadline = System.nanoTime() + parkBudgetNs;
                         while (status == ARBSync.GL_TIMEOUT_EXPIRED && System.nanoTime() < deadline) {
                             LockSupport.parkNanos(PARK_SLICE_NS);
                             status = ARBSync.glClientWaitSync(previousFrameFence, 0, 0L);

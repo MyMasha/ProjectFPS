@@ -56,7 +56,10 @@ public class MixinFramebuffer {
 
     @Inject(method = "framebufferRenderExt", at = @At("HEAD"), cancellable = true)
     private void purefps$hardwareBlitFramebuffer(int width, int height, boolean disableBlend, CallbackInfo ci) {
+        Minecraft mc = Minecraft.getMinecraft();
         if (!disableBlend
+                || mc == null
+                || (Object) this != mc.getFramebuffer()
                 || (!(PureFPSConfig.enabled && PureFPSConfig.fastFboBlit) && !VulkanBackendHelper.isVulkanActive())
                 || this.framebufferObject < 0
                 || this.framebufferTexture <= 0

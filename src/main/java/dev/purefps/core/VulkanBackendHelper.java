@@ -49,17 +49,19 @@ public final class VulkanBackendHelper {
 
     public static String getWindowTitle(String version) {
         if (isVulkanActive()) {
-            return "MashClient " + version + " [Vulkan Bêta] | Minecraft 1.8.9";
+            String badge = dev.purefps.config.PureFPSConfig.isEnglish() ? "[Vulkan Beta]" : "[Vulkan Bêta]";
+            return "MashClient " + version + " " + badge + " | Minecraft 1.8.9";
         }
         return "MashClient " + version + " | Minecraft 1.8.9";
     }
 
     public static String getF3BackendBadge() {
+        String beta = dev.purefps.config.PureFPSConfig.isEnglish() ? "Vulkan Beta" : "Vulkan Bêta";
         if (cachedZinkState == 1) {
-            return "\u00a7dVulkan Bêta (Zink)";
+            return "\u00a7d" + beta + " (Zink)";
         }
         if (isVulkanFlagSet()) {
-            return "\u00a7dVulkan Bêta";
+            return "\u00a7d" + beta;
         }
         return "\u00a7aOpenGL";
     }

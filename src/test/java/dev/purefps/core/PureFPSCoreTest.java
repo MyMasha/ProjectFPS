@@ -1434,10 +1434,22 @@ public class PureFPSCoreTest {
         assertEquals(0xFF0000FF, img.getRGB(0, 1) | 0xFF000000);
 
         File dummy = new File("/tmp/2026-11-15_12.00.00.png");
-        net.minecraft.util.IChatComponent chat = AsyncScreenshotManager.buildInteractiveChatMessage(dummy);
-        String unformatted = chat.getUnformattedText();
-        assertTrue(unformatted.contains("[Ouvrir]"));
-        assertTrue(unformatted.contains("[Copier]"));
+        String prevLang = PureFPSConfig.language;
+        try {
+            PureFPSConfig.language = "en";
+            net.minecraft.util.IChatComponent chatEn = AsyncScreenshotManager.buildInteractiveChatMessage(dummy);
+            String unformattedEn = chatEn.getUnformattedText();
+            assertTrue(unformattedEn.contains("[Open]"));
+            assertTrue(unformattedEn.contains("[Copy]"));
+
+            PureFPSConfig.language = "fr";
+            net.minecraft.util.IChatComponent chatFr = AsyncScreenshotManager.buildInteractiveChatMessage(dummy);
+            String unformattedFr = chatFr.getUnformattedText();
+            assertTrue(unformattedFr.contains("[Ouvrir]"));
+            assertTrue(unformattedFr.contains("[Copier]"));
+        } finally {
+            PureFPSConfig.language = prevLang;
+        }
     }
 
     @Test
@@ -1508,11 +1520,16 @@ public class PureFPSCoreTest {
                     QuickServerLaunchBridge.consumePendingServer(tmpMc, System.currentTimeMillis()));
 
             String prev = System.getProperty(VulkanBackendHelper.BACKEND_PROP);
+            String prevLang = PureFPSConfig.language;
             try {
                 System.setProperty(VulkanBackendHelper.BACKEND_PROP, "vulkan");
                 assertTrue(VulkanBackendHelper.isVulkanFlagSet());
-                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.1").contains("[Vulkan Bêta]"));
+                PureFPSConfig.language = "en";
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.4").contains("[Vulkan Beta]"));
+                PureFPSConfig.language = "fr";
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.4").contains("[Vulkan Bêta]"));
             } finally {
+                PureFPSConfig.language = prevLang;
                 if (prev == null) {
                     System.clearProperty(VulkanBackendHelper.BACKEND_PROP);
                 } else {

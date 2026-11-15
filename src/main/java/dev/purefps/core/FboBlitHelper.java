@@ -195,6 +195,7 @@ public final class FboBlitHelper {
 
         GL20.glUseProgram(0);
         GlStateManager.bindTexture(0);
+        GlStateManager.enableAlpha();
         GlStateManager.depthMask(true);
         GlStateManager.colorMask(true, true, true, true);
         return true;

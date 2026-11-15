@@ -186,7 +186,7 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.3"));
+            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.4"));
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
     }
@@ -224,19 +224,6 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "runGameLoop", at = @At("HEAD"))
     private void purefps$restoreCursorOnFocusRegain(CallbackInfo ci) {
-        if (Display.isCreated()) {
-            // Pompe immédiatement la file d'événements clavier/souris Windows en début de frame
-            // (au lieu d'attendre Display.update() en fin de frame) pour éliminer 1 frame de latence d'entrée.
-            if (PureFPSConfig.enabled) {
-                Display.processMessages();
-                if (this.currentScreen != null) {
-                    try {
-                        this.currentScreen.handleInput();
-                    } catch (Throwable ignored) {
-                    }
-                }
-            }
-        }
         boolean activeNow = Display.isCreated() && Display.isActive();
         if (activeNow && !this.purefps$wasDisplayActive && this.currentScreen != null) {
             BorderlessWindowHelper.ensureMenuCursorVisible();

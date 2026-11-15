@@ -135,32 +135,33 @@ public final class AsyncScreenshotManager {
     }
 
     public static IChatComponent buildInteractiveChatMessage(File targetFile) {
-        ChatComponentText root = new ChatComponentText("\u00a76[MashClient] \u00a7fCapture : ");
+        boolean en = dev.purefps.config.PureFPSConfig.isEnglish();
+        ChatComponentText root = new ChatComponentText(en ? "\u00a76[MashClient] \u00a7fScreenshot: " : "\u00a76[MashClient] \u00a7fCapture : ");
 
         ChatComponentText fileLink = new ChatComponentText(targetFile.getName());
         fileLink.setChatStyle(new ChatStyle()
                 .setColor(EnumChatFormatting.GRAY)
                 .setUnderlined(Boolean.TRUE)
                 .setChatClickEvent(new ClickEvent(ClickEvent.Action.OPEN_FILE, targetFile.getAbsolutePath()))
-                .setChatHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ChatComponentText("\u00a77Ouvrir le fichier PNG"))));
+                .setChatHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ChatComponentText(en ? "\u00a77Open PNG file" : "\u00a77Ouvrir le fichier PNG"))));
         root.appendSibling(fileLink);
 
         root.appendText("  ");
 
-        ChatComponentText openBtn = new ChatComponentText("[Ouvrir]");
+        ChatComponentText openBtn = new ChatComponentText(en ? "[Open]" : "[Ouvrir]");
         openBtn.setChatStyle(new ChatStyle()
                 .setColor(EnumChatFormatting.GREEN)
                 .setChatClickEvent(new ClickEvent(ClickEvent.Action.OPEN_FILE, targetFile.getAbsolutePath()))
-                .setChatHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ChatComponentText("\u00a7aOuvrir la capture d'écran"))));
+                .setChatHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ChatComponentText(en ? "\u00a7aOpen screenshot" : "\u00a7aOuvrir la capture d'écran"))));
         root.appendSibling(openBtn);
 
         root.appendText(" ");
 
-        ChatComponentText copyBtn = new ChatComponentText("[Copier]");
+        ChatComponentText copyBtn = new ChatComponentText(en ? "[Copy]" : "[Copier]");
         copyBtn.setChatStyle(new ChatStyle()
                 .setColor(EnumChatFormatting.GOLD)
                 .setChatClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/mashclient copyshot " + targetFile.getName()))
-                .setChatHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ChatComponentText("\u00a7eCopier dans le presse-papiers (Ctrl+V sur Discord)"))));
+                .setChatHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ChatComponentText(en ? "\u00a7eCopy to clipboard (Ctrl+V in Discord)" : "\u00a7eCopier dans le presse-papiers (Ctrl+V sur Discord)"))));
         root.appendSibling(copyBtn);
 
         return root;
@@ -172,6 +173,7 @@ public final class AsyncScreenshotManager {
         }
         final String cleanName = new File(fileName.trim()).getName();
         Thread worker = new Thread(() -> {
+            boolean en = dev.purefps.config.PureFPSConfig.isEnglish();
             try {
                 Record rec;
                 synchronized (AsyncScreenshotManager.class) {
@@ -195,13 +197,19 @@ public final class AsyncScreenshotManager {
                     }
                 }
                 if (img == null) {
-                    postClientChat("\u00a76[MashClient] \u00a7cCapture introuvable : " + cleanName);
+                    postClientChat(en
+                            ? "\u00a76[MashClient] \u00a7cScreenshot not found: " + cleanName
+                            : "\u00a76[MashClient] \u00a7cCapture introuvable : " + cleanName);
                     return;
                 }
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new ImageTransferable(img), null);
-                postClientChat("\u00a76[MashClient] \u00a7aCapture copiée dans le presse-papiers ! (Ctrl+V)");
+                postClientChat(en
+                        ? "\u00a76[MashClient] \u00a7aScreenshot copied to clipboard! (Ctrl+V)"
+                        : "\u00a76[MashClient] \u00a7aCapture copiée dans le presse-papiers ! (Ctrl+V)");
             } catch (Throwable t) {
-                postClientChat("\u00a76[MashClient] \u00a7cImpossible de copier la capture : " + t.getClass().getSimpleName());
+                postClientChat(en
+                        ? "\u00a76[MashClient] \u00a7cFailed to copy screenshot: " + t.getClass().getSimpleName()
+                        : "\u00a76[MashClient] \u00a7cImpossible de copier la capture : " + t.getClass().getSimpleName());
             }
         }, "MashClient-ClipboardCopy");
         worker.setDaemon(true);

@@ -37,6 +37,11 @@ public final class FastItemFrameRenderer {
         if (model == null) {
             return;
         }
+        if (VulkanBackendHelper.isVulkanActive()) {
+            renderModelBrightnessColorSingleDraw(model, 1.0F, 1.0F, 1.0F, 1.0F);
+            GlStateManager.resetColor();
+            return;
+        }
         if (isMapFrame) {
             if (model == lastMapModel && mapFrameDisplayList >= 0) {
                 GlStateManager.callList(mapFrameDisplayList);
@@ -48,6 +53,7 @@ public final class FastItemFrameRenderer {
             }
             mapFrameDisplayList = GLAllocation.generateDisplayLists(1);
             lastMapModel = model;
+            net.minecraft.client.renderer.OpenGlHelper.glBindBuffer(net.minecraft.client.renderer.OpenGlHelper.GL_ARRAY_BUFFER, 0);
             GL11.glNewList(mapFrameDisplayList, GL11.GL_COMPILE_AND_EXECUTE);
             renderModelBrightnessColorSingleDraw(model, 1.0F, 1.0F, 1.0F, 1.0F);
             GL11.glEndList();
@@ -63,6 +69,7 @@ public final class FastItemFrameRenderer {
             }
             normalFrameDisplayList = GLAllocation.generateDisplayLists(1);
             lastNormalModel = model;
+            net.minecraft.client.renderer.OpenGlHelper.glBindBuffer(net.minecraft.client.renderer.OpenGlHelper.GL_ARRAY_BUFFER, 0);
             GL11.glNewList(normalFrameDisplayList, GL11.GL_COMPILE_AND_EXECUTE);
             renderModelBrightnessColorSingleDraw(model, 1.0F, 1.0F, 1.0F, 1.0F);
             GL11.glEndList();

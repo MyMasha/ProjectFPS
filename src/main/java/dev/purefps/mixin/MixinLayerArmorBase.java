@@ -67,7 +67,7 @@ public class MixinLayerArmorBase {
             CallbackInfo ci
     ) {
         this.purefps$overrodeSkipGlint = false;
-        if (!PureFPSConfig.enabled || !PureFPSConfig.limitDistantGlint || this.skipRenderGlint || entity == null) {
+        if (!PureFPSConfig.enabled || (!PureFPSConfig.limitDistantGlint && !dev.purefps.module.MashFlags.armorGlintLimitEnabled) || this.skipRenderGlint || entity == null) {
             return;
         }
         Minecraft mc = Minecraft.getMinecraft();
@@ -75,7 +75,9 @@ public class MixinLayerArmorBase {
         if (viewer == null || viewer == entity) {
             return;
         }
-        double maxDistSq = (PureFPSConfig.activeProfile == PureFPSProfile.FPS) ? 324.0D : 1024.0D;
+        double maxDistSq = dev.purefps.module.MashFlags.armorGlintLimitEnabled
+                ? dev.purefps.module.MashFlags.armorGlintMaxDistSq
+                : ((PureFPSConfig.activeProfile == PureFPSProfile.FPS) ? 324.0D : 1024.0D);
         if (viewer.getDistanceSqToEntity(entity) > maxDistSq) {
             this.purefps$prevSkipGlint = this.skipRenderGlint;
             this.skipRenderGlint = true;

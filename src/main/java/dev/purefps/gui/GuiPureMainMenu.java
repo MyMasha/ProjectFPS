@@ -75,7 +75,7 @@ public class GuiPureMainMenu extends GuiScreen {
         MashModules.ensureRegistered();
         MashAudioEngine.ensurePrewarmed();
         if (Display.isCreated()) {
-            Display.setTitle(VulkanBackendHelper.getWindowTitle("4.5.3"));
+            Display.setTitle(VulkanBackendHelper.getWindowTitle("4.5.4"));
         }
     }
 
@@ -268,13 +268,18 @@ public class GuiPureMainMenu extends GuiScreen {
         }
 
         // Infobulle discrète au survol des contrôles audio haut-droite
+        boolean en = PureFPSConfig.isEnglish();
         String topHint = null;
         float hintCenterX = 0.0F;
         if (bhSoundHov) {
-            topHint = PureFPSConfig.blackHoleMenuSound ? "Son trou noir : Activé" : "Son trou noir : Désactivé";
+            topHint = PureFPSConfig.blackHoleMenuSound
+                    ? (en ? "Black Hole Audio: ON" : "Son trou noir : Activé")
+                    : (en ? "Black Hole Audio: OFF" : "Son trou noir : Désactivé");
             hintCenterX = bhSoundX + TOP_BTN_SZ * 0.5F;
         } else if (soundHov) {
-            topHint = PureFPSConfig.sfxEnabled ? "Sons interface : Activés" : "Sons interface : Coupés";
+            topHint = PureFPSConfig.sfxEnabled
+                    ? (en ? "UI Sounds: ON" : "Sons interface : Activés")
+                    : (en ? "UI Sounds: Muted" : "Sons interface : Coupés");
             hintCenterX = soundX + TOP_BTN_SZ * 0.5F;
         }
         float hintW = 0.0F;
@@ -295,13 +300,15 @@ public class GuiPureMainMenu extends GuiScreen {
         boldSmallF.beginBatch();
         boldSmallF.drawString("MASHCLIENT", 56.0F, 28.0F, mulAlpha(0xFFF5F3EE, uiAlpha));
         float topBrandW = boldSmallF.getStringWidth("MASHCLIENT");
-        String verSubtitle = vulkanMode ? "4.5.3  \u00B7  1.8.9  \u00B7  VULKAN BÊTA" : "4.5.3  \u00B7  1.8.9";
+        String verSubtitle = vulkanMode
+                ? (en ? "4.5.4  \u00B7  1.8.9  \u00B7  VULKAN BETA" : "4.5.4  \u00B7  1.8.9  \u00B7  VULKAN BÊTA")
+                : "4.5.4  \u00B7  1.8.9";
         boldSmallF.drawString(verSubtitle, 56.0F + topBrandW + 7.0F, 28.0F, mulAlpha(vulkanMode ? 0xFFE9C46A : 0xFF7D869C, uiAlpha));
-        boldSmallF.drawCentered("MULTIJOUEUR", STACK_X + STACK_W * 0.5F + 4.0F, multiY + (MULTI_H - boldSmallF.getHeight()) * 0.5F + 0.5F, mulAlpha(0xFF0A0B0E, uiAlpha), false);
+        boldSmallF.drawCentered(en ? "MULTIPLAYER" : "MULTIJOUEUR", STACK_X + STACK_W * 0.5F + 4.0F, multiY + (MULTI_H - boldSmallF.getHeight()) * 0.5F + 0.5F, mulAlpha(0xFF0A0B0E, uiAlpha), false);
         boldSmallF.endBatch();
 
         bodyF.beginBatch();
-        bodyF.drawString("Solo", STACK_X + 32.0F, soloY + (SOLO_H - bodyF.getHeight()) * 0.5F + 0.5F, mulAlpha(soloHov ? 0xFFFFFFFF : 0xFFE6EAF4, uiAlpha));
+        bodyF.drawString(en ? "Singleplayer" : "Solo", STACK_X + 32.0F, soloY + (SOLO_H - bodyF.getHeight()) * 0.5F + 0.5F, mulAlpha(soloHov ? 0xFFFFFFFF : 0xFFE6EAF4, uiAlpha));
         bodyF.drawString("Modules", STACK_X + 32.0F, modY + (MOD_H - bodyF.getHeight()) * 0.5F + 0.5F, mulAlpha(modHov ? 0xFFFFDF9E : 0xFFF2C879, uiAlpha));
         bodyF.endBatch();
 
@@ -315,7 +322,7 @@ public class GuiPureMainMenu extends GuiScreen {
             String srvLabel = (PureFPSConfig.lastServerName != null && !PureFPSConfig.lastServerName.isEmpty())
                     ? PureFPSConfig.lastServerName
                     : PureFPSConfig.lastServerIp;
-            String trimmedSrv = smallF.trimToWidth("Rejoindre " + srvLabel, STACK_W - 34.0F);
+            String trimmedSrv = smallF.trimToWidth((en ? "Join " : "Rejoindre ") + srvLabel, STACK_W - 34.0F);
             smallF.drawString(trimmedSrv, STACK_X + 26.0F, lastSrvY + (LAST_SRV_H - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(lastSrvHov ? 0xFFFFDF9E : 0xFFD8DFEC, uiAlpha));
         }
         if (topHint != null) {

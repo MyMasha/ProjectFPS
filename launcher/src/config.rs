@@ -36,7 +36,7 @@ impl PureProfile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LaunchMode {
     #[default]
-    #[serde(alias = "PrismBridge", alias = "Microsoft")]
+    #[serde(alias = "Microsoft")]
     DirectMicrosoft,
     #[serde(alias = "Offline")]
     DirectOffline,
@@ -107,6 +107,18 @@ fn default_true() -> bool {
     true
 }
 
+pub fn default_language() -> String {
+    "en".to_owned()
+}
+
+pub fn normalize_language(raw: &str) -> String {
+    if raw.trim().eq_ignore_ascii_case("fr") || raw.trim().to_ascii_lowercase().starts_with("fr") {
+        "fr".to_owned()
+    } else {
+        "en".to_owned()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LauncherPrefs {
     pub ram_mb: u32,
@@ -128,30 +140,44 @@ pub struct LauncherPrefs {
     pub selected_server: Option<QuickServerEntry>,
     #[serde(default)]
     pub custom_servers: Vec<QuickServerEntry>,
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
-/// Détecte et classe toutes les installations Java 8 64-bit disponibles sur la machine
-/// en privilégiant toujours les builds Hotspot récents (`8u300+` / Temurin géré par MashClient)
-/// par rapport au vieux `jre-legacy` (`1.8.0_51`).
+/// Detects and ranks all available 64-bit Java 8 installations on the machine,
+/// prioritizing modern Hotspot builds (`8u300+` / Temurin managed in `.PureFPS`)
+/// over legacy `jre-legacy` (`1.8.0_51`).
 pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    // 1. Runtime Temurin Java 8 géré par MashClient
-    let managed_root = Path::new(appdata)
-        .join("MashClient")
-        .join("runtimes")
-        .join("temurin-jre8");
-    if let Some(javaw) = crate::runtimes::find_javaw_inside_dir(&managed_root) {
-        candidates.push(javaw);
+    // 1. Managed Temurin Java 8 runtime inside %APPDATA%\.PureFPS (or legacy MashClient)
+    for folder in [".PureFPS", "MashClient"] {
+        let managed_root = Path::new(appdata)
+            .join(folder)
+            .join("runtimes")
+            .join("temurin-jre8");
+        if let Some(javaw) = crate::runtimes::find_javaw_inside_dir(&managed_root) {
+            candidates.push(javaw);
+        }
     }
 
-    // 2. Dossiers standards de distributions Java 8 64-bit modernes
+    // 2. JAVA_HOME if set on the machine
+    if let Ok(java_home) = std::env::var("JAVA_HOME") {
+        let jh = PathBuf::from(java_home);
+        if let Some(javaw) = crate::runtimes::find_javaw_inside_dir(&jh) {
+            candidates.push(javaw);
+        }
+    }
+
+    // 3. Standard 64-bit Java 8 distribution folders
     let search_roots = [
         PathBuf::from(r"C:\Program Files\Eclipse Adoptium"),
         PathBuf::from(r"C:\Program Files\AdoptOpenJDK"),
         PathBuf::from(r"C:\Program Files\Zulu"),
         PathBuf::from(r"C:\Program Files\BellSoft"),
         PathBuf::from(r"C:\Program Files\Java"),
+        PathBuf::from(r"C:\Program Files\Amazon Corretto"),
+        PathBuf::from(r"C:\Program Files\Microsoft"),
     ];
     for root in &search_roots {
         let Ok(entries) = std::fs::read_dir(root) else {
@@ -167,9 +193,8 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
         }
     }
 
-    // 3. Emplacements exacts connus (y compris fallback jre-legacy)
+    // 4. Known exact fallback locations (Mojang runtime)
     let exact_fallbacks = [
-        r"C:\Program Files\Eclipse Adoptium\jre-8.0.504.1-hotspot\bin\javaw.exe".to_owned(),
         format!(
             r"{local_appdata}\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime\jre-legacy\windows-x64\jre-legacy\bin\javaw.exe"
         ),
@@ -189,19 +214,18 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
             continue;
         }
         let probe = crate::runtimes::probe_java8_executable(&cand);
-        let mut score: i64 = 0;
-        if probe.is_java8 {
-            score += 10_000;
+        if !probe.is_java8 {
+            continue;
         }
+        let mut score: i64 = 10_000;
         if probe.is_64bit {
             score += 5_000;
         }
         score += i64::from(probe.update_version) * 10;
-        if cand
-            .to_string_lossy()
-            .to_ascii_lowercase()
-            .contains("temurin-jre8")
-        {
+        let low = cand.to_string_lossy().to_ascii_lowercase();
+        if low.contains(".purefps") {
+            score += 300;
+        } else if low.contains("temurin-jre8") {
             score += 250;
         }
         if best.as_ref().is_none_or(|(cur, _)| score > *cur) {
@@ -210,14 +234,14 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
     }
 
     best.map(|(_, p)| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| exact_fallbacks[0].clone())
+        .unwrap_or_default()
 }
 
 pub fn detect_minecraft_189_dirs(appdata: &str, _local_appdata: &str) -> (String, String, String) {
-    let official_mc = Path::new(appdata).join(".minecraft");
-    let game_dir = official_mc.to_string_lossy().to_string();
-    let libs_dir = official_mc.join("libraries").to_string_lossy().to_string();
-    let assets_dir = official_mc.join("assets").to_string_lossy().to_string();
+    let purefps_root = Path::new(appdata).join(".PureFPS");
+    let game_dir = purefps_root.to_string_lossy().to_string();
+    let libs_dir = purefps_root.join("libraries").to_string_lossy().to_string();
+    let assets_dir = purefps_root.join("assets").to_string_lossy().to_string();
     (game_dir, libs_dir, assets_dir)
 }
 
@@ -244,6 +268,7 @@ impl Default for LauncherPrefs {
             instance_flavor: InstanceFlavor::Standard,
             selected_server: None,
             custom_servers: Vec::new(),
+            language: default_language(),
         }
     }
 }
@@ -378,6 +403,8 @@ pub struct PureClientSettings {
     pub smart_chunk_updates: bool,
     #[serde(default = "default_true")]
     pub menu_world_unload: bool,
+    #[serde(default = "default_language")]
+    pub language: String,
 
     #[serde(skip)]
     extra_props: BTreeMap<String, String>,
@@ -437,6 +464,7 @@ impl Default for PureClientSettings {
             island_core_culling: true,
             smart_chunk_updates: true,
             menu_world_unload: true,
+            language: default_language(),
             extra_props: BTreeMap::new(),
         }
     }
@@ -593,6 +621,11 @@ impl PureClientSettings {
                 self.unfocused_fps_limit = as_i32.clamp(5, 60);
                 engine_edited = true;
             }
+            "language" => {
+                if let Some(s) = value.as_str() {
+                    self.language = normalize_language(s);
+                }
+            }
             _ => return false,
         }
 
@@ -631,6 +664,9 @@ impl PureClientSettings {
 
         if let Some(prof) = map.get("activeProfile") {
             s.active_profile = PureProfile::from_id(prof);
+        }
+        if let Some(lang) = map.get("language") {
+            s.language = normalize_language(lang);
         }
         s.enabled = b(&map, "enabled", s.enabled);
         s.custom_main_menu = b(&map, "customMainMenu", s.custom_main_menu);
@@ -697,6 +733,7 @@ impl PureClientSettings {
 
         let mut map = self.extra_props.clone();
         map.insert("activeProfile".into(), self.active_profile.id().into());
+        map.insert("language".into(), normalize_language(&self.language));
         map.insert("enabled".into(), self.enabled.to_string());
         map.insert("customMainMenu".into(), self.custom_main_menu.to_string());
         map.insert(
@@ -1217,21 +1254,34 @@ pub fn save_all_client_configs(
 pub fn app_storage_dir() -> PathBuf {
     static MIGRATE_ONCE: std::sync::Once = std::sync::Once::new();
     let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_owned());
-    let mash_dir = Path::new(&base).join("MashClient");
+    let purefps_dir = Path::new(&base).join(".PureFPS");
     MIGRATE_ONCE.call_once(|| {
-        let legacy_dir = Path::new(&base).join("PureClient");
-        if legacy_dir.is_dir() {
-            let _ = std::fs::create_dir_all(&mash_dir);
-            for fname in ["launcher.json", "account.json", "updater_token.txt"] {
-                let src = legacy_dir.join(fname);
-                let dst = mash_dir.join(fname);
-                if src.is_file() && !dst.exists() {
-                    let _ = std::fs::copy(&src, &dst);
+        let _ = std::fs::create_dir_all(&purefps_dir);
+        for legacy_name in ["MashClient", "PureClient"] {
+            let legacy_dir = Path::new(&base).join(legacy_name);
+            if legacy_dir.is_dir() {
+                for fname in [
+                    "launcher.json",
+                    "accounts.json",
+                    "account.json",
+                    "custom_profiles.json",
+                    "updater_token.txt",
+                    "ms_client_id.txt",
+                ] {
+                    let src = legacy_dir.join(fname);
+                    let dst = purefps_dir.join(fname);
+                    if src.is_file() && !dst.exists() {
+                        let _ = std::fs::copy(&src, &dst);
+                    }
+                }
+                let src_runtimes = legacy_dir.join("runtimes");
+                if src_runtimes.is_dir() {
+                    copy_dir_recursive_if_missing(&src_runtimes, &purefps_dir.join("runtimes"));
                 }
             }
         }
     });
-    mash_dir
+    purefps_dir
 }
 
 fn copy_dir_recursive_if_missing(src: &Path, dst: &Path) {
@@ -1290,6 +1340,7 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
         .and_then(|s| serde_json::from_str::<LauncherPrefs>(&s).ok())
         .unwrap_or_default();
     prefs.ram_mb = prefs.ram_mb.clamp(2048, 65536);
+    prefs.language = normalize_language(&prefs.language);
 
     if prefs.quick_join_hypixel && prefs.selected_server.is_none() {
         prefs.selected_server = builtin_quick_servers().into_iter().next();
@@ -1300,13 +1351,12 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
     let local_appdata =
         std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
 
-    // Migration automatique de toute ancienne configuration PrismLauncher vers le dossier autonome .minecraft
-    let is_legacy_prism = prefs.game_dir.to_ascii_lowercase().contains("prismlauncher")
-        || prefs.libraries_dir.to_ascii_lowercase().contains("prismlauncher")
-        || prefs.assets_dir.to_ascii_lowercase().contains("prismlauncher");
-    if is_legacy_prism || prefs.game_dir.trim().is_empty() {
+    let (std_game, std_libs, std_assets) = detect_minecraft_189_dirs(&appdata, &local_appdata);
+    let low_game = prefs.game_dir.to_ascii_lowercase();
+    let needs_purefps_migration = prefs.game_dir.trim().is_empty()
+        || !low_game.contains(".purefps");
+    if needs_purefps_migration {
         let old_game_path = PathBuf::from(&prefs.game_dir);
-        let (std_game, std_libs, std_assets) = detect_minecraft_189_dirs(&appdata, &local_appdata);
         migrate_legacy_game_dir_contents(&old_game_path, Path::new(&std_game));
         prefs.game_dir = std_game;
         prefs.libraries_dir = std_libs;
@@ -1319,20 +1369,10 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
     let _ = std::fs::create_dir_all(game_path.join("mods"));
     let _ = std::fs::create_dir_all(game_path.join("resourcepacks"));
 
-    // Si d'anciens dossiers d'instances 1.8.9 contiennent des resourcepacks non encore rapatriés, les copie
-    let legacy_instances = Path::new(&appdata).join("PrismLauncher").join("instances");
-    if let Ok(entries) = std::fs::read_dir(&legacy_instances) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                for sub in ["minecraft", ".minecraft"] {
-                    let cand = p.join(sub);
-                    if cand.is_dir() {
-                        migrate_legacy_game_dir_contents(&cand, game_path);
-                    }
-                }
-            }
-        }
+    // Seed options.txt, servers.dat, and resourcepacks from %APPDATA%\.minecraft if not yet present in .PureFPS
+    let vanilla_mc = Path::new(&appdata).join(".minecraft");
+    if vanilla_mc.is_dir() && vanilla_mc != game_path {
+        migrate_legacy_game_dir_contents(&vanilla_mc, game_path);
     }
 
     let cur_java_file = Path::new(&prefs.java_path);

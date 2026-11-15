@@ -304,7 +304,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.5.3");
+        root.addProperty("version", "4.5.4");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
@@ -659,6 +659,30 @@ public final class MashModules {
         MashFlags.menuCursorOutlineColor = rawCol("vis_custom_pointer", "outline_col", 0xFF0A0D14);
         MashFlags.menuCursorShadow = bool("vis_custom_pointer", "shadow", true);
         MashFlags.menuCursorClickPulse = bool("vis_custom_pointer", "click_pulse", false);
+
+        MashFlags.capeCullEnabled = isOn("vis_cape_physics");
+        float capeDist = num("vis_cape_physics", "cull_dist", 48.0F);
+        MashFlags.capeMaxDistSq = (double) (capeDist * capeDist);
+
+        MashFlags.armorGlintLimitEnabled = isOn("vis_armor_glint_toggle");
+        float glintDist = num("vis_armor_glint_toggle", "dist", 20.0F);
+        MashFlags.armorGlintMaxDistSq = (double) (glintDist * glintDist);
+
+        MashFlags.signTextLimitEnabled = isOn("vis_bed_hide_plates");
+        float signDist = num("vis_bed_hide_plates", "read_dist", 24.0F);
+        MashFlags.signTextMaxDistSq = (double) (signDist * signDist);
+
+        MashFlags.itemSpinCustom = isOn("vis_item_physics");
+        MashFlags.itemSpinSpeed = num("vis_item_physics", "spin_speed", 1.0F);
+
+        MashFlags.tabPingGoodMs = isOn("hyp_levelhead_tab") ? Math.round(num("hyp_levelhead_tab", "good_ms", 55.0F)) : 65;
+        MashFlags.tabPingRedMs = isOn("hyp_tablist_ping_sort_col") ? Math.round(num("hyp_tablist_ping_sort_col", "red_ms", 150.0F)) : 220;
+
+        float playerDetail = num("eng_player_opt", "detail_dist", 32.0F);
+        MashFlags.playerDetailDistSq = (double) (playerDetail * playerDetail);
+
+        MashFlags.nametagShowOwnInF5 = isOn("vis_nametags") && bool("vis_nametags", "own_tag_f5", true);
+        PureFPSConfig.transparentNametags = isOn("vis_nametags") && bool("vis_nametags", "transparent_bg", false);
     }
 
     public static boolean isOn(String modId) {

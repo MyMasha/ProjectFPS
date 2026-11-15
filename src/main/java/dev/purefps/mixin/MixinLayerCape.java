@@ -35,13 +35,15 @@ public class MixinLayerCape {
             float scale,
             CallbackInfo ci
     ) {
-        if (!PureFPSConfig.enabled || !PureFPSConfig.fastPlayerRendering || player == null) {
+        if (!PureFPSConfig.enabled || (!PureFPSConfig.fastPlayerRendering && !dev.purefps.module.MashFlags.capeCullEnabled) || player == null) {
             return;
         }
         Minecraft mc = Minecraft.getMinecraft();
         Entity viewer = mc != null ? mc.getRenderViewEntity() : null;
         if (viewer != null && viewer != player) {
-            double maxDistSq = (PureFPSConfig.activeProfile == PureFPSProfile.FPS) ? 784.0D : 1600.0D;
+            double maxDistSq = dev.purefps.module.MashFlags.capeCullEnabled
+                    ? dev.purefps.module.MashFlags.capeMaxDistSq
+                    : ((PureFPSConfig.activeProfile == PureFPSProfile.FPS) ? 784.0D : 1600.0D);
             if (viewer.getDistanceSqToEntity(player) > maxDistSq) {
                 ci.cancel();
             }

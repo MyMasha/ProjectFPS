@@ -25,6 +25,9 @@ public class MixinRenderEntityItem {
     @Unique
     private double purefps$currentDistSq = 0.0D;
 
+    @Unique
+    private boolean purefps$pushedUhcScale = false;
+
     @Inject(
             method = "doRender(Lnet/minecraft/entity/item/EntityItem;DDDFF)V",
             at = @At("HEAD")
@@ -33,6 +36,25 @@ public class MixinRenderEntityItem {
         double distSq = x * x + y * y + z * z;
         this.purefps$currentDistSq = distSq;
         RenderItemContext.skipGlintForCurrentItem = distSq >= 256.0D;
+        this.purefps$pushedUhcScale = false;
+        if (PureFPSConfig.enabled && dev.purefps.module.MashFlags.uhcGoldScale && entity != null) {
+            ItemStack st = entity.getEntityItem();
+            if (st != null && st.getItem() != null) {
+                net.minecraft.item.Item it = st.getItem();
+                if (it == net.minecraft.init.Items.golden_apple
+                        || it == net.minecraft.init.Items.gold_ingot
+                        || it == net.minecraft.init.Items.gold_nugget) {
+                    float sc = dev.purefps.module.MashFlags.uhcGoldScaleFactor;
+                    if (Math.abs(sc - 1.0F) > 0.01F) {
+                        GlStateManager.pushMatrix();
+                        GlStateManager.translate(x, y, z);
+                        GlStateManager.scale(sc, sc, sc);
+                        GlStateManager.translate(-x, -y, -z);
+                        this.purefps$pushedUhcScale = true;
+                    }
+                }
+            }
+        }
     }
 
     @Inject(
@@ -40,6 +62,10 @@ public class MixinRenderEntityItem {
             at = @At("RETURN")
     )
     private void purefps$resetItemDistanceContext(EntityItem entity, double x, double y, double z, float entityYaw, float partialTicks, CallbackInfo ci) {
+        if (this.purefps$pushedUhcScale) {
+            GlStateManager.popMatrix();
+            this.purefps$pushedUhcScale = false;
+        }
         RenderItemContext.skipGlintForCurrentItem = false;
     }
 
@@ -86,7 +112,10 @@ public class MixinRenderEntityItem {
     )
     private void purefps$skipDistantRotation(float angle, float x, float y, float z) {
         if (!PureFPSConfig.enabled || !PureFPSConfig.fastDroppedItems || this.purefps$currentDistSq < 256.0D) {
-            GlStateManager.rotate(angle, x, y, z);
+            float spinMult = (PureFPSConfig.enabled && dev.purefps.module.MashFlags.itemSpinCustom)
+                    ? dev.purefps.module.MashFlags.itemSpinSpeed
+                    : 1.0F;
+            GlStateManager.rotate(angle * spinMult, x, y, z);
         }
     }
 }

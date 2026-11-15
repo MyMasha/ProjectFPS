@@ -612,6 +612,8 @@ public final class PureFPSConfig {
             hudKeystrokesY = clamp(getInt(props, "hudKeystrokesY", hudKeystrokesY), 2, 2160);
             lastServerIp = props.getProperty("lastServerIp", lastServerIp).trim();
             lastServerName = props.getProperty("lastServerName", lastServerName).trim();
+            String rawLang = props.getProperty("language", language).trim().toLowerCase();
+            language = rawLang.startsWith("fr") ? "fr" : "en";
 
             if (props.getProperty("activeProfile") == null) {
                 refreshProfileAfterManualEdit();
@@ -629,6 +631,7 @@ public final class PureFPSConfig {
         Properties props = new Properties();
         props.setProperty("activeProfile", activeProfile.getId());
         props.setProperty("enabled", Boolean.toString(enabled));
+        props.setProperty("language", "fr".equalsIgnoreCase(language) ? "fr" : "en");
         props.setProperty("disableGlErrorChecks", Boolean.toString(disableGlErrorChecks));
         props.setProperty("fastMath", Boolean.toString(fastMath));
         props.setProperty("fastWorldVertexSort", Boolean.toString(fastWorldVertexSort));
@@ -726,7 +729,7 @@ public final class PureFPSConfig {
         props.setProperty("lastServerName", lastServerName != null ? lastServerName : "");
 
         try (FileOutputStream out = new FileOutputStream(configFile)) {
-            props.store(out, "MashClient 4.5.1 Configuration");
+            props.store(out, "MashClient 4.5.4 Configuration");
         } catch (IOException ignored) {
         }
     }

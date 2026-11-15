@@ -66,13 +66,4 @@ public class MixinWorldRenderer {
             ci.cancel();
         }
     }
-
-    @Inject(method = "finishDrawing", at = @At("RETURN"))
-    private void purefps$bakeAntiSeamOffThread(CallbackInfo ci) {
-        if (PureFPSConfig.enabled && this.vertexFormat == DefaultVertexFormats.BLOCK && this.vertexCount > 0) {
-            if (!net.minecraft.client.Minecraft.getMinecraft().isCallingFromMinecraftThread()) {
-                ChunkRegionManager.bakeAntiSeamInPlace(this.rawFloatBuffer, this.byteBuffer, this.vertexCount);
-            }
-        }
-    }
 }

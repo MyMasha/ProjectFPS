@@ -152,7 +152,6 @@ public abstract class MixinVertexBuffer implements FastVertexBuffer {
         int byteLimit = byteBuffer.limit();
         int vertexCount = byteLimit / 28;
         this.count = vertexCount;
-        boolean workerBaked = ChunkRegionManager.consumeWorkerBakedFlag(byteBuffer);
         if (vertexCount <= 0) {
             this.purefps$allocatedBytes = 0;
             this.purefps$antiSeamReady = true;
@@ -160,10 +159,7 @@ public abstract class MixinVertexBuffer implements FastVertexBuffer {
             return;
         }
 
-        // Si le tampon n'a pas encore été pré-transformé par un worker (cas rare d'upload synchrone), repli rapide
-        ByteBuffer uploadBuf = workerBaked
-                ? byteBuffer
-                : ChunkRegionManager.prepareChunkAntiSeamBuffer(byteBuffer, vertexCount);
+        ByteBuffer uploadBuf = ChunkRegionManager.prepareChunkAntiSeamBuffer(byteBuffer, vertexCount);
 
         this.bindBuffer();
         if (this.purefps$allocatedBytes > 0) {

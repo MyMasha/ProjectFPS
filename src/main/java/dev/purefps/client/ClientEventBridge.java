@@ -249,16 +249,6 @@ public final class ClientEventBridge {
         }
     }
 
-    private static void assertHeldMovementBinding(KeyBinding kb) {
-        if (kb == null) {
-            return;
-        }
-        int code = kb.getKeyCode();
-        if (code != 0 && isKeybindPhysicallyDown(code)) {
-            KeyBinding.setKeyBindState(code, true);
-        }
-    }
-
     @SubscribeEvent
     public void onRenderTick(TickEvent.RenderTickEvent event) {
         if (event.phase != TickEvent.Phase.START) {
@@ -340,21 +330,7 @@ public final class ClientEventBridge {
         // 1. Freelook & Snaplook
         updateCameraPerspectiveKeys(mc);
 
-        // 2. Maintien sans perte des touches physiques ZQSD/Saut en jeu
-        if (PureFPSConfig.enabled
-                && MashFlags.autoSprintResume
-                && mc.thePlayer != null
-                && mc.currentScreen == null
-                && Display.isCreated()
-                && Display.isActive()) {
-            assertHeldMovementBinding(mc.gameSettings.keyBindForward);
-            assertHeldMovementBinding(mc.gameSettings.keyBindBack);
-            assertHeldMovementBinding(mc.gameSettings.keyBindLeft);
-            assertHeldMovementBinding(mc.gameSettings.keyBindRight);
-            assertHeldMovementBinding(mc.gameSettings.keyBindJump);
-        }
-
-        // 3. Toggle Sprint
+        // 2. Toggle Sprint
         int sprintKey = mc.gameSettings.keyBindSprint.getKeyCode();
         boolean shouldHoldSprint = PureFPSConfig.enabled
                 && MashFlags.toggleSprintEnabled

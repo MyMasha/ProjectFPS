@@ -10,21 +10,31 @@ import java.util.Locale;
  * - CUSTOM   : Activé automatiquement dès qu'un réglage individuel est personnalisé manuellement.
  */
 public enum PureFPSProfile {
-    FPS("fps", "FPS", "\u00a7a", "Max FPS & PvP Compétitif (Culling fort, Fast Graphics, 0 VSync)"),
-    BALANCED("balanced", "Balanced", "\u00a7e", "Équilibré (Visuels propres + Hauts FPS stables)"),
-    QUALITY("quality", "Quality", "\u00a7b", "Fidélité 100% Vanilla + Moteur Zéro-Allocation sans perte"),
-    CUSTOM("custom", "Custom", "\u00a7d", "Configuration personnalisée manuellement");
+    FPS("fps", "FPS", "\u00a7a",
+            "Competitive Max FPS (Aggressive culling, Fast Graphics, 0 VSync)",
+            "Max FPS & PvP Compétitif (Culling fort, Fast Graphics, 0 VSync)"),
+    BALANCED("balanced", "Balanced", "\u00a7e",
+            "Balanced (Clean visuals + High stable FPS)",
+            "Équilibré (Visuels propres + Hauts FPS stables)"),
+    QUALITY("quality", "Quality", "\u00a7b",
+            "100% Vanilla Fidelity + Lossless Zero-Allocation Engine",
+            "Fidélité 100% Vanilla + Moteur Zéro-Allocation sans perte"),
+    CUSTOM("custom", "Custom", "\u00a7d",
+            "Manually customized configuration",
+            "Configuration personnalisée manuellement");
 
     private final String id;
     private final String displayName;
     private final String colorCode;
-    private final String description;
+    private final String descriptionEn;
+    private final String descriptionFr;
 
-    PureFPSProfile(String id, String displayName, String colorCode, String description) {
+    PureFPSProfile(String id, String displayName, String colorCode, String descriptionEn, String descriptionFr) {
         this.id = id;
         this.displayName = displayName;
         this.colorCode = colorCode;
-        this.description = description;
+        this.descriptionEn = descriptionEn;
+        this.descriptionFr = descriptionFr;
     }
 
     public String getId() {
@@ -44,7 +54,7 @@ public enum PureFPSProfile {
     }
 
     public String getDescription() {
-        return this.description;
+        return PureFPSConfig.isEnglish() ? this.descriptionEn : this.descriptionFr;
     }
 
     public static PureFPSProfile fromString(String raw) {

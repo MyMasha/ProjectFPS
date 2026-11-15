@@ -37,24 +37,36 @@ public class GuiMashClientMenu extends GuiScreen {
     private final GuiScreen parentScreen;
 
     private enum NavTab {
-        ALL("Tous", "Modules", null),
-        ACTIVE("Actifs", "Actifs", null),
-        FAVORITES("Favoris", "Favoris", null),
-        HUD("HUD", "HUD", MashCategory.HUD),
-        PVP("PvP", "PvP", MashCategory.PVP),
-        VISUAL("Visuel", "Visuel", MashCategory.VISUAL),
-        HYPIXEL("Hypixel", "Hypixel", MashCategory.HYPIXEL),
-        WORLD("Monde", "Monde", MashCategory.WORLD),
-        ENGINE("FPS", "Performance", MashCategory.ENGINE);
+        ALL("All", "Tous", "Modules", "Modules", null),
+        ACTIVE("Active", "Actifs", "Active", "Actifs", null),
+        FAVORITES("Favorites", "Favoris", "Favorites", "Favoris", null),
+        HUD("HUD", "HUD", "HUD", "HUD", MashCategory.HUD),
+        PVP("PvP", "PvP", "PvP", "PvP", MashCategory.PVP),
+        VISUAL("Visual", "Visuel", "Visual", "Visuel", MashCategory.VISUAL),
+        HYPIXEL("Hypixel", "Hypixel", "Hypixel", "Hypixel", MashCategory.HYPIXEL),
+        WORLD("World", "Monde", "World", "Monde", MashCategory.WORLD),
+        ENGINE("FPS", "FPS", "Performance", "Performance", MashCategory.ENGINE);
 
-        final String pillLabel;
-        final String headerTitle;
+        final String pillLabelEn;
+        final String pillLabelFr;
+        final String headerTitleEn;
+        final String headerTitleFr;
         final MashCategory category;
 
-        NavTab(String pillLabel, String headerTitle, MashCategory category) {
-            this.pillLabel = pillLabel;
-            this.headerTitle = headerTitle;
+        NavTab(String pillLabelEn, String pillLabelFr, String headerTitleEn, String headerTitleFr, MashCategory category) {
+            this.pillLabelEn = pillLabelEn;
+            this.pillLabelFr = pillLabelFr;
+            this.headerTitleEn = headerTitleEn;
+            this.headerTitleFr = headerTitleFr;
             this.category = category;
+        }
+
+        String pillLabel() {
+            return PureFPSConfig.isEnglish() ? pillLabelEn : pillLabelFr;
+        }
+
+        String headerTitle() {
+            return PureFPSConfig.isEnglish() ? headerTitleEn : headerTitleFr;
         }
     }
 
@@ -326,10 +338,11 @@ public class GuiMashClientMenu extends GuiScreen {
 
         SmoothFontRenderer boldSmallF = SmoothFontRenderer.uiBoldSmall();
         SmoothFontRenderer smallF = SmoothFontRenderer.uiSmall();
-        boldSmallF.drawCentered("Retour", bx + 47.0F, by + 11.5F, 0xFF0A0B0E, false);
-        smallF.drawCentered("Glisser les éléments  \u00B7  SHIFT : Axe", bx + 194.0F, by + 11.5F, 0xFFC5CEE0, false);
+        boolean en = PureFPSConfig.isEnglish();
+        boldSmallF.drawCentered(en ? "Back" : "Retour", bx + 47.0F, by + 11.5F, 0xFF0A0B0E, false);
+        smallF.drawCentered(en ? "Drag HUD widgets  \u00B7  SHIFT: Axis" : "Glisser les éléments  \u00B7  SHIFT : Axe", bx + 194.0F, by + 11.5F, 0xFFC5CEE0, false);
         smallF.drawCentered(
-                magneticSnapEnabled ? "Aimantation : ON" : "Aimantation : OFF",
+                magneticSnapEnabled ? (en ? "Snap: ON" : "Aimantation : ON") : (en ? "Snap: OFF" : "Aimantation : OFF"),
                 bx + bw - 66.5F, by + 11.5F,
                 magneticSnapEnabled ? 0xFF7DD3FC : 0xFF949CB0, false
         );
@@ -456,7 +469,7 @@ public class GuiMashClientMenu extends GuiScreen {
             NanoUiRenderer.drawCircle(sx + sw + 1.5F, sy + sh + 1.5F, 3.3F, 0xFFF5B85C);
             NanoUiRenderer.drawCircle(sx + sw + 1.5F, sy + sh + 1.5F, 1.4F, 0xFF0A0B0E);
 
-            coordBadge = selectedHud.getName() + "  \u00B7  " + Math.round(sx) + ", " + Math.round(sy)
+            coordBadge = selectedHud.getDisplayName() + "  \u00B7  " + Math.round(sx) + ", " + Math.round(sy)
                     + String.format(Locale.US, "  (%.2fx)", selectedHud.getScale());
             badgeW = SmoothFontRenderer.small().getStringWidth(coordBadge) + 12.0F;
             badgeX = clamp(sx + sw * 0.5F - badgeW * 0.5F, 4.0F, this.width - badgeW - 4.0F);
@@ -482,6 +495,7 @@ public class GuiMashClientMenu extends GuiScreen {
         boolean hasInspector = inspectedModule != null;
         float inspectorW = hasInspector ? INSPECTOR_W : 0.0F;
         boolean interactive = alpha > 0.72F;
+        boolean en = PureFPSConfig.isEnglish();
 
         SmoothFontRenderer headerF = SmoothFontRenderer.uiHeader();
         SmoothFontRenderer cardTitleF = SmoothFontRenderer.uiCardTitle();
@@ -621,6 +635,15 @@ public class GuiMashClientMenu extends GuiScreen {
                 1.0F
         );
 
+        float langPillX = snapPillX + 132.0F;
+        boolean langHov = interactive && inside(dmx, dmy, langPillX, footY + 5.0F, 72.0F, 26.0F);
+        NanoUiRenderer.drawRoundedRect(
+                langPillX, footY + 5.0F, 72.0F, 26.0F, 7.0F,
+                mulAlpha(langHov ? 0x28F5B85C : 0xFF0C0F17, alpha),
+                mulAlpha(langHov ? 0x88F5B85C : 0x2EFFFFFF, alpha),
+                1.0F
+        );
+
         if (hasInspector) {
             float ix = getInspectorX();
             NanoUiRenderer.drawRoundedRect(
@@ -632,7 +655,7 @@ public class GuiMashClientMenu extends GuiScreen {
 
         NanoUiRenderer.endBatch();
 
-        String secTitle = currentTab.headerTitle + "  \u00B7  " + filteredModules.size();
+        String secTitle = currentTab.headerTitle() + "  \u00B7  " + filteredModules.size();
         headerF.drawString(secTitle, px + 20.0F, subY + 13.5F, mulAlpha(0xFFF7F4EC, alpha));
 
         boldSmallF.beginBatch();
@@ -646,14 +669,14 @@ public class GuiMashClientMenu extends GuiScreen {
             boolean sel = currentTab == tabs[i];
             boolean hov = interactive && inside(dmx, dmy, curTabX, tabsPillY + 3.0F, tw, 24.0F);
             int col = sel ? 0xFFFFDF9E : (hov ? 0xFFF7F4EC : 0xFF9AA3B8);
-            smallF.drawString(tabs[i].pillLabel, curTabX + 21.0F, tabsPillY + 9.5F, mulAlpha(col, alpha));
+            smallF.drawString(tabs[i].pillLabel(), curTabX + 21.0F, tabsPillY + 9.5F, mulAlpha(col, alpha));
             curTabX += tw;
         }
 
         String searchDisplay;
         int searchCol;
         if (searchQuery.isEmpty() && !searchFocused) {
-            searchDisplay = "Rechercher un module...";
+            searchDisplay = en ? "Search modules..." : "Rechercher un module...";
             searchCol = 0xFF6E778D;
         } else {
             String caret = (searchFocused && ((System.currentTimeMillis() / 450L) & 1L) == 0L) ? "|" : "";
@@ -663,9 +686,9 @@ public class GuiMashClientMenu extends GuiScreen {
         float maxSearchTxtW = searchW - (searchQuery.isEmpty() ? 36.0F : 58.0F);
         smallF.drawString(smallF.trimToWidth(searchDisplay, maxSearchTxtW), searchX + 27.0F, searchY + 9.5F, mulAlpha(searchCol, alpha));
 
-        smallF.drawString("Éditer HUD", hudBtnX + 27.0F, hudBtnY + 9.5F, mulAlpha(0xFF93DDFF, alpha));
+        smallF.drawString(en ? "Edit HUD" : "Éditer HUD", hudBtnX + 27.0F, hudBtnY + 9.5F, mulAlpha(0xFF93DDFF, alpha));
 
-        String[] profNames = {"FPS", "Équilibré", "Qualité"};
+        String[] profNames = en ? new String[]{"FPS", "Balanced", "Quality"} : new String[]{"FPS", "Équilibré", "Qualité"};
         for (int i = 0; i < 3; i++) {
             float bx = px + 21.0F + i * (fpW + 2.0F);
             boolean sel = activeProf == profs[i];
@@ -673,12 +696,18 @@ public class GuiMashClientMenu extends GuiScreen {
         }
 
         smallF.drawCentered(
-                magneticSnapEnabled ? "Aimantation : ON" : "Aimantation : OFF",
+                magneticSnapEnabled ? (en ? "Snap: ON" : "Aimantation : ON") : (en ? "Snap: OFF" : "Aimantation : OFF"),
                 snapPillX + 63.0F, footY + 13.0F,
                 mulAlpha(magneticSnapEnabled ? 0xFF7DD3FC : 0xFF8E96AA, alpha), false
         );
 
-        String rightTele = MashModules.getActiveCount() + " actifs  \u00B7  " + Minecraft.getDebugFPS() + " FPS";
+        smallF.drawCentered(
+                en ? "Lang: EN" : "Lang: FR",
+                langPillX + 36.0F, footY + 13.0F,
+                mulAlpha(0xFFFFDF9E, alpha), false
+        );
+
+        String rightTele = MashModules.getActiveCount() + (en ? " active  \u00B7  " : " actifs  \u00B7  ") + Minecraft.getDebugFPS() + " FPS";
         smallF.drawString(rightTele, px + pw - smallF.getStringWidth(rightTele) - 20.0F, footY + 13.0F, mulAlpha(0xFF7D869C, alpha));
         smallF.endBatch();
 
@@ -822,14 +851,14 @@ public class GuiMashClientMenu extends GuiScreen {
                 continue;
             }
             MashModule m = filteredModules.get(i);
-            String frTitle = boldSmallF.trimToWidth(m.getName(), cardW - 134.0F);
-            boldSmallF.drawString(frTitle, cx + 44.0F, cy + 11.0F, mulAlpha(m.isEnabled() ? 0xFFFFFFFF : 0xFFD8DFEC, alpha));
+            String title = boldSmallF.trimToWidth(m.getDisplayName(), cardW - 134.0F);
+            boldSmallF.drawString(title, cx + 44.0F, cy + 11.0F, mulAlpha(m.isEnabled() ? 0xFFFFFFFF : 0xFFD8DFEC, alpha));
         }
         boldSmallF.endBatch();
 
         if (total == 0) {
             bodyF.drawCentered(
-                    "Aucun résultat pour \"" + searchQuery + "\"",
+                    (PureFPSConfig.isEnglish() ? "No results for \"" : "Aucun résultat pour \"") + searchQuery + "\"",
                     gx + gw * 0.5F, gy + gh * 0.44F, mulAlpha(0xFF949CB0, alpha), false
             );
         }
@@ -898,11 +927,12 @@ public class GuiMashClientMenu extends GuiScreen {
         NanoUiRenderer.endBatch();
 
         cardTitleF.drawString(
-                cardTitleF.trimToWidth(mod.getName(), iw - 84.0F),
+                cardTitleF.trimToWidth(mod.getDisplayName(), iw - 84.0F),
                 ix + 12.0F, iy + 9.5F, mulAlpha(0xFFFFDF9E, alpha)
         );
+        String altName = PureFPSConfig.isEnglish() ? mod.getName() : mod.getEnglishName();
         smallF.drawString(
-                smallF.trimToWidth(mod.getEnglishName() + "  \u00B7  " + mod.getCategory().getDisplayName(), iw - 84.0F),
+                smallF.trimToWidth(altName + "  \u00B7  " + mod.getCategory().getDisplayName(), iw - 84.0F),
                 ix + 12.0F, iy + 27.5F, mulAlpha(0xFFC89B54, alpha)
         );
         smallF.drawString(
@@ -960,7 +990,7 @@ public class GuiMashClientMenu extends GuiScreen {
         NanoUiRenderer.endBatch();
 
         smallF.drawCentered(
-                "Réinitialiser",
+                PureFPSConfig.isEnglish() ? "Reset to Defaults" : "Réinitialiser",
                 ix + 12.0F + (iw - 18.0F) * 0.5F, resetY + 7.5F,
                 mulAlpha(resetHov ? 0xFFFFB4B4 : 0xFFA2AABF, alpha), false
         );
@@ -1077,7 +1107,7 @@ public class GuiMashClientMenu extends GuiScreen {
             float pillW = 86.0F;
             float pillX = rx + rw - pillW - 8.0F;
             smallF.drawString(smallF.trimToWidth(s.getName(), rw - pillW - 20.0F), rx + 10.0F, ry + 10.0F, mulAlpha(0xFFECEFF6, alpha));
-            String txt = listening ? "Touche..." : ks.getDisplayString();
+            String txt = listening ? (PureFPSConfig.isEnglish() ? "Press key..." : "Touche...") : ks.getDisplayString();
             smallF.drawCentered(txt, pillX + pillW * 0.5F, ry + 10.0F, mulAlpha(listening ? 0xFFFFF4DC : 0xFFECEFF6, alpha), false);
         } else if (s instanceof MashSetting.ColorSetting) {
             MashSetting.ColorSetting cs = (MashSetting.ColorSetting) s;
@@ -1211,6 +1241,14 @@ public class GuiMashClientMenu extends GuiScreen {
         if (mouseButton == 0 && inside(dmx, dmy, snapPillX, footY + 5.0F, 126.0F, 26.0F)) {
             magneticSnapEnabled = !magneticSnapEnabled;
             MashAudioEngine.playToggle(magneticSnapEnabled);
+            return;
+        }
+        float langPillX = snapPillX + 132.0F;
+        if (mouseButton == 0 && inside(dmx, dmy, langPillX, footY + 5.0F, 72.0F, 26.0F)) {
+            PureFPSConfig.language = PureFPSConfig.isEnglish() ? "fr" : "en";
+            PureFPSConfig.markDirty();
+            PureFPSConfig.saveIfDirty();
+            MashAudioEngine.playToggle(PureFPSConfig.isEnglish());
             return;
         }
 

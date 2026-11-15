@@ -33,12 +33,15 @@ public class MixinGuiPlayerTabOverlay {
         if (ping <= 0) {
             return;
         }
+        int goodMs = Math.max(15, MashFlags.tabPingGoodMs);
+        int redMs = Math.max(goodMs + 30, MashFlags.tabPingRedMs);
+        int midMs = (goodMs + redMs) / 2;
         int color;
-        if (ping < 65) {
+        if (ping < goodMs) {
             color = 0x34D399; // Émeraude
-        } else if (ping < 130) {
+        } else if (ping < midMs) {
             color = 0xF5B85C; // Or
-        } else if (ping < 220) {
+        } else if (ping < redMs) {
             color = 0xFB923C; // Orange
         } else {
             color = 0xF87171; // Corail

@@ -82,7 +82,7 @@ impl UiUpdateView {
             latest_version: None,
             release_notes: None,
             download_percent: 0,
-            message: "Prêt à vérifier les mises à jour GitHub Releases.".to_owned(),
+            message: "Ready to check for updates.".to_owned(),
             has_exe_update: false,
             has_jar_update: false,
         }

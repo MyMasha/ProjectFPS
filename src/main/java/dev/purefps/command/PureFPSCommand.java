@@ -81,13 +81,16 @@ public class PureFPSCommand extends CommandBase {
                     Minecraft.getMinecraft().renderGlobal.loadRenderers();
                 }
                 sender.addChatMessage(new ChatComponentText(
-                        "\u00a76[MashClient 4.5.3] \u00a7fClient & Optimisations: " + (PureFPSConfig.enabled ? "\u00a7aACTIVÉS" : "\u00a7cDÉSACTIVÉS")
+                        "\u00a76[MashClient 4.5.4] \u00a7fClient & Optimizations: "
+                                + (PureFPSConfig.enabled
+                                ? (PureFPSConfig.isEnglish() ? "\u00a7aENABLED" : "\u00a7aACTIVÉS")
+                                : (PureFPSConfig.isEnglish() ? "\u00a7cDISABLED" : "\u00a7cDÉSACTIVÉS"))
                 ));
                 return;
             }
             if ("status".equalsIgnoreCase(sub)) {
                 sender.addChatMessage(new ChatComponentText(
-                        "\u00a76[MashClient 4.5.3] \u00a77Profil: " + PureFPSConfig.activeProfile.getColoredName()
+                        "\u00a76[MashClient 4.5.4] \u00a77" + (PureFPSConfig.isEnglish() ? "Profile: " : "Profil: ") + PureFPSConfig.activeProfile.getColoredName()
                                 + " \u00a77| Backend: " + dev.purefps.core.VulkanBackendHelper.getF3BackendBadge()
                                 + " \u00a77| Modules: \u00a7e" + MashModules.getActiveCount() + "/203"
                                 + " \u00a77| MultiDraw: \u00a7a" + PureFPSConfig.chunksBatchedLastFrame + "c->" + PureFPSConfig.multiDrawsLastFrame + "d"
@@ -119,7 +122,8 @@ public class PureFPSCommand extends CommandBase {
         MashModules.syncFromPureConfig();
         PureFPSConfig.save();
         sender.addChatMessage(new ChatComponentText(
-                "\u00a76[MashClient 4.5.3] \u00a77Profil appliqué : " + profile.getColoredName() + " \u00a78(\u00a77" + profile.getDescription() + "\u00a78)"
+                "\u00a76[MashClient 4.5.4] \u00a77" + (PureFPSConfig.isEnglish() ? "Applied profile: " : "Profil appliqué : ")
+                        + profile.getColoredName() + " \u00a78(\u00a77" + profile.getDescription() + "\u00a78)"
         ));
     }
 

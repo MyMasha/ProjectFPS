@@ -50,7 +50,7 @@ public final class FastItemModelCache {
     }
 
     public static boolean tryRenderCached(IBakedModel model, int color) {
-        if (model == null || (color != -1 && color != GLINT_COLOR)) {
+        if (model == null || VulkanBackendHelper.isVulkanActive() || (color != -1 && color != GLINT_COLOR)) {
             return false;
         }
 
@@ -87,6 +87,7 @@ public final class FastItemModelCache {
         }
         allocatedListsCount++;
 
+        net.minecraft.client.renderer.OpenGlHelper.glBindBuffer(net.minecraft.client.renderer.OpenGlHelper.GL_ARRAY_BUFFER, 0);
         GL11.glNewList(newList, GL11.GL_COMPILE_AND_EXECUTE);
         emitStaticModelGeometry(model, color);
         GL11.glEndList();

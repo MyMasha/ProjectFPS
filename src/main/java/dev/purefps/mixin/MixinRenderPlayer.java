@@ -41,7 +41,9 @@ public abstract class MixinRenderPlayer extends RendererLivingEntity<AbstractCli
             return;
         }
         double distSq = viewer.getDistanceSqToEntity(clientPlayer);
-        double wearCutoffSq = (PureFPSConfig.activeProfile == PureFPSProfile.FPS) ? 576.0D : 1296.0D;
+        double wearCutoffSq = (PureFPSConfig.activeProfile == PureFPSProfile.FPS)
+                ? Math.min(576.0D, dev.purefps.module.MashFlags.playerDetailDistSq)
+                : dev.purefps.module.MashFlags.playerDetailDistSq;
         if (distSq > wearCutoffSq) {
             ModelPlayer mp = this.getMainModel();
             mp.bipedBodyWear.showModel = false;
@@ -49,7 +51,7 @@ public abstract class MixinRenderPlayer extends RendererLivingEntity<AbstractCli
             mp.bipedRightLegwear.showModel = false;
             mp.bipedLeftArmwear.showModel = false;
             mp.bipedRightArmwear.showModel = false;
-            if (distSq > 1764.0D) {
+            if (distSq > wearCutoffSq * 1.5D) {
                 mp.bipedHeadwear.showModel = false;
             }
         }

@@ -89,9 +89,11 @@ public abstract class MixinTileEntitySignRenderer extends TileEntitySpecialRende
 
         if (destroyStage < 0) {
             boolean skipDistantText = false;
-            if (PureFPSConfig.enabled && PureFPSConfig.fastSignText && te.lineBeingEdited < 0) {
+            if (PureFPSConfig.enabled && (PureFPSConfig.fastSignText || dev.purefps.module.MashFlags.signTextLimitEnabled) && te.lineBeingEdited < 0) {
                 double distSq = x * x + y * y + z * z;
-                double textMaxSq = (PureFPSConfig.activeProfile == PureFPSProfile.FPS) ? 576.0D : 1024.0D;
+                double textMaxSq = dev.purefps.module.MashFlags.signTextLimitEnabled
+                        ? dev.purefps.module.MashFlags.signTextMaxDistSq
+                        : ((PureFPSConfig.activeProfile == PureFPSProfile.FPS) ? 576.0D : 1024.0D);
                 if (distSq > textMaxSq) {
                     skipDistantText = true;
                 }

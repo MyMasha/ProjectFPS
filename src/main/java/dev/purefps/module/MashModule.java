@@ -164,6 +164,10 @@ public final class MashModule {
         return englishName;
     }
 
+    public String getDisplayName() {
+        return dev.purefps.config.PureFPSConfig.isEnglish() ? englishName : name;
+    }
+
     public String getDescription() {
         return description;
     }

@@ -90,6 +90,9 @@ public final class ChunkRegionManager {
     }
 
     public static boolean isMultiDrawSupported() {
+        if (VulkanBackendHelper.isVulkanActive()) {
+            return false;
+        }
         if (multiDrawState == 0) {
             try {
                 ContextCapabilities caps = GLContext.getCapabilities();
@@ -109,26 +112,33 @@ public final class ChunkRegionManager {
         return (((long) rx & 0xFFFFFFFL) << 36) | (((long) rz & 0xFFFFFFFL) << 8) | ((long) layerOrdinal & 0xFFL);
     }
 
-    /**
-     * Exécuté sur les threads workers (MixinWorldRenderer.finishDrawing) :
-     * transforme les coordonnées XYZ en place dans le FloatBuffer natif avant la mise en file d'upload !
-     */
     public static void bakeAntiSeamInPlace(FloatBuffer floatBuf, ByteBuffer backingByteBuf, int vertexCount) {
-        if (floatBuf == null || vertexCount <= 0) {
+        if (vertexCount <= 0) {
             return;
         }
-        int floatOff = 0;
-        for (int v = 0; v < vertexCount; v++) {
-            float vx = floatBuf.get(floatOff);
-            float vy = floatBuf.get(floatOff + 1);
-            float vz = floatBuf.get(floatOff + 2);
-            floatBuf.put(floatOff, vx * ANTI_SEAM_SCALE + ANTI_SEAM_BIAS);
-            floatBuf.put(floatOff + 1, vy * ANTI_SEAM_SCALE + ANTI_SEAM_BIAS);
-            floatBuf.put(floatOff + 2, vz * ANTI_SEAM_SCALE + ANTI_SEAM_BIAS);
-            floatOff += 7; // 28 octets = 7 floats par sommet DefaultVertexFormats.BLOCK
-        }
-        if (backingByteBuf != null) {
+        if (backingByteBuf != null && !backingByteBuf.isReadOnly()) {
+            int byteOff = 0;
+            for (int v = 0; v < vertexCount; v++) {
+                float vx = backingByteBuf.getFloat(byteOff);
+                float vy = backingByteBuf.getFloat(byteOff + 4);
+                float vz = backingByteBuf.getFloat(byteOff + 8);
+                backingByteBuf.putFloat(byteOff, vx * ANTI_SEAM_SCALE + ANTI_SEAM_BIAS);
+                backingByteBuf.putFloat(byteOff + 4, vy * ANTI_SEAM_SCALE + ANTI_SEAM_BIAS);
+                backingByteBuf.putFloat(byteOff + 8, vz * ANTI_SEAM_SCALE + ANTI_SEAM_BIAS);
+                byteOff += RegionLayerArena.VERTEX_STRIDE_BYTES;
+            }
             WORKER_BAKED_BUFFERS.add(backingByteBuf);
+        } else if (floatBuf != null && !floatBuf.isReadOnly()) {
+            int floatOff = 0;
+            for (int v = 0; v < vertexCount; v++) {
+                float vx = floatBuf.get(floatOff);
+                float vy = floatBuf.get(floatOff + 1);
+                float vz = floatBuf.get(floatOff + 2);
+                floatBuf.put(floatOff, vx * ANTI_SEAM_SCALE + ANTI_SEAM_BIAS);
+                floatBuf.put(floatOff + 1, vy * ANTI_SEAM_SCALE + ANTI_SEAM_BIAS);
+                floatBuf.put(floatOff + 2, vz * ANTI_SEAM_SCALE + ANTI_SEAM_BIAS);
+                floatOff += 7;
+            }
         }
     }
 
@@ -150,10 +160,6 @@ public final class ChunkRegionManager {
         return stagingBuffer;
     }
 
-    /**
-     * Translate un tampon déjà pré-cuit anti-couture par un worker vers le repère de sa région 256x256
-     * (sans ré-appliquer ANTI_SEAM_SCALE une seconde fois).
-     */
     public static void translateBakedVertices(
             ByteBuffer srcBytes,
             int vertexCount,
@@ -237,7 +243,6 @@ public final class ChunkRegionManager {
     public static void uploadChunkLayerToArena(FastVertexBuffer fvb, RenderChunk rc, ByteBuffer srcBytes) {
         int byteLimit = srcBytes.limit();
         int vertexCount = byteLimit / RegionLayerArena.VERTEX_STRIDE_BYTES;
-        boolean workerBaked = consumeWorkerBakedFlag(srcBytes);
         fvb.purefps$setVertexCount(vertexCount);
 
         if (vertexCount <= 0 || rc == null || rc.getPosition() == null) {
@@ -266,11 +271,7 @@ public final class ChunkRegionManager {
 
         int requiredBytes = vertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
         ensureStagingCapacity(requiredBytes);
-        if (workerBaked) {
-            translateBakedVertices(srcBytes, vertexCount, localX, localY, localZ, stagingBuffer);
-        } else {
-            transformBlockVertices(srcBytes, vertexCount, localX, localY, localZ, stagingBuffer);
-        }
+        transformBlockVertices(srcBytes, vertexCount, localX, localY, localZ, stagingBuffer);
 
         RegionLayerArena prevArena = fvb.purefps$getArena();
         int prevFirst = fvb.purefps$getArenaFirstVertex();
@@ -312,7 +313,7 @@ public final class ChunkRegionManager {
         int layerOrd = layer.ordinal();
         boolean menuDimmed = MenuUnloadManager.isWorldDimmedByMenu();
         float menuMaxDistSq = (layerOrd == 0) ? 2304.0F : 1024.0F;
-        boolean useMultiDraw = layerOrd < 3 && isMultiDrawSupported();
+        boolean useMultiDraw = layerOrd < 3 && PureFPSConfig.regionMultiDraw && isMultiDrawSupported();
 
         int drawnSections = 0;
         boolean hasFallbackChunks = false;
@@ -522,7 +523,6 @@ public final class ChunkRegionManager {
     }
 
     public static void clearAll() {
-        WORKER_BAKED_BUFFERS.clear();
         ACTIVE_BATCH_ARENAS.clear();
         if (!ARENAS.isEmpty()) {
             for (RegionLayerArena arena : ARENAS.values()) {

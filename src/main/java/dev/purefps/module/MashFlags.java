@@ -121,6 +121,20 @@ public final class MashFlags {
     public static boolean menuCursorShadow = true;
     public static boolean menuCursorClickPulse = false;
 
+    // Seuils dynamiques reliés aux modules Visuel / Hypixel / Performance
+    public static boolean capeCullEnabled = true;
+    public static double capeMaxDistSq = 2304.0D;
+    public static boolean armorGlintLimitEnabled = true;
+    public static double armorGlintMaxDistSq = 400.0D;
+    public static boolean signTextLimitEnabled = true;
+    public static double signTextMaxDistSq = 576.0D;
+    public static boolean itemSpinCustom = true;
+    public static float itemSpinSpeed = 1.0F;
+    public static int tabPingGoodMs = 55;
+    public static int tabPingRedMs = 150;
+    public static double playerDetailDistSq = 1024.0D;
+    public static boolean nametagShowOwnInF5 = true;
+
     private MashFlags() {
     }
 }

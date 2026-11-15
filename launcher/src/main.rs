@@ -342,6 +342,9 @@ enum IpcCommand {
     SetGithubRepo {
         repo: String,
     },
+    SetLanguage {
+        language: String,
+    },
     LaunchGame,
     PlungeDarknessReached,
     AbortLaunchCurtain,
@@ -483,7 +486,11 @@ impl Controller {
             let _ = runtimes::ensure_vulkan_instance_initialized(&prefs);
         }
         let active_dir = runtimes::resolve_active_game_dir(&prefs);
-        let (settings, modules_json) = load_synced_configs(&active_dir);
+        let (mut settings, modules_json) = load_synced_configs(&active_dir);
+        if settings.language != prefs.language {
+            settings.language = prefs.language.clone();
+            let _ = settings.save_to_game_dir(&active_dir);
+        }
         let store = load_account_store();
         let accounts = public_account_views(&store);
         let account = load_microsoft_account();
@@ -585,6 +592,10 @@ impl Controller {
     fn pull_newer_watched_configs_and_reload(&mut self) {
         let active_dir_str = self.active_game_dir();
         let (settings, modules_json) = load_synced_configs(&active_dir_str);
+        if self.prefs.language != settings.language {
+            self.prefs.language = settings.language.clone();
+            let _ = save_launcher_prefs(&self.prefs);
+        }
         self.settings = settings;
         self.modules_json = modules_json;
         self.installed_mods = mods_manager::list_installed_mods(&active_dir_str);
@@ -938,33 +949,22 @@ fn try_trigger_game_launch(
     proxy: &EventLoopProxy<AppEvent>,
 ) {
     if ctrl.game_running || ctrl.curtain_active || ctrl.prelaunch_syncing {
-        Controller::push_toast(webview, "Lancement déjà en cours.", false);
+        let msg = if ctrl.prefs.language == "fr" {
+            "Lancement déjà en cours."
+        } else {
+            "Launch already in progress."
+        };
+        Controller::push_toast(webview, msg, false);
         return;
     }
 
     if ctrl.prefs.launch_mode == LaunchMode::DirectMicrosoft && ctrl.account.is_none() {
-        Controller::push_toast(
-            webview,
-            "Connectez d'abord votre compte Microsoft en haut à droite.",
-            true,
-        );
-        return;
-    }
-    if !Path::new(&ctrl.prefs.java_path).is_file() {
-        let err_msg = format!("Java 8 introuvable : {}", ctrl.prefs.java_path);
-        Controller::push_crash(
-            webview,
-            &CrashReportInfo {
-                title: "Java 8 introuvable".to_owned(),
-                summary: err_msg.clone(),
-                details: format!(
-                    "{err_msg}\n\nOuvrez l'onglet Paramètres et cliquez sur « Installer Java 8 récent (Temurin) » en 1 clic."
-                ),
-                exit_code: None,
-                report_path: None,
-                suspected_mod_file: None,
-            },
-        );
+        let msg = if ctrl.prefs.language == "fr" {
+            "Connectez d'abord votre compte Microsoft en haut à droite."
+        } else {
+            "Please sign in with your Microsoft account at the top right first."
+        };
+        Controller::push_toast(webview, msg, true);
         return;
     }
 
@@ -1224,6 +1224,10 @@ fn handle_ipc(
         }
         IpcCommand::SetSetting { key, value } => {
             if ctrl.settings.set_field(&key, &value) {
+                if key == "language" {
+                    ctrl.prefs.language = ctrl.settings.language.clone();
+                    let _ = save_launcher_prefs(&ctrl.prefs);
+                }
                 if ctrl.settings.active_profile == PureProfile::Custom {
                     ctrl.active_custom_profile_id = None;
                 }
@@ -1608,6 +1612,21 @@ fn handle_ipc(
                 Controller::push_toast(webview, &e, true);
             }
         },
+        IpcCommand::SetLanguage { language } => {
+            let norm = config::normalize_language(&language);
+            ctrl.prefs.language = norm.clone();
+            ctrl.settings.language = norm.clone();
+            let _ = save_launcher_prefs(&ctrl.prefs);
+            let active_dir = ctrl.active_game_dir();
+            let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+            let msg = if norm == "fr" {
+                "Langue changée : Français"
+            } else {
+                "Language switched to English"
+            };
+            Controller::push_toast(webview, msg, false);
+            ctrl.push_full_state(webview);
+        }
         IpcCommand::PlungeDarknessReached => {
             ctrl.plunge_darkness_reached = true;
             ctrl.try_schedule_seamless_handoff(window, proxy);
