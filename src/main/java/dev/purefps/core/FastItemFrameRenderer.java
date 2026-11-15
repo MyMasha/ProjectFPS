@@ -37,11 +37,6 @@ public final class FastItemFrameRenderer {
         if (model == null) {
             return;
         }
-        if (VulkanBackendHelper.isVulkanActive()) {
-            renderModelBrightnessColorSingleDraw(model, 1.0F, 1.0F, 1.0F, 1.0F);
-            GlStateManager.resetColor();
-            return;
-        }
         if (isMapFrame) {
             if (model == lastMapModel && mapFrameDisplayList >= 0) {
                 GlStateManager.callList(mapFrameDisplayList);

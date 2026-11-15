@@ -77,7 +77,9 @@ public abstract class MixinVboRenderList extends MixinChunkRenderContainer {
                 }
                 vb.bindBuffer();
                 ChunkRegionManager.setupBlockArrayPointers();
-                if (indexSupported && (vCount & 3) == 0) {
+                if (((dev.purefps.core.FastVertexBuffer) vb).purefps$isTriangleBuffer()) {
+                    GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, vCount);
+                } else if (indexSupported && (vCount & 3) == 0) {
                     int neededEbo = vCount <= dev.purefps.core.QuadIndexBuffer.MAX_USHORT_VERTICES
                             ? ushortEbo
                             : dev.purefps.core.QuadIndexBuffer.ensureIndexBufferReady(vCount);

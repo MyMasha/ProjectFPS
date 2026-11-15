@@ -128,6 +128,11 @@ public abstract class MixinVertexBuffer implements FastVertexBuffer {
         }
     }
 
+    @Override
+    public boolean purefps$isTriangleBuffer() {
+        return this.purefps$antiSeamReady;
+    }
+
     @Inject(method = "bufferData", at = @At("HEAD"), cancellable = true)
     private void purefps$fastOrphanedChunkUpload(ByteBuffer byteBuffer, CallbackInfo ci) {
         if (!PureFPSConfig.enabled || this.vertexFormat != DefaultVertexFormats.BLOCK || this.glBufferId < 0) {
@@ -150,26 +155,28 @@ public abstract class MixinVertexBuffer implements FastVertexBuffer {
         this.purefps$releaseArenaSlot();
 
         int byteLimit = byteBuffer.limit();
-        int vertexCount = byteLimit / 28;
-        this.count = vertexCount;
-        if (vertexCount <= 0) {
+        int quadVertexCount = byteLimit / 28;
+        int triVertexCount = (quadVertexCount >> 2) * 6;
+        this.count = triVertexCount;
+        if (triVertexCount <= 0) {
             this.purefps$allocatedBytes = 0;
             this.purefps$antiSeamReady = true;
             ci.cancel();
             return;
         }
 
-        ByteBuffer uploadBuf = ChunkRegionManager.prepareChunkAntiSeamBuffer(byteBuffer, vertexCount);
+        ByteBuffer uploadBuf = ChunkRegionManager.prepareChunkTrianglesBuffer(byteBuffer, quadVertexCount);
+        int uploadBytes = uploadBuf.limit();
 
         this.bindBuffer();
         if (this.purefps$allocatedBytes > 0) {
             // Orphaning explicite : détache l'ancienne page VRAM si le GPU lit encore la frame précédente
-            GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, (long) byteLimit, GL15.GL_DYNAMIC_DRAW);
+            GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, (long) uploadBytes, GL15.GL_DYNAMIC_DRAW);
             GL15.glBufferSubData(OpenGlHelper.GL_ARRAY_BUFFER, 0L, uploadBuf);
         } else {
             OpenGlHelper.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, uploadBuf, GL15.GL_STATIC_DRAW);
         }
-        this.purefps$allocatedBytes = byteLimit;
+        this.purefps$allocatedBytes = uploadBytes;
         this.unbindBuffer();
         this.purefps$antiSeamReady = true;
         ci.cancel();

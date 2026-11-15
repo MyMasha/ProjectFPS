@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.7.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.8.jar";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -226,7 +226,7 @@ fn build_download_agent() -> Result<ureq::Agent, String> {
 fn download_file_to_path(agent: &ureq::Agent, url: &str, dst: &Path) -> Result<(), String> {
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.7")
+        .set("User-Agent", "MashClient/4.5.8")
         .call()
         .map_err(|e| format!("Échec téléchargement {url}: {e}"))?;
     if let Some(parent) = dst.parent() {
@@ -556,9 +556,11 @@ pub fn extract_natives_if_needed_for_flavor(
 
     if !is_vulkan {
         // S'assurer qu'aucune DLL Zink ne reste dans le dossier OpenGL standard
-        let stray_gl = natives_dir.join("opengl32.dll");
-        if stray_gl.is_file() {
-            let _ = std::fs::remove_file(stray_gl);
+        for stray_name in ["opengl32.dll", "zinkgl32.dll"] {
+            let stray_gl = natives_dir.join(stray_name);
+            if stray_gl.is_file() {
+                let _ = std::fs::remove_file(stray_gl);
+            }
         }
     }
 
@@ -1143,7 +1145,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.7 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.8 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\

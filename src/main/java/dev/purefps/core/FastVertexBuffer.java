@@ -28,4 +28,6 @@ public interface FastVertexBuffer {
     void purefps$setArenaSlot(RegionLayerArena arena, int firstVertex, int allocVertices);
 
     void purefps$releaseArenaSlot();
+
+    boolean purefps$isTriangleBuffer();
 }

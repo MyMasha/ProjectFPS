@@ -667,6 +667,36 @@ pub fn prepare_isolated_vulkan_jre(
     Ok(vk_javaw)
 }
 
+pub fn patch_opengl32_dll_references_in_place(buf: &mut [u8]) -> usize {
+    const LOWER: &[u8; 13] = b"opengl32.dll\0";
+    const UPPER: &[u8; 13] = b"OPENGL32.dll\0";
+    const REPL: &[u8; 13] = b"zinkgl32.dll\0";
+    if buf.len() < REPL.len() {
+        return 0;
+    }
+    let mut count = 0usize;
+    let mut i = 0usize;
+    let limit = buf.len() - REPL.len();
+    while i <= limit {
+        let mut matched = true;
+        for j in 0..REPL.len() {
+            let b = buf[i + j];
+            if b != LOWER[j] && b != UPPER[j] {
+                matched = false;
+                break;
+            }
+        }
+        if matched {
+            buf[i..i + REPL.len()].copy_from_slice(REPL);
+            count += 1;
+            i += REPL.len();
+        } else {
+            i += 1;
+        }
+    }
+    count
+}
+
 fn deploy_vulkan_zink_to_target_dir(zink_dir: &Path, target_dir: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(target_dir).map_err(|e| e.to_string())?;
     for dll in std::iter::once(&VULKAN_CORE_DLL).chain(VULKAN_OPTIONAL_COMPANION_DLLS.iter()) {
@@ -690,7 +720,32 @@ fn deploy_vulkan_zink_to_target_dir(zink_dir: &Path, target_dir: &Path) -> Resul
                 .map_err(|e| format!("Déploiement Vulkan '{dll}' : {e}"))?;
         }
     }
-    Ok(target_dir.join(VULKAN_CORE_DLL))
+
+    // Génère zinkgl32.dll (hors Windows KnownDLLs) et patche lwjgl64.dll dans natives-1.8.9-vulkan
+    let core_dst = target_dir.join(VULKAN_CORE_DLL);
+    let alias_dst = target_dir.join("zinkgl32.dll");
+    let need_alias = match (std::fs::metadata(&core_dst), std::fs::metadata(&alias_dst)) {
+        (Ok(sm), Ok(dm)) => sm.len() != dm.len(),
+        (Ok(_), Err(_)) => true,
+        _ => false,
+    };
+    if need_alias {
+        if let Ok(mut bytes) = std::fs::read(&core_dst) {
+            patch_opengl32_dll_references_in_place(&mut bytes);
+            let _ = std::fs::write(&alias_dst, &bytes);
+        }
+    }
+
+    let lwjgl_dst = target_dir.join("lwjgl64.dll");
+    if lwjgl_dst.is_file() && alias_dst.is_file() {
+        if let Ok(mut lwjgl_bytes) = std::fs::read(&lwjgl_dst) {
+            if patch_opengl32_dll_references_in_place(&mut lwjgl_bytes) > 0 {
+                let _ = std::fs::write(&lwjgl_dst, &lwjgl_bytes);
+            }
+        }
+    }
+
+    Ok(core_dst)
 }
 
 /// Copie `opengl32.dll` (Mesa3D Zink) et ses DLL compagnes directement dans le dossier `natives-1.8.9-vulkan`
@@ -764,5 +819,16 @@ mod tests {
         assert_eq!(std::fs::metadata(cache.join("opengl32.dll")).unwrap().len(), 80_000);
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_patch_opengl32_dll_references_in_place() {
+        let mut sample = b"prefix\0OPENGL32.dll\0middle\0opengl32.dll\0suffix".to_vec();
+        let patched = patch_opengl32_dll_references_in_place(&mut sample);
+        assert_eq!(patched, 2);
+        assert_eq!(
+            &sample[..],
+            b"prefix\0zinkgl32.dll\0middle\0zinkgl32.dll\0suffix"
+        );
     }
 }

@@ -1713,5 +1713,29 @@ public class PureFPSCoreTest {
             assertEquals(0xAABBCCDDEEFF0000L + origV, dst.getLong(off + 12));
             assertEquals(0x1122334455660000L + origV, dst.getLong(off + 20));
         }
+
+        // Verify prepareChunkTrianglesBuffer (used for TRANSLUCENT stained glass / water chunks)
+        // expands 4-vertex quads into 6-vertex GL_TRIANGLES without mutating the source ByteBuffer
+        ByteBuffer stagedTri = ChunkRegionManager.prepareChunkTrianglesBuffer(src, quadVerts);
+        assertEquals(triVerts * stride, stagedTri.limit());
+        assertEquals(quadVerts * stride, src.limit());
+        for (int t = 0; t < triVerts; t++) {
+            int origV = expectedMap[t];
+            int off = t * stride;
+            assertEquals(0xAABBCCDDEEFF0000L + origV, stagedTri.getLong(off + 12));
+            assertEquals(0x1122334455660000L + origV, stagedTri.getLong(off + 20));
+        }
+
+        // Verify VulkanBackendHelper PE64 IAT mapping and KnownDLLs bypass string patcher
+        byte[] samplePe = "head\0OPENGL32.dll\0mid\0opengl32.dll\0tail".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        assertEquals(2, VulkanBackendHelper.patchOpenGlDllNameBytes(samplePe));
+        assertEquals("head\0zinkgl32.dll\0mid\0zinkgl32.dll\0tail", new String(samplePe, java.nio.charset.StandardCharsets.US_ASCII));
+        assertEquals("wglChoosePixelFormat", VulkanBackendHelper.mapLwjglImportToZinkExport("GDI32.dll", "ChoosePixelFormat"));
+        assertEquals("wglDescribePixelFormat", VulkanBackendHelper.mapLwjglImportToZinkExport("GDI32.dll", "DescribePixelFormat"));
+        assertEquals("wglSetPixelFormat", VulkanBackendHelper.mapLwjglImportToZinkExport("GDI32.dll", "SetPixelFormat"));
+        assertEquals("wglSwapBuffers", VulkanBackendHelper.mapLwjglImportToZinkExport("GDI32.dll", "SwapBuffers"));
+        assertNull(VulkanBackendHelper.mapLwjglImportToZinkExport("GDI32.dll", "GetStockObject"));
+        assertEquals("wglCreateContext", VulkanBackendHelper.mapLwjglImportToZinkExport("OPENGL32.dll", "wglCreateContext"));
+        assertEquals("wglMakeCurrent", VulkanBackendHelper.mapLwjglImportToZinkExport("zinkgl32.dll", "wglMakeCurrent"));
     }
 }

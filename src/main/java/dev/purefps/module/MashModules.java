@@ -283,7 +283,7 @@ public final class MashModules {
             }
             dirty = true;
         }
-        if (loadedVersion == null || !"4.5.7".equals(loadedVersion)) {
+        if (loadedVersion == null || !"4.5.8".equals(loadedVersion)) {
             setSilent("hyp_chat_tabs", true);
             setBoolSilent("hyp_chat_tabs", "filter_chat", true);
             dirty = true;
@@ -309,7 +309,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.5.7");
+        root.addProperty("version", "4.5.8");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);

@@ -157,6 +157,14 @@ public final class ChunkRegionManager {
         return stagingBuffer;
     }
 
+    public static ByteBuffer prepareChunkTrianglesBuffer(ByteBuffer srcBytes, int quadVertexCount) {
+        int triVertexCount = (quadVertexCount >> 2) * 6;
+        int requiredBytes = triVertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
+        ensureStagingCapacity(requiredBytes);
+        transformBlockQuadsToTriangles(srcBytes, quadVertexCount, 0.0F, 0.0F, 0.0F, stagingBuffer);
+        return stagingBuffer;
+    }
+
     public static void translateBakedVertices(
             ByteBuffer srcBytes,
             int vertexCount,
@@ -510,14 +518,10 @@ public final class ChunkRegionManager {
             }
         }
 
-        boolean indexSupported = QuadIndexBuffer.isSupported();
+        boolean indexSupported = false;
+        boolean indexChecked = false;
         int ushortEbo = -1;
         int boundEbo = -1;
-        if (indexSupported) {
-            ushortEbo = QuadIndexBuffer.ensureIndexBufferReady(QuadIndexBuffer.MAX_USHORT_VERTICES);
-            boundEbo = ushortEbo;
-            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, boundEbo);
-        }
 
         GlStateManager.pushMatrix();
         float prevX = 0.0F;
@@ -580,22 +584,33 @@ public final class ChunkRegionManager {
                 onLightmapUnit = false;
             }
 
-            if (indexSupported && (vCount & 3) == 0) {
-                int neededEbo = vCount <= QuadIndexBuffer.MAX_USHORT_VERTICES
-                        ? ushortEbo
-                        : QuadIndexBuffer.ensureIndexBufferReady(vCount);
-                if (neededEbo != boundEbo) {
-                    boundEbo = neededEbo;
-                    GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, boundEbo);
-                }
-                GL11.glDrawElements(
-                        GL11.GL_TRIANGLES,
-                        QuadIndexBuffer.quadVertexCountToIndexCount(vCount),
-                        QuadIndexBuffer.resolveIndexType(vCount),
-                        0L
-                );
+            if (fvb.purefps$isTriangleBuffer()) {
+                GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, vCount);
             } else {
-                GL11.glDrawArrays(GL11.GL_QUADS, 0, vCount);
+                if (!indexChecked) {
+                    indexSupported = QuadIndexBuffer.isSupported();
+                    if (indexSupported) {
+                        ushortEbo = QuadIndexBuffer.ensureIndexBufferReady(QuadIndexBuffer.MAX_USHORT_VERTICES);
+                    }
+                    indexChecked = true;
+                }
+                if (indexSupported && (vCount & 3) == 0) {
+                    int neededEbo = vCount <= QuadIndexBuffer.MAX_USHORT_VERTICES
+                            ? ushortEbo
+                            : QuadIndexBuffer.ensureIndexBufferReady(vCount);
+                    if (neededEbo != boundEbo) {
+                        boundEbo = neededEbo;
+                        GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, boundEbo);
+                    }
+                    GL11.glDrawElements(
+                            GL11.GL_TRIANGLES,
+                            QuadIndexBuffer.quadVertexCountToIndexCount(vCount),
+                            QuadIndexBuffer.resolveIndexType(vCount),
+                            0L
+                    );
+                } else {
+                    GL11.glDrawArrays(GL11.GL_QUADS, 0, vCount);
+                }
             }
             fallbackDrawn++;
         }

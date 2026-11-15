@@ -50,7 +50,7 @@ public final class FastItemModelCache {
     }
 
     public static boolean tryRenderCached(IBakedModel model, int color) {
-        if (model == null || VulkanBackendHelper.isVulkanActive() || (color != -1 && color != GLINT_COLOR)) {
+        if (model == null || (color != -1 && color != GLINT_COLOR)) {
             return false;
         }
 
