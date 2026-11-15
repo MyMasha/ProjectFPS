@@ -304,7 +304,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.4.3");
+        root.addProperty("version", "4.4.4");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
@@ -645,14 +645,14 @@ public final class MashModules {
         MashFlags.uhcGoldScaleFactor = num("hyp_uhc_overlay", "scale", 1.35F);
         MashFlags.muteUnfocusedAudio = isOn("wld_mute_unfocused");
 
-        MashFlags.menuCursorEnabled = isOn("vis_menu_cursor");
-        MashFlags.menuCursorStyle = modeIdx("vis_menu_cursor", "style", 0);
-        MashFlags.menuCursorScale = num("vis_menu_cursor", "scale", 1.0F);
-        MashFlags.menuCursorColor = rawCol("vis_menu_cursor", "color", 0xFFFFFFFF);
-        MashFlags.menuCursorChroma = isChroma("vis_menu_cursor", "color");
-        MashFlags.menuCursorOutlineColor = rawCol("vis_menu_cursor", "outline_col", 0xFF0A0D14);
-        MashFlags.menuCursorShadow = bool("vis_menu_cursor", "shadow", true);
-        MashFlags.menuCursorClickPulse = bool("vis_menu_cursor", "click_pulse", false);
+        MashFlags.menuCursorEnabled = isOn("vis_custom_pointer");
+        MashFlags.menuCursorStyle = modeIdx("vis_custom_pointer", "style", 0);
+        MashFlags.menuCursorScale = num("vis_custom_pointer", "scale", 1.0F);
+        MashFlags.menuCursorColor = rawCol("vis_custom_pointer", "color", 0xFFFFFFFF);
+        MashFlags.menuCursorChroma = isChroma("vis_custom_pointer", "color");
+        MashFlags.menuCursorOutlineColor = rawCol("vis_custom_pointer", "outline_col", 0xFF0A0D14);
+        MashFlags.menuCursorShadow = bool("vis_custom_pointer", "shadow", true);
+        MashFlags.menuCursorClickPulse = bool("vis_custom_pointer", "click_pulse", false);
     }
 
     public static boolean isOn(String modId) {
@@ -1225,7 +1225,7 @@ public final class MashModules {
         m = regMod("vis_gui_font_hd", "Police lissée", "Utilise une police nette sur le HUD et les menus", "font hd police lisse", MashCategory.VISUAL, true);
         m.addSetting(new MashSetting.BooleanSetting("hud_smooth", "Actif sur le HUD", "Applique la police aux widgets", true));
 
-        m = regMod("vis_menu_cursor", "Curseur de menu", "Dessine un pointeur net en OpenGL dans tous les menus et inventaires", "curseur souris menu pointeur fleche mouse pointer", MashCategory.VISUAL, true);
+        m = regMod("vis_custom_pointer", "Pointeur personnalisé", "Remplace optionnellement le curseur Windows par un pointeur personnalisé dans les menus", "pointeur personnalise curseur souris menu fleche custom mouse pointer", MashCategory.VISUAL, false);
         m.addSetting(new MashSetting.ModeSetting("style", "Style", "Forme du pointeur dans les menus", 0, "Flèche Système", "Flèche Mash", "Diamant", "Croix"));
         m.addSetting(new MashSetting.NumberSetting("scale", "Taille", "Échelle du pointeur", 1.00F, 0.70F, 1.80F, 0.05F, "x"));
         m.addSetting(new MashSetting.ColorSetting("color", "Couleur", "Couleur principale du pointeur", 0xFFFFFFFF, true));

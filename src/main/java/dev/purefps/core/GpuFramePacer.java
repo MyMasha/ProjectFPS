@@ -7,16 +7,19 @@ import org.lwjgl.opengl.GL32;
 import org.lwjgl.opengl.GLContext;
 import org.lwjgl.opengl.GLSync;
 
+import java.util.concurrent.locks.LockSupport;
+
 /**
- * Régulateur matériel de file d'attente GPU (1-Frame-In-Flight GLSync) :
- * - Empêche le thread de rendu OpenGL d'empiler 3 à 5 frames d'avance dans l'ordonnanceur Windows WDDM
- *   lorsque les FPS sont élevés ou illimités.
- * - Élimine la famine GPU du compositeur DWM et du décodage/encodage vidéo matériel (streams Discord,
- *   navigateurs, OBS) tout en réduisant la latence souris-écran sans brider le débit CPU/GPU parallèle.
+ * Régulateur matériel de file d'attente GPU sans attente active (1-Frame-In-Flight GLSync non-bloquant) :
+ * - Empêche le thread de rendu OpenGL d'empiler 3 à 5 frames d'avance dans l'ordonnanceur Windows WDDM.
+ * - N'appelle jamais glClientWaitSync avec un timeout > 0 (qui provoque un busy-spin CPU à 100 % dans
+ *   nvoglv64.dll et gèle les streams Discord / DWM) : sonde en 0 ns puis cède proprement le cœur CPU
+ *   par tranches LockSupport.parkNanos uniquement lorsque le GPU est réellement saturé.
  */
 public final class GpuFramePacer {
 
-    private static final long MAX_WAIT_NS = 8_000_000L;
+    private static final long MAX_PARK_BUDGET_NS = 6_000_000L;
+    private static final long PARK_SLICE_NS = 350_000L;
 
     // 0 = non testé, 1 = OpenGL 3.2 natif, 2 = GL_ARB_sync, -1 = indisponible
     private static int syncBackend = 0;
@@ -49,7 +52,7 @@ public final class GpuFramePacer {
 
     /**
      * Appelé juste après Display.update() à la fin de chaque frame :
-     * attend la fin GPU de la frame N-1 avant d'autoriser la soumission de la frame N+1 (max 1 frame en vol).
+     * attend sans spin la fin GPU de la frame N-1 avant d'autoriser la soumission de la frame N+1.
      */
     public static void onFramePresented() {
         if (!Display.isCreated()) {
@@ -63,10 +66,24 @@ public final class GpuFramePacer {
         try {
             if (previousFrameFence != null) {
                 if (backend == 1) {
-                    GL32.glClientWaitSync(previousFrameFence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, MAX_WAIT_NS);
+                    int status = GL32.glClientWaitSync(previousFrameFence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
+                    if (status == GL32.GL_TIMEOUT_EXPIRED) {
+                        long deadline = System.nanoTime() + MAX_PARK_BUDGET_NS;
+                        while (status == GL32.GL_TIMEOUT_EXPIRED && System.nanoTime() < deadline) {
+                            LockSupport.parkNanos(PARK_SLICE_NS);
+                            status = GL32.glClientWaitSync(previousFrameFence, 0, 0L);
+                        }
+                    }
                     GL32.glDeleteSync(previousFrameFence);
                 } else {
-                    ARBSync.glClientWaitSync(previousFrameFence, ARBSync.GL_SYNC_FLUSH_COMMANDS_BIT, MAX_WAIT_NS);
+                    int status = ARBSync.glClientWaitSync(previousFrameFence, ARBSync.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
+                    if (status == ARBSync.GL_TIMEOUT_EXPIRED) {
+                        long deadline = System.nanoTime() + MAX_PARK_BUDGET_NS;
+                        while (status == ARBSync.GL_TIMEOUT_EXPIRED && System.nanoTime() < deadline) {
+                            LockSupport.parkNanos(PARK_SLICE_NS);
+                            status = ARBSync.glClientWaitSync(previousFrameFence, 0, 0L);
+                        }
+                    }
                     ARBSync.glDeleteSync(previousFrameFence);
                 }
                 previousFrameFence = null;

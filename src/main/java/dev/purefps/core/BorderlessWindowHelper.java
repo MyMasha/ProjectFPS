@@ -30,6 +30,8 @@ public final class BorderlessWindowHelper {
         int GCLP_HCURSOR = -12;
         int WS_POPUP = 0x80000000;
         int WS_VISIBLE = 0x10000000;
+        int WS_CLIPSIBLINGS = 0x04000000;
+        int WS_CLIPCHILDREN = 0x02000000;
         int WS_OVERLAPPEDWINDOW = 0x00CF0000;
         int SWP_NOZORDER = 0x0004;
         int SWP_NOACTIVATE = 0x0010;
@@ -37,7 +39,13 @@ public final class BorderlessWindowHelper {
         int SWP_SHOWWINDOW = 0x0040;
         int SWP_NOOWNERZORDER = 0x0200;
         int CURSOR_SHOWING = 0x00000001;
+        int SM_XVIRTUALSCREEN = 76;
+        int SM_YVIRTUALSCREEN = 77;
+        int SM_CXVIRTUALSCREEN = 78;
+        int SM_CYVIRTUALSCREEN = 79;
         long IDC_ARROW_ID = 32512L;
+
+        int GetSystemMetrics(int nIndex);
 
         int SetWindowLongW(Pointer hWnd, int nIndex, int dwNewLong);
 
@@ -452,27 +460,102 @@ public final class BorderlessWindowHelper {
         }
     }
 
+    /**
+     * Calcule une géométrie sans bordure garantie 100 % composée par DWM ("Composed: Flip") :
+     * sous Windows 10/11, une fenêtre OpenGL WS_POPUP dont le rectangle égale au pixel près celui
+     * du moniteur (EqualRect == true, ex: 0,0,1920,1080) est promue de force par win32kfull / nvoglv64.dll
+     * en "Hardware: Legacy Flip" (plein écran exclusif), ce qui fige la surface DWM (captures Win+Shift+S
+     * bloquées sur une ancienne image), masque le pointeur coloré Windows 11 et gèle les streams Discord.
+     * Étendre d'1 pixel un bord externe sans moniteur adjacent empêche EqualRect tout en couvrant 100 %
+     * de l'écran principal (masquage automatique de la barre des tâches Windows conservé).
+     */
+    public static int[] resolveDwmSafeBorderlessBounds(
+            int deskW,
+            int deskH,
+            int virtX,
+            int virtY,
+            int virtW,
+            int virtH
+    ) {
+        int w = Math.max(854, deskW);
+        int h = Math.max(480, deskH);
+        if (virtW <= 0 || virtH <= 0) {
+            return new int[]{0, 0, w, h + 1};
+        }
+        long virtRight = (long) virtX + (long) virtW;
+        long virtBottom = (long) virtY + (long) virtH;
+        if (virtBottom <= (long) h) {
+            return new int[]{0, 0, w, h + 1};
+        }
+        if (virtY >= 0) {
+            return new int[]{0, -1, w, h + 1};
+        }
+        if (virtRight <= (long) w) {
+            return new int[]{0, 0, w + 1, h};
+        }
+        if (virtX >= 0) {
+            return new int[]{-1, 0, w + 1, h};
+        }
+        return new int[]{0, 0, w, h + 1};
+    }
+
+    public static int[] computeDwmSafeBorderlessBounds(int deskW, int deskH) {
+        int w = Math.max(854, deskW);
+        int h = Math.max(480, deskH);
+        if (IS_WINDOWS) {
+            try {
+                Win32Borderless u32 = user32();
+                if (u32 != null) {
+                    int vx = u32.GetSystemMetrics(Win32Borderless.SM_XVIRTUALSCREEN);
+                    int vy = u32.GetSystemMetrics(Win32Borderless.SM_YVIRTUALSCREEN);
+                    int vw = u32.GetSystemMetrics(Win32Borderless.SM_CXVIRTUALSCREEN);
+                    int vh = u32.GetSystemMetrics(Win32Borderless.SM_CYVIRTUALSCREEN);
+                    return resolveDwmSafeBorderlessBounds(w, h, vx, vy, vw, vh);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return new int[]{0, 0, w, h + 1};
+    }
+
+    public static void applyPreCreateBorderlessLocation() {
+        try {
+            DisplayMode desktop = Display.getDesktopDisplayMode();
+            int deskW = (desktop != null && desktop.getWidth() > 0) ? desktop.getWidth() : 1920;
+            int deskH = (desktop != null && desktop.getHeight() > 0) ? desktop.getHeight() : 1080;
+            int[] bounds = computeDwmSafeBorderlessBounds(deskW, deskH);
+            Display.setLocation(bounds[0], bounds[1]);
+            Display.setResizable(false);
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static boolean applyInitialBorderless(Minecraft mc) {
         try {
             System.setProperty("org.lwjgl.opengl.Window.undecorated", "true");
             DisplayMode desktop = Display.getDesktopDisplayMode();
-            int targetW = (desktop != null && desktop.getWidth() > 0) ? desktop.getWidth() : 1920;
-            int targetH = (desktop != null && desktop.getHeight() > 0) ? desktop.getHeight() : 1080;
+            int deskW = (desktop != null && desktop.getWidth() > 0) ? desktop.getWidth() : 1920;
+            int deskH = (desktop != null && desktop.getHeight() > 0) ? desktop.getHeight() : 1080;
+            int[] bounds = computeDwmSafeBorderlessBounds(deskW, deskH);
+            int bx = bounds[0];
+            int by = bounds[1];
+            int bw = bounds[2];
+            int bh = bounds[3];
 
             if (mc != null) {
-                if (mc.displayWidth > 0 && mc.displayWidth < targetW) {
+                if (mc.displayWidth > 0 && mc.displayWidth < deskW) {
                     savedWindowedW = mc.displayWidth;
                 }
-                if (mc.displayHeight > 0 && mc.displayHeight < targetH) {
+                if (mc.displayHeight > 0 && mc.displayHeight < deskH) {
                     savedWindowedH = mc.displayHeight;
                 }
-                mc.displayWidth = targetW;
-                mc.displayHeight = targetH;
+                mc.displayWidth = bw;
+                mc.displayHeight = bh;
             }
 
             Display.setFullscreen(false);
-            Display.setDisplayMode(new DisplayMode(targetW, targetH));
-            Display.setLocation(0, 0);
+            Display.setDisplayMode(new DisplayMode(bw, bh));
+            Display.setLocation(bx, by);
             Display.setResizable(false);
             currentlyBorderless = true;
             return true;
@@ -483,14 +566,19 @@ public final class BorderlessWindowHelper {
 
     public static void ensurePostCreateBorderlessPlacement(Minecraft mc, boolean bringToFront) {
         DisplayMode desktop = Display.getDesktopDisplayMode();
-        int w = (desktop != null && desktop.getWidth() > 0) ? desktop.getWidth() : (mc != null ? mc.displayWidth : 1920);
-        int h = (desktop != null && desktop.getHeight() > 0) ? desktop.getHeight() : (mc != null ? mc.displayHeight : 1080);
+        int deskW = (desktop != null && desktop.getWidth() > 0) ? desktop.getWidth() : (mc != null ? mc.displayWidth : 1920);
+        int deskH = (desktop != null && desktop.getHeight() > 0) ? desktop.getHeight() : (mc != null ? mc.displayHeight : 1080);
+        int[] bounds = computeDwmSafeBorderlessBounds(deskW, deskH);
+        if (mc != null) {
+            mc.displayWidth = bounds[2];
+            mc.displayHeight = bounds[3];
+        }
         currentlyBorderless = true;
-        applyWin32WindowStyle(true, 0, 0, w, h, bringToFront, !bringToFront);
+        applyWin32WindowStyle(true, bounds[0], bounds[1], bounds[2], bounds[3], bringToFront, !bringToFront);
     }
 
     /**
-     * Bascule instantanément F11 entre Plein Écran Sans Bordure (0, 0) et Fenêtré décoré centré.
+     * Bascule instantanément F11 entre Plein Écran Sans Bordure DWM (+1 px) et Fenêtré décoré centré.
      */
     public static boolean toggleBorderlessFullscreen(Minecraft mc) {
         try {
@@ -503,17 +591,23 @@ public final class BorderlessWindowHelper {
                     savedWindowedW = Math.max(854, Display.getWidth());
                     savedWindowedH = Math.max(480, Display.getHeight());
                 }
+                int[] bounds = computeDwmSafeBorderlessBounds(deskW, deskH);
+                int bx = bounds[0];
+                int by = bounds[1];
+                int bw = bounds[2];
+                int bh = bounds[3];
+
                 System.setProperty("org.lwjgl.opengl.Window.undecorated", "true");
                 Display.setFullscreen(false);
                 Display.setResizable(false);
-                Display.setDisplayMode(new DisplayMode(deskW, deskH));
-                Display.setLocation(0, 0);
-                applyWin32WindowStyle(true, 0, 0, deskW, deskH, false, false);
+                Display.setDisplayMode(new DisplayMode(bw, bh));
+                Display.setLocation(bx, by);
+                applyWin32WindowStyle(true, bx, by, bw, bh, false, false);
                 currentlyBorderless = true;
                 if (mc != null) {
-                    mc.displayWidth = deskW;
-                    mc.displayHeight = deskH;
-                    mc.resize(deskW, deskH);
+                    mc.displayWidth = bw;
+                    mc.displayHeight = bh;
+                    mc.resize(bw, bh);
                 }
             } else {
                 int winW = Math.min(savedWindowedW, Math.max(854, deskW - 120));
@@ -568,9 +662,10 @@ public final class BorderlessWindowHelper {
                 return;
             }
             Pointer hwnd = new Pointer(hwndVal);
+            int clipFlags = Win32Borderless.WS_CLIPSIBLINGS | Win32Borderless.WS_CLIPCHILDREN;
             int style = borderless
-                    ? (Win32Borderless.WS_POPUP | Win32Borderless.WS_VISIBLE)
-                    : (Win32Borderless.WS_OVERLAPPEDWINDOW | Win32Borderless.WS_VISIBLE);
+                    ? (Win32Borderless.WS_POPUP | Win32Borderless.WS_VISIBLE | clipFlags)
+                    : (Win32Borderless.WS_OVERLAPPEDWINDOW | Win32Borderless.WS_VISIBLE | clipFlags);
             u32.SetWindowLongW(hwnd, Win32Borderless.GWL_STYLE, style);
 
             if (silentBehindCurtain) {

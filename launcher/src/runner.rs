@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.3.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.4.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -302,6 +302,76 @@ fn collect_watched_189_game_dirs(primary_game_dir: &str) -> Vec<PathBuf> {
     dirs
 }
 
+/// Étend d'1 pixel le côté externe sans moniteur adjacent afin d'empêcher Windows 10/11 et
+/// nvoglv64.dll de basculer wglSwapBuffers en Legacy Exclusive Flip (qui fige les captures
+/// Win+Shift+S sur une ancienne frame, masque le pointeur coloré Windows 11 et bloque les streams Discord),
+/// tout en couvrant 100 % de l'écran principal pour masquer automatiquement la barre des tâches.
+pub fn resolve_dwm_safe_borderless_size(
+    screen_w: u32,
+    screen_h: u32,
+    virt_x: i32,
+    virt_y: i32,
+    virt_w: i32,
+    virt_h: i32,
+) -> (u32, u32) {
+    let w = screen_w.max(854);
+    let h = screen_h.max(480);
+    if virt_w <= 0 || virt_h <= 0 {
+        return (w, h + 1);
+    }
+    let virt_right = i64::from(virt_x) + i64::from(virt_w);
+    let virt_bottom = i64::from(virt_y) + i64::from(virt_h);
+    if virt_bottom <= i64::from(h) || virt_y >= 0 {
+        (w, h + 1)
+    } else if virt_right <= i64::from(w) || virt_x >= 0 {
+        (w + 1, h)
+    } else {
+        (w, h + 1)
+    }
+}
+
+#[cfg(windows)]
+fn query_virtual_screen_metrics() -> (i32, i32, i32, i32) {
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetSystemMetrics(nIndex: i32) -> i32;
+    }
+    unsafe {
+        (
+            GetSystemMetrics(76),
+            GetSystemMetrics(77),
+            GetSystemMetrics(78),
+            GetSystemMetrics(79),
+        )
+    }
+}
+
+#[cfg(not(windows))]
+fn query_virtual_screen_metrics() -> (i32, i32, i32, i32) {
+    (0, 0, 0, 0)
+}
+
+fn is_borderless_enabled_for_game_dir(game_dir: &Path) -> bool {
+    let props = game_dir.join("config").join("purefps.properties");
+    if let Ok(content) = std::fs::read_to_string(props) {
+        for line in content.lines() {
+            if let Some(rest) = line.trim().strip_prefix("borderlessFullscreen=") {
+                return !rest.trim().eq_ignore_ascii_case("false");
+            }
+        }
+    }
+    true
+}
+
+fn compute_launch_window_dimensions(game_dir: &Path, screen_w: u32, screen_h: u32) -> (u32, u32) {
+    if is_borderless_enabled_for_game_dir(game_dir) {
+        let (vx, vy, vw, vh) = query_virtual_screen_metrics();
+        resolve_dwm_safe_borderless_size(screen_w, screen_h, vx, vy, vw, vh)
+    } else {
+        (screen_w.max(854), screen_h.max(480))
+    }
+}
+
 pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: u32, screen_h: u32) {
     let Some(instance_root) = instance_game_dir.parent() else {
         return;
@@ -310,6 +380,8 @@ pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: 
     let Ok(existing) = std::fs::read_to_string(&cfg_path) else {
         return;
     };
+
+    let (win_w, win_h) = compute_launch_window_dimensions(instance_game_dir, screen_w, screen_h);
 
     let mut updated_lines: Vec<String> = Vec::new();
     let mut saw_min = false;
@@ -329,10 +401,10 @@ pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: 
             updated_lines.push("OverrideWindow=true".to_owned());
             saw_override_win = true;
         } else if line.starts_with("WindowWidth=") {
-            updated_lines.push(format!("WindowWidth={}", screen_w.max(854)));
+            updated_lines.push(format!("WindowWidth={win_w}"));
             saw_win_w = true;
         } else if line.starts_with("WindowHeight=") {
-            updated_lines.push(format!("WindowHeight={}", screen_h.max(480)));
+            updated_lines.push(format!("WindowHeight={win_h}"));
             saw_win_h = true;
         } else {
             updated_lines.push(line.to_owned());
@@ -348,10 +420,10 @@ pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: 
         updated_lines.push("OverrideWindow=true".to_owned());
     }
     if !saw_win_w {
-        updated_lines.push(format!("WindowWidth={}", screen_w.max(854)));
+        updated_lines.push(format!("WindowWidth={win_w}"));
     }
     if !saw_win_h {
-        updated_lines.push(format!("WindowHeight={}", screen_h.max(480)));
+        updated_lines.push(format!("WindowHeight={win_h}"));
     }
     let _ = std::fs::write(&cfg_path, updated_lines.join("\n") + "\n");
 }
@@ -577,6 +649,8 @@ pub fn run_direct_jvm_blocking(
     )));
 
     let classpath = build_classpath(&prefs.libraries_dir)?;
+    let (win_w, win_h) =
+        compute_launch_window_dimensions(Path::new(&prefs.game_dir), screen_w, screen_h);
     let _ = proxy.send_event(AppEvent::LogLine(format!(
         "[MashClient] Démarrage de Minecraft 1.8.9 ({} Mo, {}x{}, {})...",
         prefs.ram_mb, screen_w, screen_h, username
@@ -585,7 +659,8 @@ pub fn run_direct_jvm_blocking(
     let mut cmd = Command::new(&prefs.java_path);
     cmd.current_dir(&prefs.game_dir)
         .env_remove("SHIM_MCCOMPAT")
-        .env("__GL_THREADED_OPTIMIZATIONS", "1")
+        .env("__GL_THREADED_OPTIMIZATIONS", "0")
+        .env("__GL_YIELD", "USLEEP")
         .arg(format!("-Xms{}M", prefs.ram_mb))
         .arg(format!("-Xmx{}M", prefs.ram_mb))
         .arg("-XX:+UnlockExperimentalVMOptions")
@@ -625,9 +700,9 @@ pub fn run_direct_jvm_blocking(
         .arg("--userType")
         .arg(&user_type)
         .arg("--width")
-        .arg(screen_w.max(854).to_string())
+        .arg(win_w.to_string())
         .arg("--height")
-        .arg(screen_h.max(480).to_string())
+        .arg(win_h.to_string())
         .arg("--tweakClass")
         .arg("net.minecraftforge.fml.common.launcher.FMLTweaker");
 
@@ -756,7 +831,8 @@ pub fn spawn_prism_bridge_now(
 
     let mut cmd = Command::new(&prefs.prism_exe);
     cmd.env_remove("SHIM_MCCOMPAT")
-        .env("__GL_THREADED_OPTIMIZATIONS", "1")
+        .env("__GL_THREADED_OPTIMIZATIONS", "0")
+        .env("__GL_YIELD", "USLEEP")
         .arg("--launch")
         .arg(instance_id);
     if prefs.quick_join_hypixel {
@@ -812,5 +888,25 @@ mod tests {
         let uuid = offline_uuid_hex("PurePlayer");
         assert_eq!(uuid.len(), 32);
         assert_eq!(&uuid[12..13], "3");
+    }
+
+    #[test]
+    fn test_dwm_safe_borderless_size_prevents_equal_rect_flip() {
+        assert_eq!(
+            resolve_dwm_safe_borderless_size(1920, 1080, 0, 0, 1920, 1080),
+            (1920, 1081)
+        );
+        assert_eq!(
+            resolve_dwm_safe_borderless_size(1920, 1080, 0, 0, 3840, 1080),
+            (1920, 1081)
+        );
+        assert_eq!(
+            resolve_dwm_safe_borderless_size(1920, 1080, 0, 0, 1920, 2160),
+            (1920, 1081)
+        );
+        assert_eq!(
+            resolve_dwm_safe_borderless_size(1920, 1080, 0, -1080, 1920, 3240),
+            (1921, 1080)
+        );
     }
 }

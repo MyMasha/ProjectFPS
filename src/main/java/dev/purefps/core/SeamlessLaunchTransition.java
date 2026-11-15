@@ -117,7 +117,7 @@ public final class SeamlessLaunchTransition {
                 cfgDir.mkdirs();
             }
             File splashFile = new File(cfgDir, "splash.properties");
-            String content = "# MashClient 4.4.3 — Single-Context NVIDIA Threaded GL Fast Boot\n"
+            String content = "# MashClient 4.4.4 — Single-Context DWM-Composed Fast Boot\n"
                     + "enabled=false\n"
                     + "background=0x000000\n"
                     + "font=0x000000\n"
@@ -150,10 +150,6 @@ public final class SeamlessLaunchTransition {
         BorderlessWindowHelper.installBlackWindowBackground();
 
         if (active || PureFPSConfig.borderlessFullscreen) {
-            try {
-                Display.setLocation(0, 0);
-            } catch (Throwable ignored) {
-            }
             // Sous rideau Launcher (active=true) : placement silencieux SWP_NOACTIVATE ; en lancement direct : activation immédiate
             BorderlessWindowHelper.ensurePostCreateBorderlessPlacement(mc, !active);
         }

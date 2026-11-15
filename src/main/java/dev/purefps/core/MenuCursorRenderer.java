@@ -57,15 +57,16 @@ public final class MenuCursorRenderer {
         boolean inMenu = mc.currentScreen != null
                 && (!Mouse.isCreated() || !Mouse.isGrabbed());
 
-        // Garde le rideau #000000 100 % pur sur les 2 frames de pré-chauffage avant l'émergence
+        // Garde le rideau #000000 100 % pur uniquement sur les 2 frames de pré-chauffage depuis le Launcher
         if (inMenu
+                && SeamlessLaunchTransition.isActive()
                 && mc.currentScreen instanceof GuiPureMainMenu
                 && !BlackHoleEmergenceRenderer.hasPresentedInitialBlackFrames()) {
             BorderlessWindowHelper.setClientHardwareCursorBlank(true);
             return;
         }
 
-        if (!inMenu || !PureFPSConfigAllowsCustomCursor()) {
+        if (!inMenu || !isCustomPointerModuleActive()) {
             BorderlessWindowHelper.setClientHardwareCursorBlank(false);
             if (inMenu) {
                 BorderlessWindowHelper.ensureMenuCursorVisible();
@@ -98,7 +99,7 @@ public final class MenuCursorRenderer {
             return;
         }
 
-        // Masque le curseur client LWJGL dans HTCLIENT pour éviter tout double curseur au-dessus de Minecraft
+        // Masque le curseur client LWJGL dans HTCLIENT uniquement lorsque le pointeur personnalisé est actif
         BorderlessWindowHelper.setClientHardwareCursorBlank(true);
 
         MashModules.ensureRegistered();
@@ -141,8 +142,8 @@ public final class MenuCursorRenderer {
         drawCursorQuadStateSafe(dispW, dispH, x0, y0, x1, y1, px, py, totalScale);
     }
 
-    private static boolean PureFPSConfigAllowsCustomCursor() {
-        return !dev.purefps.config.PureFPSConfig.enabled || MashFlags.menuCursorEnabled;
+    public static boolean isCustomPointerModuleActive() {
+        return dev.purefps.config.PureFPSConfig.enabled && MashFlags.menuCursorEnabled;
     }
 
     private static int resolveFillArgb(int style) {

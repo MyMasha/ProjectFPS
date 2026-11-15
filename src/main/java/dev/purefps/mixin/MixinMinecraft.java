@@ -30,11 +30,11 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.4.3) :
+ * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.4.4) :
  * 1. Supprime les 2 appels bloquants GL11.glGetError() par frame dans checkGLError.
- * 2. Régule la file GPU (1-frame-in-flight GLSync) et le limiteur hors focus (60 FPS visible / 30 FPS réduit)
- *    pour éliminer tout freeze des streams Discord, navigateurs et applications en arrière-plan.
- * 3. Dessine un pointeur de souris matériel-indépendant en OpenGL dans FBO 0 avant chaque SwapBuffers.
+ * 2. Régule la file GPU sans spin (1-frame-in-flight GLSync) et maintient la composition DWM fenêtrée (+1 px)
+ *    pour éliminer tout freeze des streams Discord, captures Win+Shift+S et pointeurs Windows personnalisés.
+ * 3. Préserve le curseur matériel natif de Windows par défaut (ou un pointeur personnalisé optionnel).
  */
 @Mixin(Minecraft.class)
 public abstract class MixinMinecraft {
@@ -136,8 +136,7 @@ public abstract class MixinMinecraft {
     )
     private void purefps$configureSeamlessBorderless(boolean resizable) throws LWJGLException {
         if (SeamlessLaunchTransition.isActive() || PureFPSConfig.borderlessFullscreen) {
-            Display.setLocation(0, 0);
-            Display.setResizable(false);
+            BorderlessWindowHelper.applyPreCreateBorderlessLocation();
         } else {
             Display.setResizable(resizable);
         }
@@ -187,7 +186,7 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle("MashClient 4.4.3 | Minecraft 1.8.9");
+            Display.setTitle("MashClient 4.4.4 | Minecraft 1.8.9");
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
     }

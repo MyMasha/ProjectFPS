@@ -701,7 +701,7 @@ public class PureFPSCoreTest {
             java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
             java.util.List<dev.purefps.module.MashModule> huds = dev.purefps.module.MashModules.getHudModules();
 
-            assertEquals("MashClient 4.4.3 must expose exactly 204 modules", 204, all.size());
+            assertEquals("MashClient 4.4.4 must expose exactly 204 modules", 204, all.size());
             assertEquals("MashClient 4.0 must expose 65 draggable HUD widgets", 65, huds.size());
 
             for (dev.purefps.module.MashModule mod : all) {
@@ -857,8 +857,8 @@ public class PureFPSCoreTest {
                 {"Coordinates", "hud_coords"},
                 {"Zoom", "pvp_zoom"},
                 {"FOV Changer", "pvp_fov"},
-                {"Menu Cursor", "vis_menu_cursor"},
-                {"invisible mouse", "vis_menu_cursor"}
+                {"Custom Mouse Pointer", "vis_custom_pointer"},
+                {"custom cursor", "vis_custom_pointer"}
         };
 
         for (String[] pair : expectedTopMatches) {
@@ -1108,15 +1108,27 @@ public class PureFPSCoreTest {
     }
 
     @Test
-    public void testMenuCursorRendererSdfAndSupersampledRasterizer() throws Exception {
-        java.io.File tempDir = java.nio.file.Files.createTempDirectory("purefps-v443-cursor").toFile();
+    public void testMenuCursorRendererSdfAndNativeCursorDefault() throws Exception {
+        java.io.File tempDir = java.nio.file.Files.createTempDirectory("purefps-v444-cursor").toFile();
         tempDir.deleteOnExit();
+        PureFPSConfig.enabled = true;
         dev.purefps.module.MashModules.init(tempDir);
 
-        dev.purefps.module.MashModule cursorMod = dev.purefps.module.MashModules.getById("vis_menu_cursor");
-        assertNotNull("vis_menu_cursor doit être enregistré", cursorMod);
-        assertTrue("vis_menu_cursor doit être actif par défaut", cursorMod.isEnabled());
+        assertNull("Ancien module vis_menu_cursor ne doit plus écraser le curseur OS natif",
+                dev.purefps.module.MashModules.getById("vis_menu_cursor"));
+        dev.purefps.module.MashModule cursorMod = dev.purefps.module.MashModules.getById("vis_custom_pointer");
+        assertNotNull("vis_custom_pointer doit être enregistré", cursorMod);
+        assertFalse("vis_custom_pointer doit être désactivé par défaut pour préserver le curseur Windows natif",
+                cursorMod.isEnabled());
+        assertFalse(dev.purefps.module.MashFlags.menuCursorEnabled);
+        assertFalse(MenuCursorRenderer.isCustomPointerModuleActive());
+
+        // Activation manuelle optionnelle par l'utilisateur
+        cursorMod.setEnabled(true);
         assertTrue(dev.purefps.module.MashFlags.menuCursorEnabled);
+        assertTrue(MenuCursorRenderer.isCustomPointerModuleActive());
+        cursorMod.setEnabled(false);
+        assertFalse(MenuCursorRenderer.isCustomPointerModuleActive());
         assertEquals(0, dev.purefps.module.MashFlags.menuCursorStyle);
 
         for (int style = 0; style <= 2; style++) {
@@ -1144,5 +1156,62 @@ public class PureFPSCoreTest {
         int centerIdx = (32 * 64 + 32) * 4;
         assertEquals(255, crossRgba[centerIdx + 3] & 0xFF);
         assertEquals(0, crossRgba[(63 * 64 + 63) * 4 + 3] & 0xFF);
+    }
+
+    @Test
+    public void testDwmSafeBorderlessBoundsPreventsLegacyExclusiveFlip() {
+        // 1. Moniteur unique 1920x1080 -> {0, 0, 1920, 1081} (empêche EqualRect Legacy Flip + masque la barre des tâches)
+        assertArrayEquals(
+                new int[]{0, 0, 1920, 1081},
+                BorderlessWindowHelper.resolveDwmSafeBorderlessBounds(1920, 1080, 0, 0, 1920, 1080)
+        );
+
+        // 2. Double écran côte-à-côte (second moniteur à droite ou à gauche, aucun en bas) -> {0, 0, 1920, 1081}, 0 débordement latéral
+        assertArrayEquals(
+                new int[]{0, 0, 1920, 1081},
+                BorderlessWindowHelper.resolveDwmSafeBorderlessBounds(1920, 1080, 0, 0, 3840, 1080)
+        );
+        assertArrayEquals(
+                new int[]{0, 0, 2560, 1441},
+                BorderlessWindowHelper.resolveDwmSafeBorderlessBounds(2560, 1440, -1920, 0, 4480, 1440)
+        );
+
+        // 3. Second moniteur en bas (virtBottom > deskH, aucun en haut virtY == 0) -> étend en haut {0, -1, 1920, 1081}, bas exact à 1080 !
+        int[] stackedBottom = BorderlessWindowHelper.resolveDwmSafeBorderlessBounds(1920, 1080, 0, 0, 1920, 2160);
+        assertArrayEquals(new int[]{0, -1, 1920, 1081}, stackedBottom);
+        assertEquals("Aucun pixel ne doit déborder sur le moniteur du bas", 1080, stackedBottom[1] + stackedBottom[3]);
+
+        // 4. Moniteurs en haut ET en bas, aucun à droite -> étend à droite {0, 0, 1921, 1080}
+        assertArrayEquals(
+                new int[]{0, 0, 1921, 1080},
+                BorderlessWindowHelper.resolveDwmSafeBorderlessBounds(1920, 1080, 0, -1080, 1920, 3240)
+        );
+
+        // 5. Moniteurs en haut, en bas ET à droite, aucun à gauche -> étend à gauche {-1, 0, 1921, 1080}
+        int[] openLeft = BorderlessWindowHelper.resolveDwmSafeBorderlessBounds(1920, 1080, 0, -1080, 3840, 3240);
+        assertArrayEquals(new int[]{-1, 0, 1921, 1080}, openLeft);
+        assertEquals("Aucun pixel ne doit déborder sur le moniteur de droite", 1920, openLeft[0] + openLeft[2]);
+
+        // Vérification globale : ne retourne JAMAIS le rectangle exact (0, 0, deskW, deskH) et couvre toujours [0..deskW, 0..deskH]
+        int[][] layouts = {
+                {0, 0, 1920, 1080},
+                {0, 0, 3840, 1080},
+                {-1920, 0, 3840, 1080},
+                {0, 0, 1920, 2160},
+                {0, -1080, 1920, 3240},
+                {0, -1080, 3840, 3240},
+                {-1920, -1080, 5760, 3240}
+        };
+        for (int[] v : layouts) {
+            int[] b = BorderlessWindowHelper.resolveDwmSafeBorderlessBounds(1920, 1080, v[0], v[1], v[2], v[3]);
+            int left = b[0];
+            int top = b[1];
+            int right = b[0] + b[2];
+            int bottom = b[1] + b[3];
+            assertFalse("EqualRect (0,0,1920,1080) déclencherait Legacy Flip",
+                    left == 0 && top == 0 && right == 1920 && bottom == 1080);
+            assertTrue("Doit couvrir tout le moniteur pour masquer la barre des tâches",
+                    left <= 0 && top <= 0 && right >= 1920 && bottom >= 1080);
+        }
     }
 }

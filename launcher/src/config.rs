@@ -697,7 +697,7 @@ impl PureClientSettings {
         map.insert("smartChunkUpdates".into(), self.smart_chunk_updates.to_string());
         map.insert("menuWorldUnload".into(), self.menu_world_unload.to_string());
 
-        let mut out = String::from("# MashClient 4.4.3 Configuration\n");
+        let mut out = String::from("# MashClient 4.4.4 Configuration\n");
         for (k, v) in &map {
             out.push_str(k);
             out.push('=');
