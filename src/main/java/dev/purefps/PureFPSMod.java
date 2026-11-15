@@ -24,10 +24,11 @@ public class PureFPSMod {
 
     public static final String MODID = "purefps";
     public static final String NAME = "MashClient";
-    public static final String VERSION = "4.5.4";
+    public static final String VERSION = "4.5.5";
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
+        dev.purefps.core.VulkanBackendHelper.preloadZinkIfConfigured();
         File mcDir = event.getModConfigurationDirectory().getParentFile();
         dev.purefps.client.audio.LowLatencyAudioConfigurator.applyBeforeOpenALInit(mcDir);
         PureFPSConfig.init(mcDir);

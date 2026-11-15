@@ -134,6 +134,9 @@ public final class MashFlags {
     public static int tabPingRedMs = 150;
     public static double playerDetailDistSq = 1024.0D;
     public static boolean nametagShowOwnInF5 = true;
+    public static boolean hypChatTabs = true;
+    public static boolean hypChatTabsAutoPrefix = true;
+    public static boolean hypChatTabsFilter = false;
 
     private MashFlags() {
     }

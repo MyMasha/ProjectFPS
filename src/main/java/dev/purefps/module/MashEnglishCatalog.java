@@ -170,6 +170,7 @@ public final class MashEnglishCatalog {
         // 4. 25 HYPIXEL & CHAT MODULES
         // =====================================================================
         put("hyp_chat_pro", "Chat", "custom chat transparent chat timestamps");
+        put("hyp_chat_tabs", "Chat Channel Tabs (All/Team/Party)", "all team party chat tabs channel bar hypixel");
         put("hyp_autogg", "AutoGG", "auto gg good game karma");
         put("hyp_autotip_reminder", "AutoTip Tracker", "karma reminder network xp");
         put("hyp_nick_hider", "Nick Hider", "nickhider streamer mode hide name disguise");

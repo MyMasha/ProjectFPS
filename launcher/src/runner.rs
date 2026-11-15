@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.4.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.5.jar";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -226,7 +226,7 @@ fn build_download_agent() -> Result<ureq::Agent, String> {
 fn download_file_to_path(agent: &ureq::Agent, url: &str, dst: &Path) -> Result<(), String> {
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.4")
+        .set("User-Agent", "MashClient/4.5.5")
         .call()
         .map_err(|e| format!("Échec téléchargement {url}: {e}"))?;
     if let Some(parent) = dst.parent() {
@@ -539,8 +539,28 @@ pub fn ensure_standalone_189_files(
 }
 
 pub fn extract_natives_if_needed(libraries_dir: &str) -> Result<PathBuf, String> {
-    let natives_dir = app_storage_dir().join("natives-1.8.9");
+    extract_natives_if_needed_for_flavor(libraries_dir, false)
+}
+
+pub fn extract_natives_if_needed_for_flavor(
+    libraries_dir: &str,
+    is_vulkan: bool,
+) -> Result<PathBuf, String> {
+    let folder_name = if is_vulkan {
+        "natives-1.8.9-vulkan"
+    } else {
+        "natives-1.8.9"
+    };
+    let natives_dir = app_storage_dir().join(folder_name);
     std::fs::create_dir_all(&natives_dir).map_err(|e| format!("Création dossier natives: {e}"))?;
+
+    if !is_vulkan {
+        // S'assurer qu'aucune DLL Zink ne reste dans le dossier OpenGL standard
+        let stray_gl = natives_dir.join("opengl32.dll");
+        if stray_gl.is_file() {
+            let _ = std::fs::remove_file(stray_gl);
+        }
+    }
 
     if natives_dir.join("lwjgl64.dll").is_file() && natives_dir.join("OpenAL64.dll").is_file() {
         return Ok(natives_dir);
@@ -1123,7 +1143,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.1 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.5 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\
@@ -1133,18 +1153,38 @@ slots = 4\n\
 cf_level = 0\n"
 }
 
+fn read_configured_audio_output_device(game_dir: &Path) -> Option<String> {
+    let props_path = game_dir.join("config").join("purefps.properties");
+    let text = std::fs::read_to_string(props_path).ok()?;
+    for line in text.lines() {
+        if let Some(rest) = line.trim().strip_prefix("audioOutputDevice=") {
+            let unescaped = rest.trim().replace("\\:", ":").replace("\\=", "=");
+            if !unescaped.is_empty() {
+                return Some(unescaped);
+            }
+        }
+    }
+    None
+}
+
 fn ensure_low_latency_alsoft_ini(game_dir: &Path) -> Option<PathBuf> {
-    let content = build_low_latency_alsoft_ini();
+    let mut content = build_low_latency_alsoft_ini().to_owned();
+    if let Some(dev) = read_configured_audio_output_device(game_dir) {
+        let clean = dev.replace(['\r', '\n'], "");
+        if !clean.is_empty() {
+            content.push_str(&format!("device = {clean}\n"));
+        }
+    }
     let cfg_dir = game_dir.join("config");
     let _ = std::fs::create_dir_all(&cfg_dir);
     let game_ini = cfg_dir.join("mashclient_alsoft.ini");
-    if std::fs::write(&game_ini, content).is_ok() {
+    if std::fs::write(&game_ini, &content).is_ok() {
         return Some(game_ini);
     }
     let storage = app_storage_dir();
     let _ = std::fs::create_dir_all(&storage);
     let fallback_ini = storage.join("mashclient_alsoft.ini");
-    std::fs::write(&fallback_ini, content).ok()?;
+    std::fs::write(&fallback_ini, &content).ok()?;
     Some(fallback_ini)
 }
 
@@ -1199,7 +1239,17 @@ pub fn run_direct_jvm_blocking(
 
     ensure_standalone_189_files(&prefs.libraries_dir, &prefs.assets_dir, &proxy)?;
 
-    let natives_dir = extract_natives_if_needed(&prefs.libraries_dir)?;
+    let natives_dir = extract_natives_if_needed_for_flavor(&prefs.libraries_dir, is_vulkan)?;
+    let vulkan_dll_in_natives = if is_vulkan {
+        let dll_path = crate::runtimes::deploy_vulkan_zink_dlls_to_dir(&natives_dir, &prefs, &proxy)?;
+        let _ = proxy.send_event(AppEvent::LogLine(format!(
+            "[Vulkan Beta] Mesa3D Zink (opengl32.dll) deployed next to lwjgl64.dll: {}",
+            dll_path.display()
+        )));
+        Some(dll_path)
+    } else {
+        None
+    };
     let _ = proxy.send_event(AppEvent::LogLine(format!(
         "[MashClient] 64-bit natives ready: {}",
         natives_dir.display()
@@ -1220,7 +1270,7 @@ pub fn run_direct_jvm_blocking(
         .map(|n| n.get())
         .unwrap_or(4);
     let conc_gc_threads = (cpu_threads / 4).clamp(1, 4);
-    let region_size_mb = if prefs.ram_mb > 4096 { 16 } else { 8 };
+    let region_size_mb = if prefs.ram_mb > 4096 { 8 } else { 4 };
 
     let mut cmd = Command::new(&effective_java);
     cmd.current_dir(&active_game_dir)
@@ -1228,8 +1278,20 @@ pub fn run_direct_jvm_blocking(
         .env("__GL_THREADED_OPTIMIZATIONS", "0")
         .env("__GL_YIELD", "USLEEP")
         .env("ALSOFT_DRIVERS", "mmdevapi,dsound");
+    if let Some(pref_dev) = read_configured_audio_output_device(game_dir_path) {
+        cmd.env("ALSOFT_DEFAULT_DEVICE", pref_dev);
+    }
     if is_vulkan {
-        cmd.env("GALLIUM_DRIVER", "zink")
+        let orig_path = std::env::var("PATH").unwrap_or_default();
+        let vk_bin_str = effective_java
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let new_path = format!("{};{vk_bin_str};{orig_path}", natives_dir.display());
+        cmd.env("PATH", new_path)
+            .env("GALLIUM_DRIVER", "zink")
+            .env("MESA_LOADER_DRIVER_OVERRIDE", "zink")
+            .env("LIBGL_ALWAYS_SOFTWARE", "0")
             .env("MESA_GL_VERSION_OVERRIDE", "4.6COMPAT")
             .env("MESA_GLSL_VERSION_OVERRIDE", "460")
             .env("ZINK_DESCRIPTORS", "lazy")
@@ -1245,9 +1307,14 @@ pub fn run_direct_jvm_blocking(
         .arg("-XX:+UnlockExperimentalVMOptions")
         .arg("-XX:+UseG1GC")
         .arg(format!("-XX:ConcGCThreads={conc_gc_threads}"))
-        .arg("-XX:G1NewSizePercent=20")
-        .arg("-XX:G1ReservePercent=20")
-        .arg("-XX:MaxGCPauseMillis=50")
+        .arg("-XX:G1NewSizePercent=5")
+        .arg("-XX:G1MaxNewSizePercent=10")
+        .arg("-XX:MaxGCPauseMillis=20")
+        .arg("-XX:InitiatingHeapOccupancyPercent=35")
+        .arg("-XX:G1MixedGCCountTarget=8")
+        .arg("-XX:G1MixedGCLiveThresholdPercent=65")
+        .arg("-XX:G1HeapWastePercent=5")
+        .arg("-XX:G1ReservePercent=15")
         .arg(format!("-XX:G1HeapRegionSize={region_size_mb}M"))
         .arg("-XX:+DisableExplicitGC")
         .arg("-XX:+ParallelRefProcEnabled")
@@ -1259,8 +1326,12 @@ pub fn run_direct_jvm_blocking(
         .arg("-Dpurefps.seamlessLaunch=true");
     if is_vulkan {
         cmd.arg("-Dpurefps.rendererBackend=vulkan");
+        if let Some(ref vk_dll) = vulkan_dll_in_natives {
+            cmd.arg(format!("-Dpurefps.vulkanDllPath={}", vk_dll.display()));
+        }
     }
     cmd.arg(format!("-Djava.library.path={}", natives_dir.display()))
+        .arg(format!("-Dorg.lwjgl.librarypath={}", natives_dir.display()))
         .arg("-cp")
         .arg(classpath)
         .arg("net.minecraft.launchwrapper.Launch")

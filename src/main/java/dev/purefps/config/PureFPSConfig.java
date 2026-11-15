@@ -22,6 +22,7 @@ public final class PureFPSConfig {
     public static PureFPSProfile activeProfile = PureFPSProfile.BALANCED;
     public static boolean enabled = true;
     public static String language = "en";
+    public static String audioOutputDevice = "";
 
     public static boolean isEnglish() {
         return language == null || !language.trim().toLowerCase(java.util.Locale.ROOT).startsWith("fr");
@@ -619,6 +620,7 @@ public final class PureFPSConfig {
             lastServerName = props.getProperty("lastServerName", lastServerName).trim();
             String rawLang = props.getProperty("language", language).trim().toLowerCase();
             language = rawLang.startsWith("fr") ? "fr" : "en";
+            audioOutputDevice = props.getProperty("audioOutputDevice", audioOutputDevice != null ? audioOutputDevice : "").trim();
 
             if (props.getProperty("activeProfile") == null) {
                 refreshProfileAfterManualEdit();
@@ -637,6 +639,7 @@ public final class PureFPSConfig {
         props.setProperty("activeProfile", activeProfile.getId());
         props.setProperty("enabled", Boolean.toString(enabled));
         props.setProperty("language", "fr".equalsIgnoreCase(language) ? "fr" : "en");
+        props.setProperty("audioOutputDevice", audioOutputDevice != null ? audioOutputDevice.trim() : "");
         props.setProperty("disableGlErrorChecks", Boolean.toString(disableGlErrorChecks));
         props.setProperty("fastMath", Boolean.toString(fastMath));
         props.setProperty("fastWorldVertexSort", Boolean.toString(fastWorldVertexSort));
@@ -734,7 +737,7 @@ public final class PureFPSConfig {
         props.setProperty("lastServerName", lastServerName != null ? lastServerName : "");
 
         try (FileOutputStream out = new FileOutputStream(configFile)) {
-            props.store(out, "MashClient 4.5.4 Configuration");
+            props.store(out, "MashClient 4.5.5 Configuration");
         } catch (IOException ignored) {
         }
     }

@@ -304,7 +304,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.5.4");
+        root.addProperty("version", "4.5.5");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
@@ -683,6 +683,10 @@ public final class MashModules {
 
         MashFlags.nametagShowOwnInF5 = isOn("vis_nametags") && bool("vis_nametags", "own_tag_f5", true);
         PureFPSConfig.transparentNametags = isOn("vis_nametags") && bool("vis_nametags", "transparent_bg", false);
+
+        MashFlags.hypChatTabs = isOn("hyp_chat_tabs");
+        MashFlags.hypChatTabsAutoPrefix = bool("hyp_chat_tabs", "auto_prefix", true);
+        MashFlags.hypChatTabsFilter = bool("hyp_chat_tabs", "filter_chat", false);
     }
 
     public static boolean isOn(String modId) {
@@ -1274,6 +1278,10 @@ public final class MashModules {
         MOD_CHAT_PRO.addSetting(new MashSetting.BooleanSetting("transparent_bg", "Fond transparent", "Retire le rectangle noir du chat", false));
         MOD_CHAT_PRO.addSetting(new MashSetting.BooleanSetting("timestamps", "Horodatage [HH:mm]", "Ajoute l'heure devant chaque message", false));
         MOD_CHAT_PRO.addSetting(new MashSetting.BooleanSetting("text_shadow", "Ombre du texte", "Facilite la lecture sur fond clair", true));
+
+        m = regMod("hyp_chat_tabs", "Onglets Chat (All/Team/Party)", "Affiche les onglets ALL, TEAM et PARTY au-dessus de la barre du chat", "chat tabs all team party canal groupe equipe hypixel", MashCategory.HYPIXEL, true);
+        m.addSetting(new MashSetting.BooleanSetting("auto_prefix", "Routage auto (/ac, /pc)", "Envoie automatiquement dans le canal sélectionné", true));
+        m.addSetting(new MashSetting.BooleanSetting("filter_chat", "Filtrer par canal", "Affiche uniquement les messages du canal actif", false));
 
         m = regMod("hyp_autogg", "Auto GG", "Rappel discret de fin de partie", "autogg gg fin partie hypixel", MashCategory.HYPIXEL, false);
         m.addSetting(new MashSetting.ModeSetting("phrase", "Message", "Formule affichée", 0, "gg", "gf", "Bien joué"));

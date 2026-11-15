@@ -701,7 +701,7 @@ public class PureFPSCoreTest {
             java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
             java.util.List<dev.purefps.module.MashModule> huds = dev.purefps.module.MashModules.getHudModules();
 
-            assertEquals("MashClient 4.4.6 must expose exactly 204 modules", 204, all.size());
+            assertEquals("MashClient 4.5.5 must expose exactly 205 modules", 205, all.size());
             assertEquals("MashClient 4.0 must expose 65 draggable HUD widgets", 65, huds.size());
 
             for (dev.purefps.module.MashModule mod : all) {
@@ -821,7 +821,7 @@ public class PureFPSCoreTest {
         dev.purefps.module.MashModules.init(tempDir);
 
         java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
-        assertEquals(204, all.size());
+        assertEquals(205, all.size());
         for (dev.purefps.module.MashModule mod : all) {
             dev.purefps.module.MashEnglishCatalog.Entry entry = dev.purefps.module.MashEnglishCatalog.lookup(mod.getId());
             assertNotNull("Catalogue anglais manquant pour " + mod.getId(), entry);
@@ -1525,9 +1525,9 @@ public class PureFPSCoreTest {
                 System.setProperty(VulkanBackendHelper.BACKEND_PROP, "vulkan");
                 assertTrue(VulkanBackendHelper.isVulkanFlagSet());
                 PureFPSConfig.language = "en";
-                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.4").contains("[Vulkan Beta]"));
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.5").contains("[Vulkan Beta]"));
                 PureFPSConfig.language = "fr";
-                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.4").contains("[Vulkan Bêta]"));
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.5").contains("[Vulkan Bêta]"));
             } finally {
                 PureFPSConfig.language = prevLang;
                 if (prev == null) {
@@ -1609,5 +1609,35 @@ public class PureFPSCoreTest {
         assertEquals(300, arena.batchSize);
         assertEquals(299 * 64, arena.batchFirst[299]);
         assertEquals(48, arena.batchCount[299]);
+    }
+
+    @Test
+    public void testHypixelChatTabsAndAudioOutputDevice455() {
+        PureFPSConfig.enabled = true;
+        dev.purefps.module.MashFlags.hypChatTabs = true;
+        dev.purefps.module.MashFlags.hypChatTabsAutoPrefix = true;
+        dev.purefps.module.MashFlags.hypChatTabsFilter = true;
+
+        try {
+            dev.purefps.client.ui.HypixelChatTabsHelper.setActiveChannel(dev.purefps.client.ui.HypixelChatTabsHelper.CHANNEL_ALL);
+            assertEquals("gg", dev.purefps.client.ui.HypixelChatTabsHelper.transformOutgoingChatMessage("gg"));
+
+            dev.purefps.client.ui.HypixelChatTabsHelper.setActiveChannel(dev.purefps.client.ui.HypixelChatTabsHelper.CHANNEL_PARTY);
+            assertEquals("/pc rush mid", dev.purefps.client.ui.HypixelChatTabsHelper.transformOutgoingChatMessage("rush mid"));
+            assertEquals("/l", dev.purefps.client.ui.HypixelChatTabsHelper.transformOutgoingChatMessage("/l"));
+            assertTrue(dev.purefps.client.ui.HypixelChatTabsHelper.shouldDisplayChatLine("Party > [MVP+] Player: hello"));
+            assertFalse(dev.purefps.client.ui.HypixelChatTabsHelper.shouldDisplayChatLine("[VIP] Random: buying sword"));
+
+            dev.purefps.client.ui.HypixelChatTabsHelper.setActiveChannel(dev.purefps.client.ui.HypixelChatTabsHelper.CHANNEL_TEAM);
+            assertTrue(dev.purefps.client.ui.HypixelChatTabsHelper.shouldDisplayChatLine("[TEAM] Player: inc bed"));
+            assertFalse(dev.purefps.client.ui.HypixelChatTabsHelper.shouldDisplayChatLine("Party > Player: hi"));
+
+            String iniWithDev = dev.purefps.client.audio.LowLatencyAudioConfigurator.buildAlsoftIniContent("OpenAL Soft on Speakers (Realtek)");
+            assertTrue(iniWithDev.contains("device = OpenAL Soft on Speakers (Realtek)\n"));
+            assertEquals("Speakers (Realtek)", dev.purefps.client.audio.LowLatencyAudioConfigurator.formatCleanDeviceName("OpenAL Soft on Speakers (Realtek)"));
+        } finally {
+            dev.purefps.client.ui.HypixelChatTabsHelper.setActiveChannel(dev.purefps.client.ui.HypixelChatTabsHelper.CHANNEL_ALL);
+            dev.purefps.module.MashFlags.hypChatTabsFilter = false;
+        }
     }
 }

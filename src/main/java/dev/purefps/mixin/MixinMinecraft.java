@@ -119,6 +119,7 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "startGame", at = @At("HEAD"))
     private void purefps$onStartGameHead(CallbackInfo ci) {
+        dev.purefps.core.VulkanBackendHelper.preloadZinkIfConfigured();
         SeamlessLaunchTransition.onStartGameHead((Minecraft) (Object) this);
     }
 
@@ -186,7 +187,7 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.4"));
+            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.5"));
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
     }

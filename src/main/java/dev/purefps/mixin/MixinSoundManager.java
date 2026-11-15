@@ -141,6 +141,7 @@ public abstract class MixinSoundManager {
         }
         if (!this.purefps$engineTuned) {
             this.purefps$engineTuned = true;
+            LowLatencyAudioConfigurator.ensureOpenALBoundToConfiguredDevice();
             SoundSystem sys = purefps$resolveSoundSystem();
             purefps$boostPaulscodeThreadPriority(sys);
             MashAudioEngine.migrateToOpenALIfReady();

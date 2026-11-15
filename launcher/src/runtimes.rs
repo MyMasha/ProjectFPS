@@ -662,6 +662,13 @@ pub fn prepare_isolated_vulkan_jre(
         }
     }
 
+    deploy_vulkan_zink_to_target_dir(&zink_dir, &vk_bin)?;
+
+    Ok(vk_javaw)
+}
+
+fn deploy_vulkan_zink_to_target_dir(zink_dir: &Path, target_dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(target_dir).map_err(|e| e.to_string())?;
     for dll in std::iter::once(&VULKAN_CORE_DLL).chain(VULKAN_OPTIONAL_COMPANION_DLLS.iter()) {
         let src_dll = zink_dir.join(dll);
         if !src_dll.is_file() {
@@ -672,7 +679,7 @@ pub fn prepare_isolated_vulkan_jre(
             }
             continue;
         }
-        let dst_dll = vk_bin.join(dll);
+        let dst_dll = target_dir.join(dll);
         let need_copy = match (std::fs::metadata(&src_dll), std::fs::metadata(&dst_dll)) {
             (Ok(sm), Ok(dm)) => sm.len() != dm.len(),
             (Ok(_), Err(_)) => true,
@@ -683,8 +690,19 @@ pub fn prepare_isolated_vulkan_jre(
                 .map_err(|e| format!("Déploiement Vulkan '{dll}' : {e}"))?;
         }
     }
+    Ok(target_dir.join(VULKAN_CORE_DLL))
+}
 
-    Ok(vk_javaw)
+/// Copie `opengl32.dll` (Mesa3D Zink) et ses DLL compagnes directement dans le dossier `natives-1.8.9-vulkan`
+/// à côté de `lwjgl64.dll` afin que `LoadLibraryExW(..., LOAD_WITH_ALTERED_SEARCH_PATH)` charge Zink
+/// en priorité absolue au lieu de `C:\Windows\System32\opengl32.dll`.
+pub fn deploy_vulkan_zink_dlls_to_dir(
+    target_dir: &Path,
+    prefs: &LauncherPrefs,
+    proxy: &EventLoopProxy<AppEvent>,
+) -> Result<PathBuf, String> {
+    let zink_dir = ensure_vulkan_zink_dlls_downloaded(prefs, proxy)?;
+    deploy_vulkan_zink_to_target_dir(&zink_dir, target_dir)
 }
 
 #[cfg(test)]
