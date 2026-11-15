@@ -1,5 +1,5 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.0 (OpenGL & Vulkan Bêta).
-//! - Synchronise automatiquement `purefps-4.5.0.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.1 (OpenGL & Vulkan Bêta).
+//! - Synchronise automatiquement `purefps-4.5.1.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
 //! - Isolat dédié pour `1.8.9 PureFPS Vulkan` (Bêta) via Mesa3D Zink (`javaw.exe.local` + `GALLIUM_DRIVER=zink`)
 //! - Détecte instantanément l'ouverture de la fenêtre (`DISPLAY_CREATED` / `.purefps_display_ready`)
@@ -30,7 +30,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.0.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.1.jar";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -438,12 +438,28 @@ pub fn sync_prism_instance_cfg(
         return;
     };
 
+    let min_mem = ram_mb.min(8192);
     let (win_w, win_h) = compute_launch_window_dimensions(instance_game_dir, screen_w, screen_h);
     let vk_java_fwd = vulkan_javaw.map(|p| p.to_string_lossy().replace('\\', "/"));
-    const VK_JVM_ARGS: &str =
-        "-Dpurefps.rendererBackend=vulkan -Dorg.lwjgl.opengl.Window.undecorated=true -Dpurefps.seamlessLaunch=true";
+    const HIGH_FPS_JVM_BASE: &str =
+        "-XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:ConcGCThreads=4 -XX:+AlwaysPreTouch -XX:G1NewSizePercent=35 -XX:G1MaxNewSizePercent=60 -XX:G1ReservePercent=15 -XX:MaxGCPauseMillis=15 -XX:G1HeapRegionSize=32M -XX:MaxInlineLevel=15 -XX:MaxInlineSize=64 -XX:FreqInlineSize=512 -XX:AllocatePrefetchStyle=1 -XX:+DisableExplicitGC -XX:+ParallelRefProcEnabled -Djava.net.preferIPv4Stack=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=false -Dorg.lwjgl.opengl.Window.undecorated=true -Dpurefps.seamlessLaunch=true";
+    let target_jvm_args = if vk_java_fwd.is_some() {
+        format!("{HIGH_FPS_JVM_BASE} -Dpurefps.rendererBackend=vulkan")
+    } else {
+        HIGH_FPS_JVM_BASE.to_owned()
+    };
     const VK_ENV_INI: &str =
-        "\"{\\\"GALLIUM_DRIVER\\\":\\\"zink\\\",\\\"MESA_GL_VERSION_OVERRIDE\\\":\\\"4.6COMPAT\\\",\\\"MESA_GLSL_VERSION_OVERRIDE\\\":\\\"460\\\",\\\"ZINK_DESCRIPTORS\\\":\\\"lazy\\\"}\"";
+        "\"{\\\"GALLIUM_DRIVER\\\":\\\"zink\\\",\\\"MESA_GL_VERSION_OVERRIDE\\\":\\\"4.6COMPAT\\\",\\\"MESA_GLSL_VERSION_OVERRIDE\\\":\\\"460\\\",\\\"ZINK_DESCRIPTORS\\\":\\\"lazy\\\",\\\"vblank_mode\\\":\\\"0\\\",\\\"MESA_NO_ERROR\\\":\\\"1\\\"}\"";
+
+    let has_custom_user_jvm_args = vk_java_fwd.is_none()
+        && existing.lines().any(|l| {
+            if let Some(rest) = l.strip_prefix("JvmArgs=") {
+                let t = rest.trim();
+                !t.is_empty() && !t.contains("-Dpurefps.")
+            } else {
+                false
+            }
+        });
 
     let mut updated_lines: Vec<String> = Vec::new();
     let mut saw_min = false;
@@ -460,7 +476,7 @@ pub fn sync_prism_instance_cfg(
 
     for line in existing.lines() {
         if line.starts_with("MinMemAlloc=") {
-            updated_lines.push(format!("MinMemAlloc={ram_mb}"));
+            updated_lines.push(format!("MinMemAlloc={min_mem}"));
             saw_min = true;
         } else if line.starts_with("MaxMemAlloc=") {
             updated_lines.push(format!("MaxMemAlloc={ram_mb}"));
@@ -474,6 +490,12 @@ pub fn sync_prism_instance_cfg(
         } else if line.starts_with("WindowHeight=") {
             updated_lines.push(format!("WindowHeight={win_h}"));
             saw_win_h = true;
+        } else if !has_custom_user_jvm_args && line.starts_with("OverrideJavaArgs=") {
+            updated_lines.push("OverrideJavaArgs=true".to_owned());
+            saw_override_args = true;
+        } else if !has_custom_user_jvm_args && line.starts_with("JvmArgs=") {
+            updated_lines.push(format!("JvmArgs={target_jvm_args}"));
+            saw_jvm_args = true;
         } else if vk_java_fwd.is_some() && line.starts_with("OverrideJavaLocation=") {
             updated_lines.push("OverrideJavaLocation=true".to_owned());
             saw_override_java = true;
@@ -481,12 +503,6 @@ pub fn sync_prism_instance_cfg(
             if line.starts_with("JavaPath=") {
                 updated_lines.push(format!("JavaPath={jp}"));
                 saw_java_path = true;
-            } else if line.starts_with("OverrideJavaArgs=") {
-                updated_lines.push("OverrideJavaArgs=true".to_owned());
-                saw_override_args = true;
-            } else if line.starts_with("JvmArgs=") {
-                updated_lines.push(format!("JvmArgs={VK_JVM_ARGS}"));
-                saw_jvm_args = true;
             } else if line.starts_with("OverrideEnv=") {
                 updated_lines.push("OverrideEnv=true".to_owned());
                 saw_override_env = true;
@@ -501,7 +517,7 @@ pub fn sync_prism_instance_cfg(
         }
     }
     if !saw_min {
-        updated_lines.push(format!("MinMemAlloc={ram_mb}"));
+        updated_lines.push(format!("MinMemAlloc={min_mem}"));
     }
     if !saw_max {
         updated_lines.push(format!("MaxMemAlloc={ram_mb}"));
@@ -515,18 +531,20 @@ pub fn sync_prism_instance_cfg(
     if !saw_win_h {
         updated_lines.push(format!("WindowHeight={win_h}"));
     }
+    if !has_custom_user_jvm_args {
+        if !saw_override_args {
+            updated_lines.push("OverrideJavaArgs=true".to_owned());
+        }
+        if !saw_jvm_args {
+            updated_lines.push(format!("JvmArgs={target_jvm_args}"));
+        }
+    }
     if let Some(ref jp) = vk_java_fwd {
         if !saw_override_java {
             updated_lines.push("OverrideJavaLocation=true".to_owned());
         }
         if !saw_java_path {
             updated_lines.push(format!("JavaPath={jp}"));
-        }
-        if !saw_override_args {
-            updated_lines.push("OverrideJavaArgs=true".to_owned());
-        }
-        if !saw_jvm_args {
-            updated_lines.push(format!("JvmArgs={VK_JVM_ARGS}"));
         }
         if !saw_override_env {
             updated_lines.push("OverrideEnv=true".to_owned());
@@ -990,7 +1008,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.0 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.1 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\
@@ -1074,6 +1092,7 @@ pub fn run_direct_jvm_blocking(
         flavor_tag, prefs.ram_mb, screen_w, screen_h, username
     )));
 
+    let min_mem_mb = prefs.ram_mb.min(8192);
     let mut cmd = Command::new(&effective_java);
     cmd.current_dir(&active_game_dir)
         .env_remove("SHIM_MCCOMPAT")
@@ -1084,21 +1103,29 @@ pub fn run_direct_jvm_blocking(
         cmd.env("GALLIUM_DRIVER", "zink")
             .env("MESA_GL_VERSION_OVERRIDE", "4.6COMPAT")
             .env("MESA_GLSL_VERSION_OVERRIDE", "460")
-            .env("ZINK_DESCRIPTORS", "lazy");
+            .env("ZINK_DESCRIPTORS", "lazy")
+            .env("vblank_mode", "0")
+            .env("MESA_NO_ERROR", "1");
     }
     if let Some(ref ini_path) = alsoft_ini {
         cmd.env("ALSOFT_CONF", ini_path);
     }
-    cmd.arg(format!("-Xms{}M", prefs.ram_mb))
+    cmd.arg(format!("-Xms{}M", min_mem_mb))
         .arg(format!("-Xmx{}M", prefs.ram_mb))
+        .arg("-XX:+IgnoreUnrecognizedVMOptions")
         .arg("-XX:+UnlockExperimentalVMOptions")
         .arg("-XX:+UseG1GC")
-        .arg("-XX:ConcGCThreads=2")
+        .arg("-XX:ConcGCThreads=4")
         .arg("-XX:+AlwaysPreTouch")
-        .arg("-XX:G1NewSizePercent=20")
-        .arg("-XX:G1ReservePercent=20")
-        .arg("-XX:MaxGCPauseMillis=25")
+        .arg("-XX:G1NewSizePercent=35")
+        .arg("-XX:G1MaxNewSizePercent=60")
+        .arg("-XX:G1ReservePercent=15")
+        .arg("-XX:MaxGCPauseMillis=15")
         .arg("-XX:G1HeapRegionSize=32M")
+        .arg("-XX:MaxInlineLevel=15")
+        .arg("-XX:MaxInlineSize=64")
+        .arg("-XX:FreqInlineSize=512")
+        .arg("-XX:AllocatePrefetchStyle=1")
         .arg("-XX:+DisableExplicitGC")
         .arg("-XX:+ParallelRefProcEnabled")
         .arg("-Djava.net.preferIPv4Stack=true")
@@ -1383,7 +1410,9 @@ pub fn spawn_prism_bridge_now(
         cmd.env("GALLIUM_DRIVER", "zink")
             .env("MESA_GL_VERSION_OVERRIDE", "4.6COMPAT")
             .env("MESA_GLSL_VERSION_OVERRIDE", "460")
-            .env("ZINK_DESCRIPTORS", "lazy");
+            .env("ZINK_DESCRIPTORS", "lazy")
+            .env("vblank_mode", "0")
+            .env("MESA_NO_ERROR", "1");
     }
     if let Some(ref ini_path) = alsoft_ini {
         cmd.env("ALSOFT_CONF", ini_path);
@@ -1539,6 +1568,28 @@ mod tests {
         assert!(ini.contains("periods = 3"));
         assert!(ini.contains("period_size = 320"));
         assert!(ini.contains("sources = 256"));
+    }
+
+    #[test]
+    fn test_sync_prism_instance_cfg_supports_50gb_heap_and_vulkan_env() {
+        let tmp = std::env::temp_dir().join("mashclient_prism_50gb_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let mc_dir = tmp.join("minecraft");
+        std::fs::create_dir_all(&mc_dir).unwrap();
+        std::fs::write(tmp.join("instance.cfg"), "InstanceType=OneSix\n").unwrap();
+
+        let vk_java = Path::new(r"C:\MashClient\runtimes\vulkan-jre8\bin\javaw.exe");
+        sync_prism_instance_cfg(&mc_dir, 51_200, 1920, 1080, Some(vk_java));
+
+        let synced = std::fs::read_to_string(tmp.join("instance.cfg")).unwrap();
+        assert!(synced.contains("MinMemAlloc=8192"));
+        assert!(synced.contains("MaxMemAlloc=51200"));
+        assert!(synced.contains("-XX:FreqInlineSize=512"));
+        assert!(synced.contains("-Dpurefps.rendererBackend=vulkan"));
+        assert!(synced.contains("vblank_mode"));
+        assert!(synced.contains("MESA_NO_ERROR"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

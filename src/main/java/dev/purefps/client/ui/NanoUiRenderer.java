@@ -280,7 +280,12 @@ public final class NanoUiRenderer {
 
         GlStateManager.enableBlend();
         GlStateManager.disableAlpha();
-        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(
+                GL11.GL_SRC_ALPHA,
+                GL11.GL_ONE_MINUS_SRC_ALPHA,
+                GL11.GL_ONE,
+                GL11.GL_ONE_MINUS_SRC_ALPHA
+        );
         GlStateManager.disableCull();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 
@@ -658,7 +663,12 @@ public final class NanoUiRenderer {
         GlStateManager.enableTexture2D();
         GlStateManager.enableBlend();
         GlStateManager.disableAlpha();
-        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(
+                GL11.GL_SRC_ALPHA,
+                GL11.GL_ONE_MINUS_SRC_ALPHA,
+                GL11.GL_ONE,
+                GL11.GL_ONE_MINUS_SRC_ALPHA
+        );
         GlStateManager.color(1.0F, 1.0F, 1.0F, a);
 
         client.getTextureManager().bindTexture(MASH_MARK_TEX);

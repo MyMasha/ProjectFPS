@@ -75,7 +75,7 @@ public class GuiPureMainMenu extends GuiScreen {
         MashModules.ensureRegistered();
         MashAudioEngine.ensurePrewarmed();
         if (Display.isCreated()) {
-            Display.setTitle(VulkanBackendHelper.getWindowTitle("4.5.0"));
+            Display.setTitle(VulkanBackendHelper.getWindowTitle("4.5.1"));
         }
     }
 
@@ -295,7 +295,7 @@ public class GuiPureMainMenu extends GuiScreen {
         boldSmallF.beginBatch();
         boldSmallF.drawString("MASHCLIENT", 56.0F, 28.0F, mulAlpha(0xFFF5F3EE, uiAlpha));
         float topBrandW = boldSmallF.getStringWidth("MASHCLIENT");
-        String verSubtitle = vulkanMode ? "4.5.0  \u00B7  1.8.9  \u00B7  VULKAN BÊTA" : "4.5.0  \u00B7  1.8.9";
+        String verSubtitle = vulkanMode ? "4.5.1  \u00B7  1.8.9  \u00B7  VULKAN BÊTA" : "4.5.1  \u00B7  1.8.9";
         boldSmallF.drawString(verSubtitle, 56.0F + topBrandW + 7.0F, 28.0F, mulAlpha(vulkanMode ? 0xFFE9C46A : 0xFF7D869C, uiAlpha));
         boldSmallF.drawCentered("MULTIJOUEUR", STACK_X + STACK_W * 0.5F + 4.0F, multiY + (MULTI_H - boldSmallF.getHeight()) * 0.5F + 0.5F, mulAlpha(0xFF0A0B0E, uiAlpha), false);
         boldSmallF.endBatch();

@@ -50,7 +50,7 @@ public final class FastNametagRenderer {
         int halfWidth = fontRenderer.getStringWidth(str) >> 1;
 
         GlStateManager.enableBlend();
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 771);
 
         if (!PureFPSConfig.transparentNametags) {
             GlStateManager.depthMask(false);

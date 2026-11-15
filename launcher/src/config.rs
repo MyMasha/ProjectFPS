@@ -397,7 +397,7 @@ fn default_client_name() -> String {
 }
 
 fn default_bundle_version() -> String {
-    "4.5.0".to_owned()
+    "4.5.1".to_owned()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -854,7 +854,7 @@ impl PureClientSettings {
         map.insert("smartChunkUpdates".into(), self.smart_chunk_updates.to_string());
         map.insert("menuWorldUnload".into(), self.menu_world_unload.to_string());
 
-        let mut out = String::from("# MashClient 4.5.0 Configuration\n");
+        let mut out = String::from("# MashClient 4.5.1 Configuration\n");
         for (k, v) in &map {
             out.push_str(k);
             out.push('=');
@@ -870,7 +870,7 @@ impl PureClientSettings {
     }
 
     /// Débride automatiquement les réglages bloquants de Minecraft Vanilla (`options.txt`) :
-    /// `useVbo:true`, `enableVsync:false`, `maxFps:240` (cadencé GPU pour préserver Discord / DWM)
+    /// `useVbo:true`, `enableVsync:false`, `maxFps:260` (FPS illimités)
     /// et désactive le plein écran exclusif lorsque `borderless_fullscreen` est actif.
     pub fn sync_vanilla_options_txt(&self, game_dir: &str) {
         let options_path = Path::new(game_dir).join("options.txt");
@@ -905,8 +905,8 @@ impl PureClientSettings {
             } else if let Some(raw_fps) = line.strip_prefix("maxFps:") {
                 saw_max_fps = true;
                 let parsed = raw_fps.trim().parse::<i32>().unwrap_or(120);
-                if parsed <= 120 || parsed == 260 {
-                    updated_lines.push("maxFps:240".to_owned());
+                if parsed <= 240 {
+                    updated_lines.push("maxFps:260".to_owned());
                     changed = true;
                 } else {
                     updated_lines.push(line.to_owned());
@@ -933,7 +933,7 @@ impl PureClientSettings {
             changed = true;
         }
         if !saw_max_fps {
-            updated_lines.push("maxFps:240".to_owned());
+            updated_lines.push("maxFps:260".to_owned());
             changed = true;
         }
         if self.borderless_fullscreen && !saw_fullscreen {
@@ -950,7 +950,7 @@ impl PureClientSettings {
 pub fn empty_modules_json() -> serde_json::Value {
     serde_json::json!({
         "client": "MashClient",
-        "version": "4.5.0",
+        "version": "4.5.1",
         "modules": {}
     })
 }
@@ -965,7 +965,7 @@ pub fn load_modules_json(game_dir: &str) -> serde_json::Value {
 
     if let Some(obj) = root.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.5.0".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.1".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -983,7 +983,7 @@ pub fn save_modules_json(game_dir: &str, data: &serde_json::Value) -> Result<(),
     };
     if let Some(obj) = normalized.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.5.0".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.1".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -1043,7 +1043,7 @@ pub fn sync_pure_settings_to_modules_json(
         return;
     };
     root_obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-    root_obj.insert("version".to_owned(), serde_json::Value::String("4.5.0".to_owned()));
+    root_obj.insert("version".to_owned(), serde_json::Value::String("4.5.1".to_owned()));
     if !root_obj.get("modules").is_some_and(serde_json::Value::is_object) {
         root_obj.insert("modules".to_owned(), serde_json::json!({}));
     }
@@ -1336,6 +1336,7 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
         .ok()
         .and_then(|s| serde_json::from_str::<LauncherPrefs>(&s).ok())
         .unwrap_or_default();
+    prefs.ram_mb = prefs.ram_mb.clamp(2048, 65536);
 
     if prefs.quick_join_hypixel && prefs.selected_server.is_none() {
         prefs.selected_server = builtin_quick_servers().into_iter().next();
@@ -1673,7 +1674,7 @@ pub fn export_profile_bundle_to_path(
 ) -> Result<(), String> {
     let bundle = ExportedProfileBundle {
         client: "MashClient".to_owned(),
-        version: "4.5.0".to_owned(),
+        version: "4.5.1".to_owned(),
         name: if name.trim().is_empty() {
             "Profil MashClient".to_owned()
         } else {
@@ -1798,7 +1799,7 @@ pub fn prepare_seamless_launch_files(game_dir: &str) {
 
     let splash_path = cfg_dir.join("splash.properties");
     let splash_black = "\
-# MashClient 4.5.0 — NVIDIA Threaded GL (No SharedDrawable)\n\
+# MashClient 4.5.1 — NVIDIA Threaded GL (No SharedDrawable)\n\
 enabled=false\n\
 background=0x000000\n\
 font=0x000000\n\
@@ -1850,7 +1851,7 @@ mod tests {
         let patched_opts = std::fs::read_to_string(&opts_path).unwrap();
         assert!(patched_opts.contains("useVbo:true"));
         assert!(patched_opts.contains("enableVsync:false"));
-        assert!(patched_opts.contains("maxFps:240"));
+        assert!(patched_opts.contains("maxFps:260"));
         assert!(patched_opts.contains("fullscreen:false"));
 
         prepare_seamless_launch_files(&tmp.to_string_lossy());
@@ -1896,7 +1897,7 @@ mod tests {
 
         save_all_client_configs(&dir_str, &cfg, &mods).unwrap();
         let reloaded_mods = load_modules_json(&dir_str);
-        assert_eq!(reloaded_mods["version"], "4.5.0");
+        assert_eq!(reloaded_mods["version"], "4.5.1");
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["enabled"], false);
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["settings"]["max_dist"], 72);
 
@@ -1958,7 +1959,7 @@ mod tests {
         cfg.no_hurt_cam = true;
         let mods = serde_json::json!({
             "client": "MashClient",
-            "version": "4.5.0",
+            "version": "4.5.1",
             "modules": {
                 "hud_fps": { "enabled": true, "x": 120.0, "y": 40.0 }
             }

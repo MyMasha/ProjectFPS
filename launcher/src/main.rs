@@ -410,7 +410,7 @@ fn merge_module_entry(
     replace_settings: bool,
 ) -> serde_json::Value {
     if !modules_json.is_object() {
-        *modules_json = json!({ "client": "MashClient", "version": "4.5.0", "modules": {} });
+        *modules_json = json!({ "client": "MashClient", "version": "4.5.1", "modules": {} });
     }
     let root_obj = modules_json.as_object_mut().expect("objet racine modules_json");
     if !root_obj.get("modules").is_some_and(serde_json::Value::is_object) {
@@ -1094,7 +1094,7 @@ fn apply_hud_positions_map(
     positions: &std::collections::BTreeMap<String, [f32; 2]>,
 ) {
     if !modules_json.is_object() {
-        *modules_json = json!({ "client": "MashClient", "version": "4.5.0", "modules": {} });
+        *modules_json = json!({ "client": "MashClient", "version": "4.5.1", "modules": {} });
     }
     let root_obj = modules_json.as_object_mut().expect("objet racine modules_json");
     if !root_obj.get("modules").is_some_and(serde_json::Value::is_object) {
@@ -1429,7 +1429,7 @@ fn handle_ipc(
             }
         }
         IpcCommand::SetRam { ram_mb } => {
-            ctrl.prefs.ram_mb = ram_mb.clamp(2048, 12288);
+            ctrl.prefs.ram_mb = ram_mb.clamp(2048, 65536);
             let _ = save_launcher_prefs(&ctrl.prefs);
         }
         IpcCommand::SetOfflineName { name } => {

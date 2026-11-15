@@ -17,7 +17,7 @@ public final class GlUiBatchRenderer {
     public static WorldRenderer beginBatch() {
         GlStateManager.enableBlend();
         GlStateManager.disableTexture2D();
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 771);
         WorldRenderer wr = Tessellator.getInstance().getWorldRenderer();
         wr.begin(7, DefaultVertexFormats.POSITION_COLOR);
         return wr;

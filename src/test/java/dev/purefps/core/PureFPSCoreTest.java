@@ -1511,7 +1511,7 @@ public class PureFPSCoreTest {
             try {
                 System.setProperty(VulkanBackendHelper.BACKEND_PROP, "vulkan");
                 assertTrue(VulkanBackendHelper.isVulkanFlagSet());
-                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.0").contains("[Vulkan Bêta]"));
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.1").contains("[Vulkan Bêta]"));
             } finally {
                 if (prev == null) {
                     System.clearProperty(VulkanBackendHelper.BACKEND_PROP);
@@ -1528,5 +1528,69 @@ public class PureFPSCoreTest {
             //noinspection ResultOfMethodCallIgnored
             tmpMc.delete();
         }
+    }
+
+    @Test
+    public void testRegionalMultiDrawArenaBakedTranslationEquivalence() {
+        int verts = 8;
+        int stride = RegionLayerArena.VERTEX_STRIDE_BYTES;
+        ByteBuffer rawWorker = ByteBuffer.allocateDirect(verts * stride).order(ByteOrder.nativeOrder());
+        ByteBuffer rawDirect = ByteBuffer.allocateDirect(verts * stride).order(ByteOrder.nativeOrder());
+
+        for (int v = 0; v < verts; v++) {
+            int off = v * stride;
+            float x = (v & 1) * 16.0F;
+            float y = ((v >> 1) & 1) * 16.0F;
+            float z = ((v >> 2) & 1) * 16.0F;
+            rawWorker.putFloat(off, x);
+            rawWorker.putFloat(off + 4, y);
+            rawWorker.putFloat(off + 8, z);
+            rawWorker.putLong(off + 12, 0x1122334455667788L + v);
+            rawWorker.putLong(off + 20, 0x00F000F03F800000L + v);
+
+            rawDirect.putFloat(off, x);
+            rawDirect.putFloat(off + 4, y);
+            rawDirect.putFloat(off + 8, z);
+            rawDirect.putLong(off + 12, 0x1122334455667788L + v);
+            rawDirect.putLong(off + 20, 0x00F000F03F800000L + v);
+        }
+
+        // Vérifie l'origine de région pour coordonnées négatives (-16 -> -256, offset local +240)
+        int negChunkX = -16;
+        int negChunkZ = -272;
+        assertEquals(-256, negChunkX & ~255);
+        assertEquals(-512, negChunkZ & ~255);
+
+        float localX = (float) (negChunkX - (negChunkX & ~255)); // +240
+        float localY = 64.0F;
+        float localZ = (float) (negChunkZ - (negChunkZ & ~255)); // +240
+
+        ChunkRegionManager.bakeAntiSeamInPlace(rawWorker.asFloatBuffer(), rawWorker, verts);
+        assertTrue(ChunkRegionManager.consumeWorkerBakedFlag(rawWorker));
+        assertFalse(ChunkRegionManager.consumeWorkerBakedFlag(rawWorker));
+
+        ByteBuffer outBaked = ByteBuffer.allocateDirect(verts * stride).order(ByteOrder.nativeOrder());
+        ByteBuffer outDirect = ByteBuffer.allocateDirect(verts * stride).order(ByteOrder.nativeOrder());
+
+        ChunkRegionManager.translateBakedVertices(rawWorker, verts, localX, localY, localZ, outBaked);
+        ChunkRegionManager.transformBlockVertices(rawDirect, verts, localX, localY, localZ, outDirect);
+
+        for (int v = 0; v < verts; v++) {
+            int off = v * stride;
+            assertEquals(outDirect.getFloat(off), outBaked.getFloat(off), 1.0e-4F);
+            assertEquals(outDirect.getFloat(off + 4), outBaked.getFloat(off + 4), 1.0e-4F);
+            assertEquals(outDirect.getFloat(off + 8), outBaked.getFloat(off + 8), 1.0e-4F);
+            assertEquals(outDirect.getLong(off + 12), outBaked.getLong(off + 12));
+            assertEquals(outDirect.getLong(off + 20), outBaked.getLong(off + 20));
+        }
+
+        long key = ChunkRegionManager.packRegionLayerKey(negChunkX, negChunkZ, 0);
+        RegionLayerArena arena = new RegionLayerArena(key, 0, negChunkX & ~255, negChunkZ & ~255);
+        for (int i = 0; i < 300; i++) {
+            arena.addDrawCommand(i * 64, 48);
+        }
+        assertEquals(300, arena.batchSize);
+        assertEquals(299 * 64, arena.batchFirst[299]);
+        assertEquals(48, arena.batchCount[299]);
     }
 }

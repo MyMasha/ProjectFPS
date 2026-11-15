@@ -26,6 +26,7 @@ public final class BorderlessWindowHelper {
 
     public interface Win32Borderless extends Library {
         int GWL_STYLE = -16;
+        int GWL_EXSTYLE = -20;
         int GCLP_HBRBACKGROUND = -10;
         int GCLP_HCURSOR = -12;
         int WS_POPUP = 0x80000000;
@@ -33,6 +34,7 @@ public final class BorderlessWindowHelper {
         int WS_CLIPSIBLINGS = 0x04000000;
         int WS_CLIPCHILDREN = 0x02000000;
         int WS_OVERLAPPEDWINDOW = 0x00CF0000;
+        int WS_EX_LAYERED = 0x00080000;
         int SWP_NOZORDER = 0x0004;
         int SWP_NOACTIVATE = 0x0010;
         int SWP_FRAMECHANGED = 0x0020;
@@ -46,6 +48,8 @@ public final class BorderlessWindowHelper {
         long IDC_ARROW_ID = 32512L;
 
         int GetSystemMetrics(int nIndex);
+
+        int GetWindowLongW(Pointer hWnd, int nIndex);
 
         int SetWindowLongW(Pointer hWnd, int nIndex, int dwNewLong);
 
@@ -86,25 +90,33 @@ public final class BorderlessWindowHelper {
         Pointer GetStockObject(int fnObject);
     }
 
+    public interface Win32Dwm extends Library {
+        int DWM_BB_ENABLE = 0x00000001;
+
+        int DwmEnableBlurBehindWindow(Pointer hWnd, Pointer pBlurBehind);
+    }
+
     private static final boolean IS_WINDOWS =
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
 
     private static Win32Borderless cachedUser32;
     private static Win32ClassLong64 cachedClass64;
     private static Win32Gdi cachedGdi32;
+    private static Win32Dwm cachedDwmapi;
     private static Pointer cachedArrowCursor;
     private static ByteBuffer cachedArrowCursorBuffer;
     private static Pointer cachedBlackBrush;
     private static Memory cursorInfoBuffer;
     private static Memory pointBuffer;
     private static Memory clientRectBuffer;
+    private static Memory dwmBlurBuffer;
 
     // Cache de réflexion LWJGL WindowsDisplay (zéro allocation par frame)
     private static boolean lwjglReflectionResolved = false;
     private static Field displayImplField;
-    private static Method getHwndMethod;
     private static Field currentCursorField;
     private static Field windowsMouseField;
+    private static Method getHwndMethod;
     private static Method getBlankCursorMethod;
     private static Method updateCursorMethod;
 
@@ -140,6 +152,13 @@ public final class BorderlessWindowHelper {
             cachedGdi32 = (Win32Gdi) Native.loadLibrary("gdi32", Win32Gdi.class);
         }
         return cachedGdi32;
+    }
+
+    private static Win32Dwm dwmapi() {
+        if (cachedDwmapi == null && IS_WINDOWS) {
+            cachedDwmapi = (Win32Dwm) Native.loadLibrary("dwmapi", Win32Dwm.class);
+        }
+        return cachedDwmapi;
     }
 
     private static void setClassPointer(Pointer hwnd, int index, Pointer value) {
@@ -380,8 +399,9 @@ public final class BorderlessWindowHelper {
     }
 
     /**
-     * Remplace le pinceau de fond blanc par défaut de la classe LWJGL (COLOR_WINDOW+1) par BLACK_BRUSH (#000000)
-     * afin qu'aucun message WM_ERASEBKGND lors du redimensionnement sans bordure ne puisse flasher en blanc.
+     * Remplace le pinceau de fond blanc par défaut de la classe LWJGL (COLOR_WINDOW+1) par BLACK_BRUSH (#000000),
+     * retire WS_EX_LAYERED et désactive explicitement DwmEnableBlurBehindWindow afin que Windows DWM /
+     * DirectComposition traite la fenêtre OpenGL/Vulkan comme une surface 100 % opaque.
      */
     public static void installBlackWindowBackground() {
         if (!IS_WINDOWS || !Display.isCreated()) {
@@ -392,6 +412,7 @@ public final class BorderlessWindowHelper {
             if (hwndVal == 0L) {
                 return;
             }
+            Pointer hwnd = new Pointer(hwndVal);
             if (cachedBlackBrush == null) {
                 Win32Gdi gdi = gdi32();
                 if (gdi != null) {
@@ -399,7 +420,31 @@ public final class BorderlessWindowHelper {
                 }
             }
             if (cachedBlackBrush != null) {
-                setClassPointer(new Pointer(hwndVal), Win32Borderless.GCLP_HBRBACKGROUND, cachedBlackBrush);
+                setClassPointer(hwnd, Win32Borderless.GCLP_HBRBACKGROUND, cachedBlackBrush);
+            }
+            try {
+                Win32Borderless u32 = user32();
+                if (u32 != null) {
+                    int exStyle = u32.GetWindowLongW(hwnd, Win32Borderless.GWL_EXSTYLE);
+                    if ((exStyle & Win32Borderless.WS_EX_LAYERED) != 0) {
+                        u32.SetWindowLongW(hwnd, Win32Borderless.GWL_EXSTYLE, exStyle & ~Win32Borderless.WS_EX_LAYERED);
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            try {
+                Win32Dwm dwm = dwmapi();
+                if (dwm != null) {
+                    int cbBlur = Pointer.SIZE == 8 ? 24 : 16;
+                    if (dwmBlurBuffer == null || dwmBlurBuffer.size() < cbBlur) {
+                        dwmBlurBuffer = new Memory(cbBlur);
+                    }
+                    dwmBlurBuffer.clear();
+                    dwmBlurBuffer.setInt(0, Win32Dwm.DWM_BB_ENABLE);
+                    dwmBlurBuffer.setInt(4, 0); // fEnable = FALSE
+                    dwm.DwmEnableBlurBehindWindow(hwnd, dwmBlurBuffer);
+                }
+            } catch (Throwable ignored) {
             }
         } catch (Throwable ignored) {
         }

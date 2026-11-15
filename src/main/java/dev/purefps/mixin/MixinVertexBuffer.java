@@ -3,7 +3,9 @@ package dev.purefps.mixin;
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.ChunkRegionManager;
 import dev.purefps.core.FastVertexBuffer;
+import dev.purefps.core.RegionLayerArena;
 import net.minecraft.client.renderer.OpenGlHelper;
+import net.minecraft.client.renderer.chunk.RenderChunk;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.client.renderer.vertex.VertexBuffer;
 import net.minecraft.client.renderer.vertex.VertexFormat;
@@ -19,13 +21,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.nio.ByteBuffer;
 
 /**
- * Moteur VBO Zéro-Stall (MashClient 4.0) :
- * - Supprime totalement la création/commutation de 69 000+ VAO individuels par chunk (qui causait un effondrement
- *   des pilotes OpenGL NVIDIA/AMD/Intel à ~80 FPS).
- * - L'échelle anti-couture (1.000001f) est désormais pré-calculée sur les threads workers (MixinWorldRenderer),
- *   garantissant 0 copie scalaire CPU sur le thread principal OpenGL lors de l'upload !
- * - Effectue un orphaning explicite (glBufferData null) lorsqu'un tampon existant est ré-écrit (ex: tri TRANSLUCENT)
- *   afin d'éliminer 100 % des attentes implicites du pilote sur les frames en vol.
+ * Moteur VBO Zéro-Stall + Arènes Régionales MultiDraw (MashClient 4.5.1) :
+ * - Les couches SOLID / CUTOUT_MIPPED / CUTOUT (98 %+ des draw calls de terrain) sont logées directement
+ *   dans les arènes régionales 256x256 (RegionLayerArena) et rendues en 1 seul appel GL14.glMultiDrawArrays par région !
+ * - La couche TRANSLUCENT conserve son tampon orphelin individuel pour préserver le tri exact arrière-vers-avant
+ *   entre régions adjacentes sans aucune fragmentation d'arène lors de resortTransparency.
  */
 @Mixin(VertexBuffer.class)
 public abstract class MixinVertexBuffer implements FastVertexBuffer {
@@ -52,9 +52,29 @@ public abstract class MixinVertexBuffer implements FastVertexBuffer {
     @Unique
     private boolean purefps$antiSeamReady = false;
 
+    @Unique
+    private RenderChunk purefps$ownerChunk = null;
+
+    @Unique
+    private int purefps$layerOrdinal = -1;
+
+    @Unique
+    private RegionLayerArena purefps$arena = null;
+
+    @Unique
+    private int purefps$arenaFirstVertex = -1;
+
+    @Unique
+    private int purefps$arenaAllocVertices = 0;
+
     @Override
     public int purefps$getVertexCount() {
         return this.count;
+    }
+
+    @Override
+    public void purefps$setVertexCount(int vertexCount) {
+        this.count = vertexCount;
     }
 
     @Override
@@ -62,16 +82,77 @@ public abstract class MixinVertexBuffer implements FastVertexBuffer {
         return this.glBufferId;
     }
 
+    @Override
+    public void purefps$bindOwnerChunk(RenderChunk ownerChunk, int layerOrdinal) {
+        this.purefps$ownerChunk = ownerChunk;
+        this.purefps$layerOrdinal = layerOrdinal;
+    }
+
+    @Override
+    public int purefps$getLayerOrdinal() {
+        return this.purefps$layerOrdinal;
+    }
+
+    @Override
+    public RegionLayerArena purefps$getArena() {
+        return this.purefps$arena;
+    }
+
+    @Override
+    public int purefps$getArenaFirstVertex() {
+        return this.purefps$arenaFirstVertex;
+    }
+
+    @Override
+    public int purefps$getArenaAllocVertices() {
+        return this.purefps$arenaAllocVertices;
+    }
+
+    @Override
+    public void purefps$setArenaSlot(RegionLayerArena arena, int firstVertex, int allocVertices) {
+        this.purefps$arena = arena;
+        this.purefps$arenaFirstVertex = firstVertex;
+        this.purefps$arenaAllocVertices = allocVertices;
+    }
+
+    @Override
+    public void purefps$releaseArenaSlot() {
+        RegionLayerArena arena = this.purefps$arena;
+        int first = this.purefps$arenaFirstVertex;
+        int alloc = this.purefps$arenaAllocVertices;
+        this.purefps$arena = null;
+        this.purefps$arenaFirstVertex = -1;
+        this.purefps$arenaAllocVertices = 0;
+        if (arena != null && arena.vboId >= 0 && first >= 0 && alloc > 0) {
+            arena.allocator.free(first, alloc);
+        }
+    }
+
     @Inject(method = "bufferData", at = @At("HEAD"), cancellable = true)
     private void purefps$fastOrphanedChunkUpload(ByteBuffer byteBuffer, CallbackInfo ci) {
         if (!PureFPSConfig.enabled || this.vertexFormat != DefaultVertexFormats.BLOCK || this.glBufferId < 0) {
+            this.purefps$releaseArenaSlot();
             this.purefps$antiSeamReady = false;
             return;
         }
 
+        if (this.purefps$ownerChunk != null
+                && this.purefps$layerOrdinal >= 0
+                && this.purefps$layerOrdinal < 3
+                && PureFPSConfig.regionMultiDraw
+                && ChunkRegionManager.isMultiDrawSupported()) {
+            ChunkRegionManager.uploadChunkLayerToArena(this, this.purefps$ownerChunk, byteBuffer);
+            this.purefps$antiSeamReady = true;
+            ci.cancel();
+            return;
+        }
+
+        this.purefps$releaseArenaSlot();
+
         int byteLimit = byteBuffer.limit();
         int vertexCount = byteLimit / 28;
         this.count = vertexCount;
+        boolean workerBaked = ChunkRegionManager.consumeWorkerBakedFlag(byteBuffer);
         if (vertexCount <= 0) {
             this.purefps$allocatedBytes = 0;
             this.purefps$antiSeamReady = true;
@@ -80,7 +161,7 @@ public abstract class MixinVertexBuffer implements FastVertexBuffer {
         }
 
         // Si le tampon n'a pas encore été pré-transformé par un worker (cas rare d'upload synchrone), repli rapide
-        ByteBuffer uploadBuf = ChunkRegionManager.consumeWorkerBakedFlag(byteBuffer)
+        ByteBuffer uploadBuf = workerBaked
                 ? byteBuffer
                 : ChunkRegionManager.prepareChunkAntiSeamBuffer(byteBuffer, vertexCount);
 
@@ -100,6 +181,7 @@ public abstract class MixinVertexBuffer implements FastVertexBuffer {
 
     @Inject(method = "deleteGlBuffers", at = @At("HEAD"))
     private void purefps$resetAllocationTracking(CallbackInfo ci) {
+        this.purefps$releaseArenaSlot();
         this.purefps$allocatedBytes = 0;
         this.purefps$antiSeamReady = false;
     }

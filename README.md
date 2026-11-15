@@ -18,15 +18,15 @@ Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://
 
 2. **Mod seul (`purefps-*.jar`)**
    - Installez **Minecraft Forge 1.8.9** (`11.15.1.2318`).
-   - Placez `purefps-4.5.0.jar` dans votre dossier `.minecraft/mods/`.
+   - Placez `purefps-4.5.1.jar` dans votre dossier `.minecraft/mods/`.
 
 ---
 
 ## Fonctionnalités principales
 
 ### Moteur et performances (`1.8.9`)
-- Pipeline OpenGL optimisé compatible *NVIDIA Threaded Optimization* (suppression du `SharedDrawable` bloquant, VBO/VAO matériels, copie FBO DMA, ordonnanceur de chunks différé sans verrou `SmartChunkUpdateScheduler`).
-- **Instance séparée `1.8.9 PureFPS Vulkan` (`BÊTA`)** : traduction OpenGL -> Vulkan via **Mesa3D Zink** (`opengl32.dll` + isolation JRE DotLocal) dans un répertoire d'instance totalement indépendant de `1.8.9 PureFPS`.
+- Pipeline OpenGL & Vulkan haute fréquence débridé (*NVIDIA Threaded Optimization* sans `SharedDrawable`, arènes régionales `GL14.glMultiDrawArrays` `RegionLayerArena` regroupant les couches `SOLID` / `CUTOUT_MIPPED` / `CUTOUT`, copie FBO opaque matérielle, ordonnanceur de chunks différé sans verrou `SmartChunkUpdateScheduler`).
+- **Instance séparée `1.8.9 PureFPS Vulkan` (`BÊTA`)** : traduction OpenGL -> Vulkan via **Mesa3D Zink** (`opengl32.dll` + isolation JRE DotLocal + swapchain opaque `Alpha = 1.0`) dans un répertoire d'instance totalement indépendant de `1.8.9 PureFPS`.
 - Déchargement intérieur des îles (*Island Core Culling*), culling frustum rapide sur les entités, coffres, panneaux et *Item Frames* compilés.
 - **Rechargement rapide des Resource Packs** sans coupure ni redémarrage du moteur audio OpenAL, avec **barre de recherche en temps réel** et navigation dans les **sous-dossiers** de `resourcepacks/`.
 - **Captures d'écran `F2` sans micro-freeze** : encodage PNG asynchrone hors thread de rendu et actions cliquables **`[Ouvrir]`** / **`[Copier]`** directement dans le chat.
@@ -42,6 +42,7 @@ Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://
 
 ### Launcher Windows (`MashClient.exe`)
 - **Sélecteur d'instance** dans le dock inférieur : bascule immédiate entre **`1.8.9 PureFPS`** (OpenGL) et **`1.8.9 PureFPS Vulkan`** (`BÊTA`).
+- **Allocation mémoire Java jusqu'à `64 Go` (`65 536 Mo`)** avec profil G1GC et compilateur JIT HotSpot C2 réglés pour les très hauts FPS.
 - **Serveurs rapides instantanés** : connexion directe au lancement vers *Hypixel*, *PikaNetwork*, *JartexNetwork*, *Minemen Club*, *BlocksMC* ou vos propres serveurs favoris.
 - **Gestionnaire & Importation de Mods tiers (`.jar`)** : onglet dédié permettant d'importer vos propres mods Forge `1.8.9`, de les activer/désactiver individuellement et de désactiver en un clic un mod tiers responsable d'un crash détecté.
 - **Multi-comptes Microsoft OAuth2** (*Device Code Flow*) et comptes hors-ligne avec changement de compte instantané.
@@ -89,7 +90,7 @@ Si vos JDK ne sont pas dans les emplacements standards détectés automatiquemen
   -Porg.gradle.java.installations.paths=/chemin/vers/jdk8,/chemin/vers/jdk17
 ```
 
-Le fichier final obfusqué est généré dans `build/libs/purefps-4.5.0.jar`.
+Le fichier final obfusqué est généré dans `build/libs/purefps-4.5.1.jar`.
 
 ### 2. Launcher Windows (`MashClient.exe`)
 

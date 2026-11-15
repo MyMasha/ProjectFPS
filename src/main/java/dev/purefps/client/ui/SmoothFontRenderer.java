@@ -307,7 +307,12 @@ public final class SmoothFontRenderer {
         ensureUploaded();
         GlStateManager.enableBlend();
         GlStateManager.disableAlpha();
-        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(
+                GL11.GL_SRC_ALPHA,
+                GL11.GL_ONE_MINUS_SRC_ALPHA,
+                GL11.GL_ONE,
+                GL11.GL_ONE_MINUS_SRC_ALPHA
+        );
         GlStateManager.enableTexture2D();
         GlStateManager.bindTexture(this.textureId);
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
@@ -321,6 +326,7 @@ public final class SmoothFontRenderer {
         }
         this.batching = false;
         Tessellator.getInstance().draw();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.enableAlpha();
     }
 
@@ -377,7 +383,12 @@ public final class SmoothFontRenderer {
         ensureUploaded();
         GlStateManager.enableBlend();
         GlStateManager.disableAlpha();
-        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(
+                GL11.GL_SRC_ALPHA,
+                GL11.GL_ONE_MINUS_SRC_ALPHA,
+                GL11.GL_ONE,
+                GL11.GL_ONE_MINUS_SRC_ALPHA
+        );
         GlStateManager.enableTexture2D();
         GlStateManager.bindTexture(this.textureId);
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
@@ -386,6 +397,7 @@ public final class SmoothFontRenderer {
 
     private static void finishSingleDraw() {
         Tessellator.getInstance().draw();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.enableAlpha();
     }
 

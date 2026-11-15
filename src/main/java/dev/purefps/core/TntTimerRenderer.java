@@ -118,7 +118,12 @@ public final class TntTimerRenderer {
         GlStateManager.depthMask(false);
         GlStateManager.disableDepth();
         GlStateManager.enableBlend();
-        GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(
+                GL11.GL_SRC_ALPHA,
+                GL11.GL_ONE_MINUS_SRC_ALPHA,
+                GL11.GL_ONE,
+                GL11.GL_ONE_MINUS_SRC_ALPHA
+        );
 
         int halfW = fr.getStringWidth(label) / 2;
         GlStateManager.disableTexture2D();

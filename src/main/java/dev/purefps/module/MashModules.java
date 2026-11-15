@@ -304,7 +304,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.5.0");
+        root.addProperty("version", "4.5.1");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);

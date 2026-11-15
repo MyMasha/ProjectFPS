@@ -20,10 +20,12 @@ public final class GpuFramePacer {
 
     private static final long MAX_PARK_BUDGET_NS = 6_000_000L;
     private static final long PARK_SLICE_NS = 350_000L;
+    private static final long HIGH_FPS_BYPASS_NS = 4_000_000L; // > 250 FPS : zéro appel JNI/fence, pipeline libre 2000+ FPS
 
     // 0 = non testé, 1 = OpenGL 3.2 natif, 2 = GL_ARB_sync, -1 = indisponible
     private static int syncBackend = 0;
     private static GLSync previousFrameFence = null;
+    private static long lastPresentNs = 0L;
 
     private GpuFramePacer() {
     }
@@ -52,13 +54,27 @@ public final class GpuFramePacer {
 
     /**
      * Appelé juste après Display.update() à la fin de chaque frame :
-     * attend sans spin la fin GPU de la frame N-1 avant d'autoriser la soumission de la frame N+1.
+     * - En mode Vulkan (Zink gère nativement ses files VkSwapchain) ou au-delà de 250 FPS (< 4 ms/frame),
+     *   court-circuite intégralement glFenceSync / glClientWaitSync / parkNanos pour libérer 2000+ FPS.
+     * - N'intervient que lorsque le GPU OpenGL sature réellement (< 250 FPS) pour protéger DWM/Discord.
      */
     public static void onFramePresented() {
         if (!Display.isCreated()) {
             previousFrameFence = null;
+            lastPresentNs = 0L;
             return;
         }
+        long now = System.nanoTime();
+        long dt = lastPresentNs == 0L ? 0L : (now - lastPresentNs);
+        lastPresentNs = now;
+
+        if (VulkanBackendHelper.isVulkanActive() || dt < HIGH_FPS_BYPASS_NS) {
+            if (previousFrameFence != null) {
+                release();
+            }
+            return;
+        }
+
         int backend = resolveBackend();
         if (backend <= 0) {
             return;

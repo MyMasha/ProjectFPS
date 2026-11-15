@@ -119,7 +119,7 @@ public final class FastScoreboardRenderer {
         WorldRenderer wr = tessellator.getWorldRenderer();
         GlStateManager.enableBlend();
         GlStateManager.disableTexture2D();
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 771);
 
         wr.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
         putColoredRect(wr, left, headerTop, right, headerBottom, 0, 0, 0, 96);

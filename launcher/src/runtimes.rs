@@ -1,4 +1,4 @@
-//! Gestionnaire des runtimes MashClient 4.5.0 :
+//! Gestionnaire des runtimes MashClient 4.5.1 :
 //! 1. Détection, classement et installation automatique d'Eclipse Temurin Java 8 x64 récent (`8u400+`)
 //! 2. Isolation complète de l'instance `1.8.9 PureFPS Vulkan` (Bêta) et déploiement du traducteur
 //!    OpenGL -> Vulkan **Mesa3D Zink** (`opengl32.dll` + `javaw.exe.local`).
@@ -26,7 +26,7 @@ pub const VULKAN_OPTIONAL_COMPANION_DLLS: &[&str] = &[
     "zink_dri.dll",
 ];
 
-const USER_AGENT: &str = "MashClient-Runtimes/4.5.0";
+const USER_AGENT: &str = "MashClient-Runtimes/4.5.1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Java8Probe {

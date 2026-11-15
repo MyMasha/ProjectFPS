@@ -58,7 +58,7 @@ public abstract class MixinGuiIngame {
         GlStateManager.depthMask(true);
         GlStateManager.enableDepth();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 771);
         ci.cancel();
     }
 

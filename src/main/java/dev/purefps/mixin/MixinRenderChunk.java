@@ -5,6 +5,7 @@ import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.ChunkRegionManager;
 import dev.purefps.core.EnumCaches;
 import dev.purefps.core.FastBiomeColors;
+import dev.purefps.core.FastVertexBuffer;
 import dev.purefps.core.IslandCoreCuller;
 import net.minecraft.block.Block;
 import net.minecraft.block.state.IBlockState;
@@ -19,6 +20,7 @@ import net.minecraft.client.renderer.chunk.RenderChunk;
 import net.minecraft.client.renderer.chunk.VisGraph;
 import net.minecraft.client.renderer.tileentity.TileEntityRendererDispatcher;
 import net.minecraft.client.renderer.tileentity.TileEntitySpecialRenderer;
+import net.minecraft.client.renderer.vertex.VertexBuffer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
@@ -31,7 +33,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.nio.FloatBuffer;
 import java.util.HashSet;
@@ -39,11 +43,11 @@ import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Optimisations critiques de RenderChunk (MashClient 4.3) :
+ * Optimisations critiques de RenderChunk (MashClient 4.5.1) :
  * 1. Élimine le stall synchrone CPU<->GPU GlStateManager.getFloat(GL_MODELVIEW_MATRIX) dans initModelviewMatrix().
- * 2. Décharge à 100 % les coeurs d'îles et cavités internes scellées (BedWars / SkyWars) via IslandCoreCuller
- *    directement dans rebuildChunk, sans allouer d'itérateur MutableBlockPos et sans toucher aux lits/coffres.
- * 3. Élimine les allocations répétées de EnumWorldBlockLayer.values() et EnumFacing.values().
+ * 2. Lie les VertexBuffers SOLID/CUTOUT_MIPPED/CUTOUT aux arènes régionales GPU (GL14.glMultiDrawArrays) et libère
+ *    instantanément leurs créneaux VRAM lors des recyclages ViewFrustum.updateChunkPositions (setPosition).
+ * 3. Décharge à 100 % les coeurs d'îles et cavités internes scellées (BedWars / SkyWars) via IslandCoreCuller.
  */
 @Mixin(RenderChunk.class)
 public abstract class MixinRenderChunk {
@@ -74,6 +78,10 @@ public abstract class MixinRenderChunk {
     private FloatBuffer modelviewMatrix;
 
     @Shadow
+    @Final
+    private VertexBuffer[] vertexBuffers;
+
+    @Shadow
     private void preRenderBlocks(WorldRenderer worldRendererIn, BlockPos pos) {
     }
 
@@ -90,6 +98,64 @@ public abstract class MixinRenderChunk {
 
     @Shadow(remap = false)
     protected abstract RegionRenderCache createRegionRenderCache(World worldIn, BlockPos from, BlockPos to, int subtract);
+
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void purefps$bindVertexBuffersToChunk(
+            World worldIn,
+            RenderGlobal renderGlobalIn,
+            BlockPos blockPosIn,
+            int indexIn,
+            CallbackInfo ci
+    ) {
+        if (this.vertexBuffers != null) {
+            RenderChunk self = (RenderChunk) (Object) this;
+            int limit = Math.min(3, this.vertexBuffers.length);
+            for (int i = 0; i < limit; i++) {
+                VertexBuffer vb = this.vertexBuffers[i];
+                if (vb != null) {
+                    ((FastVertexBuffer) vb).purefps$bindOwnerChunk(self, i);
+                }
+            }
+        }
+    }
+
+    @Inject(method = "setPosition", at = @At("HEAD"))
+    private void purefps$releaseArenaSlotsOnMove(BlockPos pos, CallbackInfo ci) {
+        if (this.vertexBuffers != null && (this.position == null || !this.position.equals(pos))) {
+            int limit = Math.min(3, this.vertexBuffers.length);
+            for (int i = 0; i < limit; i++) {
+                VertexBuffer vb = this.vertexBuffers[i];
+                if (vb != null) {
+                    FastVertexBuffer fvb = (FastVertexBuffer) vb;
+                    fvb.purefps$releaseArenaSlot();
+                    fvb.purefps$setVertexCount(0);
+                }
+            }
+        }
+    }
+
+    @Inject(method = "setCompiledChunk", at = @At("RETURN"))
+    private void purefps$freeEmptyLayersOnMainThread(CompiledChunk compiledChunkIn, CallbackInfo ci) {
+        if (this.vertexBuffers == null) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc == null || !mc.isCallingFromMinecraftThread()) {
+            return;
+        }
+        EnumWorldBlockLayer[] layers = EnumCaches.BLOCK_LAYERS;
+        int limit = Math.min(3, this.vertexBuffers.length);
+        for (int i = 0; i < limit; i++) {
+            if (compiledChunkIn == null || compiledChunkIn == CompiledChunk.DUMMY || compiledChunkIn.isLayerEmpty(layers[i])) {
+                VertexBuffer vb = this.vertexBuffers[i];
+                if (vb != null) {
+                    FastVertexBuffer fvb = (FastVertexBuffer) vb;
+                    fvb.purefps$releaseArenaSlot();
+                    fvb.purefps$setVertexCount(0);
+                }
+            }
+        }
+    }
 
     /**
      * @author MashClient

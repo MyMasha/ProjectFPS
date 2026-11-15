@@ -186,7 +186,7 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.0"));
+            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.1"));
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
     }
@@ -224,14 +224,19 @@ public abstract class MixinMinecraft {
         PureFPSConfig.save();
     }
 
+    @Unique
+    private int purefps$yieldCounter = 0;
+
     @Redirect(
             method = "runGameLoop",
             at = @At(value = "INVOKE", target = "Ljava/lang/Thread;yield()V")
     )
     private void purefps$skipRenderThreadYield() {
-        // Lorsque les FPS sont débridés (>= 255, sans Display.sync), conserve Thread.yield()
-        // pour éviter d'affamer les threads audio/WebRTC de Discord et de Windows.
-        if (!PureFPSConfig.enabled || !this.isFramerateLimitBelowMax()) {
+        // Amortit SwitchToThread() (1 appel noyau toutes les 64 frames en Illimité au lieu de chaque frame)
+        // afin d'atteindre 2000+ FPS sans affamer les threads audio/WebRTC de Discord et de Windows.
+        if (!PureFPSConfig.enabled) {
+            Thread.yield();
+        } else if (!this.isFramerateLimitBelowMax() && ((++this.purefps$yieldCounter & 63) == 0)) {
             Thread.yield();
         }
     }

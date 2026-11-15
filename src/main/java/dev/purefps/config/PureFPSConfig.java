@@ -88,6 +88,7 @@ public final class PureFPSConfig {
     public static int unfocusedFpsLimit = 30;
     public static boolean showF3Stats = true;
     public static boolean fpsPacingMigrated = false;
+    public static boolean fpsUncapped451Migrated = false;
 
     // Modules MashClient (synchronisés avec MashModules)
     public static boolean customMainMenu = true;
@@ -345,16 +346,17 @@ public final class PureFPSConfig {
                 }
                 changed = true;
             }
-            if (!fpsPacingMigrated) {
-                if (gs.limitFramerate < 120 || gs.limitFramerate == 260) {
-                    gs.limitFramerate = 240;
+            fpsPacingMigrated = true;
+            if (!fpsUncapped451Migrated) {
+                if (gs.limitFramerate <= 240) {
+                    gs.limitFramerate = 260;
                     changed = true;
                 }
-                fpsPacingMigrated = true;
+                fpsUncapped451Migrated = true;
                 markDirty();
                 saveIfDirty();
             } else if (gs.limitFramerate < 60) {
-                gs.limitFramerate = 240;
+                gs.limitFramerate = 260;
                 changed = true;
             }
         }
@@ -386,7 +388,7 @@ public final class PureFPSConfig {
             gs.particleSetting = 2;
             gs.entityShadows = false;
             gs.enableVsync = false;
-            gs.limitFramerate = 240;
+            gs.limitFramerate = 260;
         } else if (profile == PureFPSProfile.BALANCED) {
             gs.fancyGraphics = false;
             gs.ambientOcclusion = 1;
@@ -394,7 +396,7 @@ public final class PureFPSConfig {
             gs.particleSetting = 1;
             gs.entityShadows = false;
             gs.enableVsync = false;
-            gs.limitFramerate = 240;
+            gs.limitFramerate = 260;
         } else if (profile == PureFPSProfile.QUALITY) {
             gs.fancyGraphics = true;
             gs.ambientOcclusion = 2;
@@ -482,12 +484,12 @@ public final class PureFPSConfig {
             return 2;
         }
         long maxMb = Runtime.getRuntime().maxMemory() / (1024L * 1024L);
-        int maxSafeForRam = maxMb < 900L ? 2 : (maxMb < 1600L ? 3 : 6);
+        int maxSafeForRam = maxMb < 900L ? 2 : (maxMb < 1600L ? 3 : (maxMb < 4096L ? 6 : 8));
         if (chunkWorkerThreads > 0) {
             return clamp(chunkWorkerThreads, 2, maxSafeForRam);
         }
         int logicalCores = Runtime.getRuntime().availableProcessors();
-        int auto = Math.max(2, Math.min(3, (logicalCores - 2) / 3));
+        int auto = Math.max(2, Math.min(6, logicalCores / 2));
         return Math.min(auto, maxSafeForRam);
     }
 
@@ -524,7 +526,7 @@ public final class PureFPSConfig {
             zeroAllocSmoothLighting = getBool(props, "zeroAllocSmoothLighting", zeroAllocSmoothLighting);
             fastBiomeColors = getBool(props, "fastBiomeColors", fastBiomeColors);
             multiThreadedChunkBuild = getBool(props, "multiThreadedChunkBuild", multiThreadedChunkBuild);
-            chunkWorkerThreads = clamp(getInt(props, "chunkWorkerThreads", chunkWorkerThreads), 0, 6);
+            chunkWorkerThreads = clamp(getInt(props, "chunkWorkerThreads", chunkWorkerThreads), 0, 8);
             disableWorldLoadGC = getBool(props, "disableWorldLoadGC", disableWorldLoadGC);
             skipVoidFogLoop = getBool(props, "skipVoidFogLoop", skipVoidFogLoop);
             islandCoreCulling = getBool(props, "islandCoreCulling", islandCoreCulling);
@@ -576,6 +578,7 @@ public final class PureFPSConfig {
             unfocusedFpsLimit = clamp(getInt(props, "unfocusedFpsLimit", unfocusedFpsLimit), 5, 60);
             showF3Stats = getBool(props, "showF3Stats", showF3Stats);
             fpsPacingMigrated = getBool(props, "fpsPacingMigrated", fpsPacingMigrated);
+            fpsUncapped451Migrated = getBool(props, "fpsUncapped451Migrated", fpsUncapped451Migrated);
 
             customMainMenu = getBool(props, "customMainMenu", customMainMenu);
             smoothClientFont = getBool(props, "smoothClientFont", smoothClientFont);
@@ -687,6 +690,7 @@ public final class PureFPSConfig {
         props.setProperty("unfocusedFpsLimit", Integer.toString(unfocusedFpsLimit));
         props.setProperty("showF3Stats", Boolean.toString(showF3Stats));
         props.setProperty("fpsPacingMigrated", Boolean.toString(fpsPacingMigrated));
+        props.setProperty("fpsUncapped451Migrated", Boolean.toString(fpsUncapped451Migrated));
 
         props.setProperty("customMainMenu", Boolean.toString(customMainMenu));
         props.setProperty("smoothClientFont", Boolean.toString(smoothClientFont));
@@ -722,7 +726,7 @@ public final class PureFPSConfig {
         props.setProperty("lastServerName", lastServerName != null ? lastServerName : "");
 
         try (FileOutputStream out = new FileOutputStream(configFile)) {
-            props.store(out, "MashClient 4.5.0 Configuration");
+            props.store(out, "MashClient 4.5.1 Configuration");
         } catch (IOException ignored) {
         }
     }

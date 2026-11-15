@@ -432,10 +432,10 @@ mod tests {
         let game_dir_str = tmp.to_string_lossy().to_string();
 
         write_dummy_mod_jar(
-            &mods_dir.join("purefps-4.5.0.jar"),
+            &mods_dir.join("purefps-4.5.1.jar"),
             "purefps",
             "PureFPS",
-            "4.5.0",
+            "4.5.1",
             "dev/purefps/PureFPSMod.class",
         );
         write_dummy_mod_jar(
@@ -453,8 +453,8 @@ mod tests {
         assert!(listed[1].enabled);
 
         // Protection du mod core
-        assert!(toggle_mod_file(&game_dir_str, "purefps-4.5.0.jar").is_err());
-        assert!(delete_mod_file(&game_dir_str, "purefps-4.5.0.jar").is_err());
+        assert!(toggle_mod_file(&game_dir_str, "purefps-4.5.1.jar").is_err());
+        assert!(delete_mod_file(&game_dir_str, "purefps-4.5.1.jar").is_err());
 
         // Diagnostic de crash par stacktrace package
         let crash_trace = "java.lang.NullPointerException: Ticking screen\n\tat me.author.brokenoverlay.RenderHook.onTick(RenderHook.java:42)\n\tat net.minecraft.client.Minecraft.runTick(Minecraft.java:1800)\n";
