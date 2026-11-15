@@ -183,7 +183,7 @@ public class GuiMashClientMenu extends GuiScreen {
     }
 
     private static float computeTabWidth(NavTab tab, SmoothFontRenderer smallF) {
-        return smallF.getStringWidth(tab.pillLabel) + 30.0F;
+        return smallF.getStringWidth(tab.pillLabel()) + 30.0F;
     }
 
     private static void drawNavTabIcon(NavTab tab, float cx, float cy, float size, int argb) {
