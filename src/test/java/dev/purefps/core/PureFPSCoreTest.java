@@ -1374,4 +1374,159 @@ public class PureFPSCoreTest {
             }
         }
     }
+
+    @Test
+    public void testFastResourcePackReloadAudioFingerprinting() throws Exception {
+        File tmpDir = new File(System.getProperty("java.io.tmpdir"), "purefps_rp_audio_" + System.nanoTime());
+        assertTrue(tmpDir.mkdirs());
+        File texOnlyZip = new File(tmpDir, "PvP16x.zip");
+        File audioZip = new File(tmpDir, "CustomHitsound.zip");
+        try {
+            try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(texOnlyZip))) {
+                zos.putNextEntry(new java.util.zip.ZipEntry("pack.mcmeta"));
+                zos.write("{\"pack\":{\"pack_format\":1,\"description\":\"16x\"}}".getBytes("UTF-8"));
+                zos.closeEntry();
+                zos.putNextEntry(new java.util.zip.ZipEntry("assets/minecraft/textures/items/diamond_sword.png"));
+                zos.write(new byte[]{1, 2, 3, 4});
+                zos.closeEntry();
+            }
+            try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(audioZip))) {
+                zos.putNextEntry(new java.util.zip.ZipEntry("assets/minecraft/sounds/random/successful_hit.ogg"));
+                zos.write(new byte[]{9, 8, 7, 6, 5});
+                zos.closeEntry();
+            }
+
+            assertEquals("Texture-only zip must have 0 audio hash", 0L, FastResourcePackReload.computePackAudioHash(texOnlyZip, null));
+            long audioHash1 = FastResourcePackReload.computePackAudioHash(audioZip, null);
+            assertTrue("Pack with .ogg must produce non-zero audio hash", audioHash1 != 0L);
+
+            FastResourcePackReload.resetState();
+            FastResourcePackReload.setOpenAlLoaded(true);
+            // Premier chargement : ne doit jamais sauter OpenAL
+            assertFalse(FastResourcePackReload.shouldSkipSoundReload(null));
+            // Second chargement avec la même signature audio : court-circuite le rechargement OpenAL !
+            assertTrue(FastResourcePackReload.shouldSkipSoundReload(null));
+        } finally {
+            FastResourcePackReload.resetState();
+            FastResourcePackReload.setOpenAlLoaded(false);
+            //noinspection ResultOfMethodCallIgnored
+            texOnlyZip.delete();
+            //noinspection ResultOfMethodCallIgnored
+            audioZip.delete();
+            //noinspection ResultOfMethodCallIgnored
+            tmpDir.delete();
+        }
+    }
+
+    @Test
+    public void testAsyncScreenshotFlipAndChatActions() {
+        // Tampon 2x2 OpenGL (ligne 0 = bas de l'écran, ligne 1 = haut de l'écran)
+        int[] raw = new int[]{
+                0xFF0000FF, 0xFF00FF00, // bas : Bleu, Vert
+                0xFFFF0000, 0xFFFFFFFF  // haut : Rouge, Blanc
+        };
+        java.awt.image.BufferedImage img = AsyncScreenshotManager.buildFlippedRgbImage(raw, 2, 2, 2, 2, true);
+        assertEquals(2, img.getWidth());
+        assertEquals(2, img.getHeight());
+        // Après inversion verticale : la ligne y=0 de l'image doit être l'ancienne ligne du haut (Rouge, Blanc)
+        assertEquals(0xFFFF0000, img.getRGB(0, 0) | 0xFF000000);
+        assertEquals(0xFFFFFFFF, img.getRGB(1, 0) | 0xFF000000);
+        assertEquals(0xFF0000FF, img.getRGB(0, 1) | 0xFF000000);
+
+        File dummy = new File("/tmp/2026-11-15_12.00.00.png");
+        net.minecraft.util.IChatComponent chat = AsyncScreenshotManager.buildInteractiveChatMessage(dummy);
+        String unformatted = chat.getUnformattedText();
+        assertTrue(unformatted.contains("[Ouvrir]"));
+        assertTrue(unformatted.contains("[Copier]"));
+    }
+
+    @Test
+    public void testResourcePackSubfolderDiscoveryAndSearch() throws Exception {
+        File root = new File(System.getProperty("java.io.tmpdir"), "purefps_rp_tree_" + System.nanoTime());
+        File subPvp = new File(root, "PvP 16x");
+        File unzippedPack = new File(root, "UnzippedPack");
+        assertTrue(subPvp.mkdirs());
+        assertTrue(unzippedPack.mkdirs());
+        File zipInSub = new File(subPvp, "BedWarsFault.zip");
+        File mcmeta = new File(unzippedPack, "pack.mcmeta");
+        try {
+            assertTrue(zipInSub.createNewFile());
+            assertTrue(mcmeta.createNewFile());
+
+            java.io.FileFilter vanillaFilter = f ->
+                    (f.isFile() && f.getName().endsWith(".zip"))
+                            || (f.isDirectory() && new File(f, "pack.mcmeta").isFile());
+
+            java.util.List<File> subs = dev.purefps.client.ui.ResourcePackBrowserHelper.listSubfolders(root);
+            assertEquals("Only organizational folders without pack.mcmeta are subfolders", 1, subs.size());
+            assertEquals("PvP 16x", subs.get(0).getName());
+
+            File[] allPacks = dev.purefps.client.ui.ResourcePackBrowserHelper.collectPackFilesRecursively(root, vanillaFilter);
+            assertEquals("Must discover both unzipped pack in root and zip pack in subfolder", 2, allPacks.length);
+
+            assertTrue(dev.purefps.client.ui.ResourcePackBrowserHelper.matchesSearch(
+                    "\u00a7bBedWars \u00a7f16x", "\u00a77Pack optimisé", zipInSub, "bedwars optimise"
+            ));
+            assertTrue(dev.purefps.client.ui.ResourcePackBrowserHelper.matchesSearch(
+                    "Tightfault", "Revamp", zipInSub, "pvp 16x"
+            ));
+            assertFalse(dev.purefps.client.ui.ResourcePackBrowserHelper.matchesSearch(
+                    "Tightfault", "Revamp", zipInSub, "skyblock"
+            ));
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            zipInSub.delete();
+            //noinspection ResultOfMethodCallIgnored
+            mcmeta.delete();
+            //noinspection ResultOfMethodCallIgnored
+            subPvp.delete();
+            //noinspection ResultOfMethodCallIgnored
+            unzippedPack.delete();
+            //noinspection ResultOfMethodCallIgnored
+            root.delete();
+        }
+    }
+
+    @Test
+    public void testQuickServerBridgeAndVulkanHelper() throws Exception {
+        File tmpMc = new File(System.getProperty("java.io.tmpdir"), "purefps_qs_" + System.nanoTime());
+        File cfgDir = new File(tmpMc, "config");
+        assertTrue(cfgDir.mkdirs());
+        File qsFile = new File(cfgDir, QuickServerLaunchBridge.QUICK_SERVER_FILE_NAME);
+        try {
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(qsFile)) {
+                fos.write("play.pikanetwork.net\nPikaNetwork\n".getBytes("UTF-8"));
+            }
+            QuickServerLaunchBridge.resetForTest();
+            QuickServerLaunchBridge.TargetServer srv =
+                    QuickServerLaunchBridge.consumePendingServer(tmpMc, System.currentTimeMillis());
+            assertNotNull(srv);
+            assertEquals("PikaNetwork", srv.name);
+            assertEquals("play.pikanetwork.net", srv.hostPort);
+            assertFalse("Quick server token file must be deleted on consumption", qsFile.exists());
+            assertNull("Must only consume once per session",
+                    QuickServerLaunchBridge.consumePendingServer(tmpMc, System.currentTimeMillis()));
+
+            String prev = System.getProperty(VulkanBackendHelper.BACKEND_PROP);
+            try {
+                System.setProperty(VulkanBackendHelper.BACKEND_PROP, "vulkan");
+                assertTrue(VulkanBackendHelper.isVulkanFlagSet());
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.0").contains("[Vulkan Bêta]"));
+            } finally {
+                if (prev == null) {
+                    System.clearProperty(VulkanBackendHelper.BACKEND_PROP);
+                } else {
+                    System.setProperty(VulkanBackendHelper.BACKEND_PROP, prev);
+                }
+            }
+        } finally {
+            QuickServerLaunchBridge.resetForTest();
+            //noinspection ResultOfMethodCallIgnored
+            qsFile.delete();
+            //noinspection ResultOfMethodCallIgnored
+            cfgDir.delete();
+            //noinspection ResultOfMethodCallIgnored
+            tmpMc.delete();
+        }
+    }
 }

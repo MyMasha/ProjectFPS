@@ -186,7 +186,7 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle("MashClient 4.4.6 | Minecraft 1.8.9");
+            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.0"));
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
     }

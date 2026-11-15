@@ -1,4 +1,4 @@
-//! Configuration unifiée MashClient 4.4 (`purefps.properties` + `launcher.json` + `account.json`).
+//! Configuration unifiée MashClient 4.5 (`purefps.properties` + `launcher.json` + `accounts.json` + `custom_profiles.json`).
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -40,6 +40,63 @@ pub enum LaunchMode {
     DirectOffline,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum InstanceFlavor {
+    #[default]
+    Standard,
+    VulkanBeta,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuickServerEntry {
+    pub id: String,
+    pub name: String,
+    pub address: String,
+}
+
+pub fn builtin_quick_servers() -> Vec<QuickServerEntry> {
+    vec![
+        QuickServerEntry {
+            id: "hypixel".to_owned(),
+            name: "Hypixel".to_owned(),
+            address: "mc.hypixel.net".to_owned(),
+        },
+        QuickServerEntry {
+            id: "pikanetwork".to_owned(),
+            name: "PikaNetwork".to_owned(),
+            address: "play.pikanetwork.net".to_owned(),
+        },
+        QuickServerEntry {
+            id: "jartex".to_owned(),
+            name: "JartexNetwork".to_owned(),
+            address: "play.jartexnetwork.com".to_owned(),
+        },
+        QuickServerEntry {
+            id: "minemen".to_owned(),
+            name: "Minemen Club".to_owned(),
+            address: "eu.minemen.club".to_owned(),
+        },
+        QuickServerEntry {
+            id: "blocksmc".to_owned(),
+            name: "BlocksMC".to_owned(),
+            address: "blocksmc.com".to_owned(),
+        },
+    ]
+}
+
+pub fn split_server_host_port(address: &str) -> (String, u16) {
+    let trimmed = address.trim();
+    if let Some((host, port_str)) = trimmed.rsplit_once(':') {
+        if !host.is_empty() && !host.contains(':') {
+            if let Ok(port) = port_str.parse::<u16>() {
+                return (host.to_owned(), port);
+            }
+        }
+    }
+    (trimmed.to_owned(), 25565)
+}
+
 fn default_github_repo() -> String {
     "MyMasha/ProjectFPS".to_owned()
 }
@@ -52,6 +109,7 @@ fn default_true() -> bool {
 pub struct LauncherPrefs {
     pub ram_mb: u32,
     pub offline_username: String,
+    #[serde(default)]
     pub quick_join_hypixel: bool,
     pub launch_mode: LaunchMode,
     pub java_path: String,
@@ -63,6 +121,12 @@ pub struct LauncherPrefs {
     pub github_repo: String,
     #[serde(default = "default_true")]
     pub auto_update_check: bool,
+    #[serde(default)]
+    pub instance_flavor: InstanceFlavor,
+    #[serde(default)]
+    pub selected_server: Option<QuickServerEntry>,
+    #[serde(default)]
+    pub custom_servers: Vec<QuickServerEntry>,
 }
 
 pub fn is_real_prism_instance(instance_root: &Path) -> bool {
@@ -78,27 +142,28 @@ pub fn resolve_prism_instance_game_dir(instance_root: &Path) -> PathBuf {
     }
 }
 
+/// Détecte et classe toutes les installations Java 8 64-bit disponibles sur la machine
+/// en privilégiant toujours les builds Hotspot récents (`8u300+` / Temurin géré par MashClient)
+/// par rapport au vieux `jre-legacy` (`1.8.0_51`).
 pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
-    let exact_candidates = [
-        r"C:\Program Files\Eclipse Adoptium\jre-8.0.504.1-hotspot\bin\javaw.exe".to_owned(),
-        format!(r"{appdata}\PrismLauncher\java\jre-legacy\bin\javaw.exe"),
-        format!(
-            r"{local_appdata}\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime\jre-legacy\windows-x64\jre-legacy\bin\javaw.exe"
-        ),
-        r"C:\Program Files (x86)\Minecraft Launcher\runtime\jre-legacy\windows-x64\jre-legacy\bin\javaw.exe"
-            .to_owned(),
-    ];
-    for c in &exact_candidates {
-        if Path::new(c).is_file() {
-            return c.clone();
-        }
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // 1. Runtime Temurin Java 8 géré par MashClient
+    let managed_root = Path::new(appdata)
+        .join("MashClient")
+        .join("runtimes")
+        .join("temurin-jre8");
+    if let Some(javaw) = crate::runtimes::find_javaw_inside_dir(&managed_root) {
+        candidates.push(javaw);
     }
 
+    // 2. Dossiers standards de distributions Java 8 64-bit modernes
     let search_roots = [
         PathBuf::from(r"C:\Program Files\Eclipse Adoptium"),
-        PathBuf::from(r"C:\Program Files\Java"),
+        PathBuf::from(r"C:\Program Files\AdoptOpenJDK"),
         PathBuf::from(r"C:\Program Files\Zulu"),
         PathBuf::from(r"C:\Program Files\BellSoft"),
+        PathBuf::from(r"C:\Program Files\Java"),
         Path::new(appdata).join("PrismLauncher").join("java"),
     ];
     for root in &search_roots {
@@ -108,15 +173,58 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
         for entry in entries.flatten() {
             let folder_name = entry.file_name().to_string_lossy().to_ascii_lowercase();
             if folder_name.contains("8") || folder_name.contains("1.8") || folder_name.contains("legacy") {
-                let javaw = entry.path().join("bin").join("javaw.exe");
-                if javaw.is_file() {
-                    return javaw.to_string_lossy().to_string();
+                if let Some(javaw) = crate::runtimes::find_javaw_inside_dir(&entry.path()) {
+                    candidates.push(javaw);
                 }
             }
         }
     }
 
-    exact_candidates[0].clone()
+    // 3. Emplacements exacts connus (y compris fallback jre-legacy)
+    let exact_fallbacks = [
+        r"C:\Program Files\Eclipse Adoptium\jre-8.0.504.1-hotspot\bin\javaw.exe".to_owned(),
+        format!(r"{appdata}\PrismLauncher\java\jre-legacy\bin\javaw.exe"),
+        format!(
+            r"{local_appdata}\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime\jre-legacy\windows-x64\jre-legacy\bin\javaw.exe"
+        ),
+        r"C:\Program Files (x86)\Minecraft Launcher\runtime\jre-legacy\windows-x64\jre-legacy\bin\javaw.exe"
+            .to_owned(),
+    ];
+    for raw in &exact_fallbacks {
+        let p = PathBuf::from(raw);
+        if p.is_file() {
+            candidates.push(p);
+        }
+    }
+
+    let mut best: Option<(i64, PathBuf)> = None;
+    for cand in candidates {
+        if !cand.is_file() {
+            continue;
+        }
+        let probe = crate::runtimes::probe_java8_executable(&cand);
+        let mut score: i64 = 0;
+        if probe.is_java8 {
+            score += 10_000;
+        }
+        if probe.is_64bit {
+            score += 5_000;
+        }
+        score += i64::from(probe.update_version) * 10;
+        if cand
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .contains("temurin-jre8")
+        {
+            score += 250;
+        }
+        if best.as_ref().is_none_or(|(cur, _)| score > *cur) {
+            best = Some((score, cand));
+        }
+    }
+
+    best.map(|(_, p)| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| exact_fallbacks[0].clone())
 }
 
 pub fn detect_prism_exe(appdata: &str, local_appdata: &str) -> String {
@@ -151,6 +259,10 @@ pub fn detect_minecraft_189_dirs(appdata: &str, local_appdata: &str) -> (String,
                 continue;
             }
             let inst_name = entry.file_name().to_string_lossy().to_string();
+            // Ne jamais confondre l'instance séparée Vulkan Bêta avec l'instance OpenGL standard
+            if inst_name.to_ascii_lowercase().contains("vulkan") {
+                continue;
+            }
             let mmc_pack = std::fs::read_to_string(inst_path.join("mmc-pack.json")).unwrap_or_default();
             let inst_cfg = std::fs::read_to_string(inst_path.join("instance.cfg")).unwrap_or_default();
 
@@ -225,6 +337,9 @@ impl Default for LauncherPrefs {
             prism_exe,
             github_repo: default_github_repo(),
             auto_update_check: true,
+            instance_flavor: InstanceFlavor::Standard,
+            selected_server: None,
+            custom_servers: Vec::new(),
         }
     }
 }
@@ -238,11 +353,19 @@ pub struct MicrosoftAccount {
     pub obtained_epoch_secs: u64,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AccountStore {
+    pub active_uuid: Option<String>,
+    #[serde(default)]
+    pub accounts: Vec<MicrosoftAccount>,
+}
+
 /// Vue publique sans jetons secrets transmise à l'interface WebView2.
 #[derive(Debug, Clone, Serialize)]
 pub struct PublicAccountView {
     pub username: String,
     pub uuid: String,
+    pub active: bool,
 }
 
 impl From<&MicrosoftAccount> for PublicAccountView {
@@ -250,8 +373,42 @@ impl From<&MicrosoftAccount> for PublicAccountView {
         Self {
             username: acc.username.clone(),
             uuid: acc.uuid.clone(),
+            active: true,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomProfile {
+    pub id: String,
+    pub name: String,
+    pub settings: PureClientSettings,
+    pub modules: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomProfileSummary {
+    pub id: String,
+    pub name: String,
+}
+
+fn default_client_name() -> String {
+    "MashClient".to_owned()
+}
+
+fn default_bundle_version() -> String {
+    "4.5.0".to_owned()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportedProfileBundle {
+    #[serde(default = "default_client_name")]
+    pub client: String,
+    #[serde(default = "default_bundle_version")]
+    pub version: String,
+    pub name: String,
+    pub settings: PureClientSettings,
+    pub modules: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -697,7 +854,7 @@ impl PureClientSettings {
         map.insert("smartChunkUpdates".into(), self.smart_chunk_updates.to_string());
         map.insert("menuWorldUnload".into(), self.menu_world_unload.to_string());
 
-        let mut out = String::from("# MashClient 4.4.6 Configuration\n");
+        let mut out = String::from("# MashClient 4.5.0 Configuration\n");
         for (k, v) in &map {
             out.push_str(k);
             out.push('=');
@@ -793,7 +950,7 @@ impl PureClientSettings {
 pub fn empty_modules_json() -> serde_json::Value {
     serde_json::json!({
         "client": "MashClient",
-        "version": "4.4.6",
+        "version": "4.5.0",
         "modules": {}
     })
 }
@@ -808,7 +965,7 @@ pub fn load_modules_json(game_dir: &str) -> serde_json::Value {
 
     if let Some(obj) = root.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.4.6".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.0".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -826,7 +983,7 @@ pub fn save_modules_json(game_dir: &str, data: &serde_json::Value) -> Result<(),
     };
     if let Some(obj) = normalized.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.4.6".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.0".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -886,7 +1043,7 @@ pub fn sync_pure_settings_to_modules_json(
         return;
     };
     root_obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-    root_obj.insert("version".to_owned(), serde_json::Value::String("4.4.6".to_owned()));
+    root_obj.insert("version".to_owned(), serde_json::Value::String("4.5.0".to_owned()));
     if !root_obj.get("modules").is_some_and(serde_json::Value::is_object) {
         root_obj.insert("modules".to_owned(), serde_json::json!({}));
     }
@@ -1180,6 +1337,11 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
         .and_then(|s| serde_json::from_str::<LauncherPrefs>(&s).ok())
         .unwrap_or_default();
 
+    if prefs.quick_join_hypixel && prefs.selected_server.is_none() {
+        prefs.selected_server = builtin_quick_servers().into_iter().next();
+        prefs.quick_join_hypixel = false;
+    }
+
     let appdata = std::env::var("APPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
     let local_appdata =
         std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
@@ -1201,10 +1363,16 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
         }
     }
 
-    if !Path::new(&prefs.java_path).is_file() {
+    let cur_java_file = Path::new(&prefs.java_path);
+    let cur_probe = crate::runtimes::probe_java8_executable(cur_java_file);
+    if !cur_java_file.is_file() || (cur_probe.is_java8 && cur_probe.update_version < 100) {
         let detected_java = detect_java8_path(&appdata, &local_appdata);
-        if Path::new(&detected_java).is_file() {
-            prefs.java_path = detected_java;
+        let det_path = Path::new(&detected_java);
+        if det_path.is_file() {
+            let det_probe = crate::runtimes::probe_java8_executable(det_path);
+            if !cur_java_file.is_file() || det_probe.update_version > cur_probe.update_version {
+                prefs.java_path = detected_java;
+            }
         }
     }
 
@@ -1225,22 +1393,329 @@ pub fn save_launcher_prefs(prefs: &LauncherPrefs) -> Result<(), String> {
     std::fs::write(dir.join("launcher.json"), json).map_err(|e| e.to_string())
 }
 
-pub fn load_microsoft_account() -> Option<MicrosoftAccount> {
-    let path = app_storage_dir().join("account.json");
-    std::fs::read_to_string(path)
+// ---------------------------------------------------------------------------
+// Multi-comptes Microsoft (`accounts.json` + rétro-compatibilité `account.json`)
+// ---------------------------------------------------------------------------
+
+pub fn load_account_store_in_dir(dir: &Path) -> AccountStore {
+    let mut store: AccountStore = std::fs::read_to_string(dir.join("accounts.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<AccountStore>(&s).ok())
+        .unwrap_or_default();
+
+    if let Some(legacy) = std::fs::read_to_string(dir.join("account.json"))
         .ok()
         .and_then(|s| serde_json::from_str::<MicrosoftAccount>(&s).ok())
+    {
+        if !store
+            .accounts
+            .iter()
+            .any(|a| a.uuid.eq_ignore_ascii_case(&legacy.uuid))
+        {
+            if store.active_uuid.is_none() {
+                store.active_uuid = Some(legacy.uuid.clone());
+            }
+            store.accounts.push(legacy);
+        }
+    }
+
+    if !store.accounts.is_empty() {
+        let valid_active = store.active_uuid.as_ref().is_some_and(|act| {
+            store
+                .accounts
+                .iter()
+                .any(|a| a.uuid.eq_ignore_ascii_case(act))
+        });
+        if !valid_active {
+            store.active_uuid = Some(store.accounts[0].uuid.clone());
+        }
+    } else {
+        store.active_uuid = None;
+    }
+
+    store
+}
+
+pub fn save_account_store_in_dir(dir: &Path, store: &AccountStore) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(store).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("accounts.json"), json).map_err(|e| e.to_string())?;
+
+    let active_acc = store
+        .active_uuid
+        .as_ref()
+        .and_then(|u| store.accounts.iter().find(|a| a.uuid.eq_ignore_ascii_case(u)))
+        .or_else(|| store.accounts.first());
+
+    if let Some(acc) = active_acc {
+        if let Ok(legacy_json) = serde_json::to_string_pretty(acc) {
+            let _ = std::fs::write(dir.join("account.json"), legacy_json);
+        }
+    } else {
+        let _ = std::fs::remove_file(dir.join("account.json"));
+    }
+    Ok(())
+}
+
+pub fn load_account_store() -> AccountStore {
+    load_account_store_in_dir(&app_storage_dir())
+}
+
+pub fn public_account_views(store: &AccountStore) -> Vec<PublicAccountView> {
+    let active_id = store.active_uuid.as_deref().unwrap_or("");
+    store
+        .accounts
+        .iter()
+        .map(|a| PublicAccountView {
+            username: a.username.clone(),
+            uuid: a.uuid.clone(),
+            active: a.uuid.eq_ignore_ascii_case(active_id),
+        })
+        .collect()
+}
+
+pub fn load_microsoft_account() -> Option<MicrosoftAccount> {
+    let store = load_account_store();
+    if let Some(ref act) = store.active_uuid {
+        if let Some(found) = store
+            .accounts
+            .iter()
+            .find(|a| a.uuid.eq_ignore_ascii_case(act))
+        {
+            return Some(found.clone());
+        }
+    }
+    store.accounts.into_iter().next()
+}
+
+pub fn upsert_microsoft_account_in_dir(dir: &Path, acc: &MicrosoftAccount) -> Result<(), String> {
+    let mut store = load_account_store_in_dir(dir);
+    if let Some(existing) = store
+        .accounts
+        .iter_mut()
+        .find(|a| a.uuid.eq_ignore_ascii_case(&acc.uuid))
+    {
+        *existing = acc.clone();
+    } else {
+        store.accounts.push(acc.clone());
+    }
+    store.active_uuid = Some(acc.uuid.clone());
+    save_account_store_in_dir(dir, &store)
 }
 
 pub fn save_microsoft_account(acc: &MicrosoftAccount) -> Result<(), String> {
-    let dir = app_storage_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let json = serde_json::to_string_pretty(acc).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("account.json"), json).map_err(|e| e.to_string())
+    upsert_microsoft_account_in_dir(&app_storage_dir(), acc)
+}
+
+pub fn switch_microsoft_account_in_dir(dir: &Path, uuid: &str) -> Result<MicrosoftAccount, String> {
+    let mut store = load_account_store_in_dir(dir);
+    let found = store
+        .accounts
+        .iter()
+        .find(|a| a.uuid.eq_ignore_ascii_case(uuid))
+        .cloned()
+        .ok_or_else(|| "Compte Microsoft introuvable.".to_owned())?;
+    store.active_uuid = Some(found.uuid.clone());
+    save_account_store_in_dir(dir, &store)?;
+    Ok(found)
+}
+
+pub fn switch_microsoft_account(uuid: &str) -> Result<MicrosoftAccount, String> {
+    switch_microsoft_account_in_dir(&app_storage_dir(), uuid)
+}
+
+pub fn remove_microsoft_account_in_dir(
+    dir: &Path,
+    uuid: &str,
+) -> Result<Option<MicrosoftAccount>, String> {
+    let mut store = load_account_store_in_dir(dir);
+    store
+        .accounts
+        .retain(|a| !a.uuid.eq_ignore_ascii_case(uuid));
+    if store
+        .active_uuid
+        .as_ref()
+        .is_some_and(|act| act.eq_ignore_ascii_case(uuid))
+    {
+        store.active_uuid = store.accounts.first().map(|a| a.uuid.clone());
+    }
+    save_account_store_in_dir(dir, &store)?;
+    let next_active = store
+        .active_uuid
+        .as_ref()
+        .and_then(|act| store.accounts.iter().find(|a| a.uuid.eq_ignore_ascii_case(act)))
+        .cloned();
+    Ok(next_active)
+}
+
+pub fn remove_microsoft_account(uuid: &str) -> Result<Option<MicrosoftAccount>, String> {
+    remove_microsoft_account_in_dir(&app_storage_dir(), uuid)
 }
 
 pub fn clear_microsoft_account() {
-    let _ = std::fs::remove_file(app_storage_dir().join("account.json"));
+    let dir = app_storage_dir();
+    if let Some(cur) = load_microsoft_account() {
+        let _ = remove_microsoft_account_in_dir(&dir, &cur.uuid);
+    } else {
+        let _ = std::fs::remove_file(dir.join("account.json"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Profils personnalisés + Import / Export `.json`
+// ---------------------------------------------------------------------------
+
+fn slugify_profile_id(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if (ch == ' ' || ch == '-' || ch == '_') && !out.ends_with('_') && !out.is_empty() {
+            out.push('_');
+        }
+    }
+    let trimmed = out.trim_matches('_');
+    if trimmed.is_empty() {
+        "profil_perso".to_owned()
+    } else {
+        trimmed.chars().take(32).collect()
+    }
+}
+
+pub fn load_custom_profiles_in_dir(dir: &Path) -> Vec<CustomProfile> {
+    std::fs::read_to_string(dir.join("custom_profiles.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<CustomProfile>>(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_custom_profiles_in_dir(dir: &Path, list: &[CustomProfile]) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(list).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("custom_profiles.json"), json).map_err(|e| e.to_string())
+}
+
+pub fn load_custom_profiles() -> Vec<CustomProfile> {
+    load_custom_profiles_in_dir(&app_storage_dir())
+}
+
+pub fn save_custom_profile_entry_in_dir(
+    dir: &Path,
+    name: &str,
+    settings: &PureClientSettings,
+    modules: &serde_json::Value,
+) -> Result<CustomProfile, String> {
+    let clean_name = name.trim();
+    if clean_name.is_empty() {
+        return Err("Veuillez saisir un nom de profil.".to_owned());
+    }
+    let mut list = load_custom_profiles_in_dir(dir);
+    let mut saved_settings = settings.clone();
+    saved_settings.active_profile = PureProfile::Custom;
+
+    let normalized_mods = if modules.is_object() {
+        modules.clone()
+    } else {
+        empty_modules_json()
+    };
+
+    if let Some(existing) = list
+        .iter_mut()
+        .find(|p| p.name.eq_ignore_ascii_case(clean_name))
+    {
+        existing.name = clean_name.to_owned();
+        existing.settings = saved_settings;
+        existing.modules = normalized_mods;
+        let updated = existing.clone();
+        save_custom_profiles_in_dir(dir, &list)?;
+        return Ok(updated);
+    }
+
+    let base_id = slugify_profile_id(clean_name);
+    let mut candidate_id = base_id.clone();
+    let mut suffix = 2u32;
+    while list.iter().any(|p| p.id == candidate_id) {
+        candidate_id = format!("{base_id}_{suffix}");
+        suffix += 1;
+    }
+
+    let created = CustomProfile {
+        id: candidate_id,
+        name: clean_name.to_owned(),
+        settings: saved_settings,
+        modules: normalized_mods,
+    };
+    list.push(created.clone());
+    save_custom_profiles_in_dir(dir, &list)?;
+    Ok(created)
+}
+
+pub fn save_custom_profile_entry(
+    name: &str,
+    settings: &PureClientSettings,
+    modules: &serde_json::Value,
+) -> Result<CustomProfile, String> {
+    save_custom_profile_entry_in_dir(&app_storage_dir(), name, settings, modules)
+}
+
+pub fn delete_custom_profile_entry(id: &str) -> Result<(), String> {
+    let dir = app_storage_dir();
+    let mut list = load_custom_profiles_in_dir(&dir);
+    list.retain(|p| p.id != id);
+    save_custom_profiles_in_dir(&dir, &list)
+}
+
+pub fn export_profile_bundle_to_path(
+    path: &Path,
+    name: &str,
+    settings: &PureClientSettings,
+    modules: &serde_json::Value,
+) -> Result<(), String> {
+    let bundle = ExportedProfileBundle {
+        client: "MashClient".to_owned(),
+        version: "4.5.0".to_owned(),
+        name: if name.trim().is_empty() {
+            "Profil MashClient".to_owned()
+        } else {
+            name.trim().to_owned()
+        },
+        settings: settings.clone(),
+        modules: if modules.is_object() {
+            modules.clone()
+        } else {
+            empty_modules_json()
+        },
+    };
+    let json = serde_json::to_string_pretty(&bundle)
+        .map_err(|e| format!("Sérialisation du profil impossible: {e}"))?;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(path, json).map_err(|e| format!("Écriture du profil impossible: {e}"))
+}
+
+pub fn import_profile_bundle_from_path_in_dir(
+    storage_dir: &Path,
+    path: &Path,
+) -> Result<CustomProfile, String> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| format!("Impossible de lire le fichier profil : {e}"))?;
+    let bundle: ExportedProfileBundle = serde_json::from_str(&raw)
+        .map_err(|e| format!("Format JSON de profil MashClient invalide : {e}"))?;
+    let fallback_name = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Profil importé".to_owned());
+    let name = if bundle.name.trim().is_empty() {
+        fallback_name
+    } else {
+        bundle.name
+    };
+    save_custom_profile_entry_in_dir(storage_dir, &name, &bundle.settings, &bundle.modules)
+}
+
+pub fn import_profile_bundle_from_path(path: &Path) -> Result<CustomProfile, String> {
+    import_profile_bundle_from_path_in_dir(&app_storage_dir(), path)
 }
 
 /// Résout le jeton GitHub de l'Auto-Updater dans l'ordre de priorité :
@@ -1295,6 +1770,19 @@ pub fn effective_ms_client_id() -> Option<String> {
     None
 }
 
+/// Écrit ou nettoie le fichier pont `config/.purefps_quick_server` consommé par `GuiPureMainMenu`.
+pub fn write_or_clear_quick_server_file(game_dir: &str, server: Option<&QuickServerEntry>) {
+    let cfg_dir = Path::new(game_dir).join("config");
+    let _ = std::fs::create_dir_all(&cfg_dir);
+    let qs_path = cfg_dir.join(".purefps_quick_server");
+    if let Some(srv) = server.filter(|s| !s.address.trim().is_empty()) {
+        let payload = format!("{}\n{}\n", srv.address.trim(), srv.name.trim());
+        let _ = std::fs::write(&qs_path, payload);
+    } else {
+        let _ = std::fs::remove_file(&qs_path);
+    }
+}
+
 /// Prépare les fichiers de synchronisation sans couture entre MashClient (rideau noir Trou Noir)
 /// et Minecraft 1.8.9 : désactive `SplashProgress` (`enabled=false`) pour éviter que Forge ne crée
 /// un `SharedDrawable` (`wglShareLists`) qui désactive la Threaded Optimization du pilote NVIDIA.
@@ -1310,7 +1798,7 @@ pub fn prepare_seamless_launch_files(game_dir: &str) {
 
     let splash_path = cfg_dir.join("splash.properties");
     let splash_black = "\
-# MashClient 4.4 — NVIDIA Threaded GL (No SharedDrawable)\n\
+# MashClient 4.5.0 — NVIDIA Threaded GL (No SharedDrawable)\n\
 enabled=false\n\
 background=0x000000\n\
 font=0x000000\n\
@@ -1370,6 +1858,17 @@ mod tests {
         assert!(splash.contains("enabled=false"));
         assert!(splash.contains("background=0x000000"));
 
+        let srv = QuickServerEntry {
+            id: "pika".into(),
+            name: "PikaNetwork".into(),
+            address: "play.pikanetwork.net".into(),
+        };
+        write_or_clear_quick_server_file(&tmp.to_string_lossy(), Some(&srv));
+        let qs = std::fs::read_to_string(tmp.join("config").join(".purefps_quick_server")).unwrap();
+        assert_eq!(qs, "play.pikanetwork.net\nPikaNetwork\n");
+        write_or_clear_quick_server_file(&tmp.to_string_lossy(), None);
+        assert!(!tmp.join("config").join(".purefps_quick_server").exists());
+
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -1397,10 +1896,88 @@ mod tests {
 
         save_all_client_configs(&dir_str, &cfg, &mods).unwrap();
         let reloaded_mods = load_modules_json(&dir_str);
-        assert_eq!(reloaded_mods["version"], "4.4.6");
+        assert_eq!(reloaded_mods["version"], "4.5.0");
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["enabled"], false);
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["settings"]["max_dist"], 72);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn test_multi_account_migration_switch_and_remove() {
+        let tmp = std::env::temp_dir().join("mashclient_accounts_store_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let legacy = MicrosoftAccount {
+            username: "FirstUser".into(),
+            uuid: "aaaa1111bbbb2222cccc3333dddd4444".into(),
+            access_token: "tok1".into(),
+            refresh_token: "ref1".into(),
+            obtained_epoch_secs: 100,
+        };
+        std::fs::write(
+            tmp.join("account.json"),
+            serde_json::to_string(&legacy).unwrap(),
+        )
+        .unwrap();
+
+        let store = load_account_store_in_dir(&tmp);
+        assert_eq!(store.accounts.len(), 1);
+        assert_eq!(store.active_uuid.as_deref(), Some(legacy.uuid.as_str()));
+
+        let second = MicrosoftAccount {
+            username: "AltBedWars".into(),
+            uuid: "ffff9999eeee8888dddd7777cccc6666".into(),
+            access_token: "tok2".into(),
+            refresh_token: "ref2".into(),
+            obtained_epoch_secs: 200,
+        };
+        upsert_microsoft_account_in_dir(&tmp, &second).unwrap();
+        let store2 = load_account_store_in_dir(&tmp);
+        assert_eq!(store2.accounts.len(), 2);
+        assert_eq!(store2.active_uuid.as_deref(), Some(second.uuid.as_str()));
+
+        let switched = switch_microsoft_account_in_dir(&tmp, &legacy.uuid).unwrap();
+        assert_eq!(switched.username, "FirstUser");
+
+        let remaining = remove_microsoft_account_in_dir(&tmp, &legacy.uuid).unwrap();
+        assert_eq!(remaining.unwrap().username, "AltBedWars");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_custom_profile_save_export_and_import() {
+        let tmp = std::env::temp_dir().join("mashclient_custom_prof_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let mut cfg = PureClientSettings::default();
+        cfg.apply_profile(PureProfile::Fps);
+        cfg.no_hurt_cam = true;
+        let mods = serde_json::json!({
+            "client": "MashClient",
+            "version": "4.5.0",
+            "modules": {
+                "hud_fps": { "enabled": true, "x": 120.0, "y": 40.0 }
+            }
+        });
+
+        let saved = save_custom_profile_entry_in_dir(&tmp, "Ranked BedWars", &cfg, &mods).unwrap();
+        assert_eq!(saved.id, "ranked_bedwars");
+        assert_eq!(saved.settings.active_profile, PureProfile::Custom);
+
+        let exported_file = tmp.join("exported_bedwars.json");
+        export_profile_bundle_to_path(&exported_file, "Tournoi PvP", &saved.settings, &saved.modules).unwrap();
+
+        let imported = import_profile_bundle_from_path_in_dir(&tmp, &exported_file).unwrap();
+        assert_eq!(imported.name, "Tournoi PvP");
+        assert!(imported.settings.no_hurt_cam);
+        assert_eq!(imported.modules["modules"]["hud_fps"]["x"], 120.0);
+        assert_eq!(load_custom_profiles_in_dir(&tmp).len(), 2);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
+

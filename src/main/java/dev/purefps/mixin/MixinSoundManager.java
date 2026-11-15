@@ -124,6 +124,7 @@ public abstract class MixinSoundManager {
 
     @Inject(method = "unloadSoundSystem", at = @At("HEAD"))
     private void purefps$onUnloadSoundSystemHead(CallbackInfo ci) {
+        dev.purefps.core.FastResourcePackReload.setOpenAlLoaded(false);
         MashAudioEngine.onOpenALUnloading();
         LowLatencyAudioConfigurator.resetLimiterState();
         this.purefps$engineTuned = false;
@@ -134,6 +135,7 @@ public abstract class MixinSoundManager {
     @Inject(method = "updateAllSounds", at = @At("HEAD"))
     private void purefps$onUpdateAllSoundsHead(CallbackInfo ci) {
         LowLatencyAudioConfigurator.onSoundTick(this.playTime + 1);
+        dev.purefps.core.FastResourcePackReload.setOpenAlLoaded(this.loaded);
         if (!this.loaded) {
             return;
         }

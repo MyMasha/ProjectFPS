@@ -122,6 +122,29 @@ public final class PureFPSConfig {
     public static int hudKeystrokesX = 8;
     public static int hudKeystrokesY = 92;
 
+    // Dernier serveur rejoint (reconnexion rapide menu principal & écran déconnexion)
+    public static String lastServerIp = "";
+    public static String lastServerName = "";
+
+    public static void recordJoinedServer(String name, String ip) {
+        if (ip == null) {
+            return;
+        }
+        String cleanIp = ip.trim();
+        if (cleanIp.isEmpty()) {
+            return;
+        }
+        String cleanName = (name != null && !name.trim().isEmpty() && !"Minecraft Server".equalsIgnoreCase(name.trim()))
+                ? name.trim()
+                : cleanIp;
+        if (!cleanIp.equals(lastServerIp) || !cleanName.equals(lastServerName)) {
+            lastServerIp = cleanIp;
+            lastServerName = cleanName;
+            markDirty();
+            saveIfDirty();
+        }
+    }
+
     // Compteurs de télémétrie par frame / tick
     public static int culledEntitiesLastFrame = 0;
     public static int culledTileEntitiesLastFrame = 0;
@@ -584,6 +607,8 @@ public final class PureFPSConfig {
             hudSprintY = clamp(getInt(props, "hudSprintY", hudSprintY), 2, 2160);
             hudKeystrokesX = clamp(getInt(props, "hudKeystrokesX", hudKeystrokesX), 2, 3840);
             hudKeystrokesY = clamp(getInt(props, "hudKeystrokesY", hudKeystrokesY), 2, 2160);
+            lastServerIp = props.getProperty("lastServerIp", lastServerIp).trim();
+            lastServerName = props.getProperty("lastServerName", lastServerName).trim();
 
             if (props.getProperty("activeProfile") == null) {
                 refreshProfileAfterManualEdit();
@@ -693,9 +718,11 @@ public final class PureFPSConfig {
         props.setProperty("hudSprintY", Integer.toString(hudSprintY));
         props.setProperty("hudKeystrokesX", Integer.toString(hudKeystrokesX));
         props.setProperty("hudKeystrokesY", Integer.toString(hudKeystrokesY));
+        props.setProperty("lastServerIp", lastServerIp != null ? lastServerIp : "");
+        props.setProperty("lastServerName", lastServerName != null ? lastServerName : "");
 
         try (FileOutputStream out = new FileOutputStream(configFile)) {
-            props.store(out, "MashClient 4.4.6 Configuration");
+            props.store(out, "MashClient 4.5.0 Configuration");
         } catch (IOException ignored) {
         }
     }

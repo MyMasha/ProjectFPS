@@ -8,7 +8,12 @@ import dev.purefps.module.MashFlags;
 import dev.purefps.module.MashHudRenderer;
 import dev.purefps.module.MashModules;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiButton;
+import net.minecraft.client.gui.GuiDisconnected;
 import net.minecraft.client.gui.GuiMainMenu;
+import net.minecraft.client.gui.GuiMultiplayer;
+import net.minecraft.client.multiplayer.GuiConnecting;
+import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraftforge.client.event.GuiOpenEvent;
 import net.minecraftforge.client.event.GuiScreenEvent;
@@ -22,15 +27,16 @@ import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
 /**
- * Pont d'événements client MashClient 4.0 (100 % conforme Hypixel Watchdog) :
- * - Right Shift : ouvre le Studio MashClient 4.0 (200 modules + HUD translucide magnétique intégré)
- * - Molette Zoom : capture uniquement la molette si l'option "Zoomer avec la molette" est activée ;
- *   sinon laisse la molette changer normalement de slot dans la hotbar !
+ * Pont d'événements client MashClient 4.5 (100 % conforme Hypixel Watchdog) :
+ * - Right Shift : ouvre le Studio MashClient (modules + HUD translucide magnétique intégré)
+ * - Molette Zoom : capture uniquement la molette si l'option "Zoomer avec la molette" est activée
  * - ToggleSprint & ToggleSneak sécurisés (désactive le sneak dès qu'un inventaire s'ouvre)
  * - Freelook 360° purement local (caméra uniquement, 0 paquet serveur altéré)
- * - Télémétrie PvP (Reach, Combo, Coups, Chronomètre) sans allocation.
+ * - Reconnexion rapide en 1 clic sur l'écran GuiDisconnected + mémorisation du dernier serveur
  */
 public final class ClientEventBridge {
+
+    private static final int RECONNECT_BTN_ID = 9450;
 
     private boolean wasSprintHeldByToggle = false;
     private boolean wasSneakHeldByToggle = false;
@@ -50,6 +56,61 @@ public final class ClientEventBridge {
                     return;
                 }
                 event.gui = new GuiPureMainMenu();
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public void onGuiInitPost(GuiScreenEvent.InitGuiEvent.Post event) {
+        if (!PureFPSConfig.enabled || !(event.gui instanceof GuiDisconnected)) {
+            return;
+        }
+        if (PureFPSConfig.lastServerIp == null || PureFPSConfig.lastServerIp.trim().isEmpty()) {
+            return;
+        }
+        int baseY = event.gui.height / 2 + 24;
+        if (event.buttonList != null) {
+            for (Object obj : event.buttonList) {
+                if (obj instanceof GuiButton) {
+                    GuiButton btn = (GuiButton) obj;
+                    if (btn.id == 0) {
+                        baseY = Math.min(event.gui.height - 26, btn.yPosition + 24);
+                        break;
+                    }
+                }
+            }
+            String labelName = (PureFPSConfig.lastServerName != null && !PureFPSConfig.lastServerName.isEmpty())
+                    ? PureFPSConfig.lastServerName
+                    : PureFPSConfig.lastServerIp;
+            if (labelName.length() > 24) {
+                labelName = labelName.substring(0, 22) + "..";
+            }
+            //noinspection unchecked
+            event.buttonList.add(new GuiButton(
+                    RECONNECT_BTN_ID,
+                    event.gui.width / 2 - 100,
+                    baseY,
+                    200,
+                    20,
+                    "\u00a7eReconnecter \u00a77(" + labelName + ")"
+            ));
+        }
+    }
+
+    @SubscribeEvent
+    public void onGuiActionPre(GuiScreenEvent.ActionPerformedEvent.Pre event) {
+        if (!PureFPSConfig.enabled || !(event.gui instanceof GuiDisconnected) || event.button == null) {
+            return;
+        }
+        if (event.button.id == RECONNECT_BTN_ID && PureFPSConfig.lastServerIp != null && !PureFPSConfig.lastServerIp.isEmpty()) {
+            event.setCanceled(true);
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc != null) {
+                String name = (PureFPSConfig.lastServerName != null && !PureFPSConfig.lastServerName.isEmpty())
+                        ? PureFPSConfig.lastServerName
+                        : PureFPSConfig.lastServerIp;
+                ServerData data = new ServerData(name, PureFPSConfig.lastServerIp, false);
+                mc.displayGuiScreen(new GuiConnecting(new GuiMultiplayer(new GuiMainMenu()), mc, data));
             }
         }
     }
@@ -146,6 +207,13 @@ public final class ClientEventBridge {
         }
 
         MashHudRenderer.onClientTick(mc);
+
+        if (mc.theWorld != null && mc.getCurrentServerData() != null) {
+            ServerData sd = mc.getCurrentServerData();
+            if (sd.serverIP != null && !sd.serverIP.isEmpty()) {
+                PureFPSConfig.recordJoinedServer(sd.serverName, sd.serverIP);
+            }
+        }
 
         if (++saveDebounceTicks >= 100) {
             saveDebounceTicks = 0;

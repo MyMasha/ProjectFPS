@@ -1,4 +1,4 @@
-name: MashClient Release (Mod 1.8.9 + MashClient.exe)
+name: MashClient Release (Mod 1.8.9 + MashClient.exe + Vulkan Zink)
 
 on:
   push:
@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag de version à publier (ex: v4.4.6)"
+        description: "Tag de version à publier (ex: v4.5.0)"
         required: true
-        default: "v4.4.6"
+        default: "v4.5.0"
 
 permissions:
   contents: read
@@ -75,13 +75,13 @@ jobs:
           files: build/libs/purefps-${{ steps.check.outputs.version }}.jar
 
   build-and-attach-launcher:
-    name: Verify or Build MashClient.exe
+    name: Verify or Build MashClient.exe & Vulkan Zink
     if: github.repository == 'MyMasha/ProjectFPS'
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
-      - name: Check if MashClient.exe was already uploaded locally
+      - name: Check existing Windows assets on GitHub Release
         id: check
         shell: pwsh
         env:
@@ -99,6 +99,12 @@ jobs:
             Write-Host "MashClient.exe déjà publié localement sur $rawTag, build CI ignoré."
           } else {
             "already_uploaded=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+          if ("${{ github.event_name }}" -ne "workflow_dispatch" -and ($assets -contains "mashclient-vulkan-zink-win64.zip")) {
+            "zink_uploaded=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host "mashclient-vulkan-zink-win64.zip déjà publié sur $rawTag, packaging ignoré."
+          } else {
+            "zink_uploaded=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
 
       - name: Checkout repository
@@ -133,8 +139,29 @@ jobs:
           MASHCLIENT_MS_CLIENT_ID: ${{ secrets.MASHCLIENT_MS_CLIENT_ID }}
         run: cargo build --release
 
-      - name: Attach MashClient.exe to GitHub Release
-        if: steps.check.outputs.already_uploaded != 'true'
+      - name: Package Mesa3D Zink x64 Bundle (mashclient-vulkan-zink-win64.zip)
+        if: steps.check.outputs.zink_uploaded != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\mesa-zink\extracted" | Out-Null
+          $relJson = gh api repos/mmozeiko/build-mesa/releases/latest | ConvertFrom-Json
+          $asset = $relJson.assets | Where-Object { $_.name -like "mesa-zink-x64-*.7z" } | Select-Object -First 1
+          if (-not $asset) {
+            throw "Asset mesa-zink-x64-*.7z introuvable sur mmozeiko/build-mesa."
+          }
+          $archivePath = "$env:RUNNER_TEMP\mesa-zink\$($asset.name)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath
+          7z x -y $archivePath "opengl32.dll" "-o$env:RUNNER_TEMP\mesa-zink\extracted" | Out-Null
+          if (-not (Test-Path "$env:RUNNER_TEMP\mesa-zink\extracted\opengl32.dll")) {
+            throw "opengl32.dll absent après extraction de $($asset.name)."
+          }
+          Compress-Archive -Path "$env:RUNNER_TEMP\mesa-zink\extracted\opengl32.dll" -DestinationPath "$env:RUNNER_TEMP\mashclient-vulkan-zink-win64.zip" -Force
+
+      - name: Attach Windows Assets to GitHub Release
+        if: steps.check.outputs.already_uploaded != 'true' || steps.check.outputs.zink_uploaded != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -145,4 +172,9 @@ jobs:
             if ($LASTEXITCODE -eq 0) { break }
             Start-Sleep -Seconds 5
           }
-          gh release upload $tag "launcher/target/release/MashClient.exe" --repo "${{ github.repository }}" --clobber
+          if ("${{ steps.check.outputs.already_uploaded }}" -ne "true") {
+            gh release upload $tag "launcher/target/release/MashClient.exe" --repo "${{ github.repository }}" --clobber
+          }
+          if ("${{ steps.check.outputs.zink_uploaded }}" -ne "true") {
+            gh release upload $tag "$env:RUNNER_TEMP\mashclient-vulkan-zink-win64.zip" --repo "${{ github.repository }}" --clobber
+          }

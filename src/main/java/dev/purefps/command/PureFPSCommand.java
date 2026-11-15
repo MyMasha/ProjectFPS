@@ -62,6 +62,17 @@ public class PureFPSCommand extends CommandBase {
                 openGuiNextTick(true);
                 return;
             }
+            if ("copyshot".equalsIgnoreCase(sub) || "copyscreenshot".equalsIgnoreCase(sub)) {
+                if (args.length > 1) {
+                    StringBuilder joined = new StringBuilder();
+                    for (int i = 1; i < args.length; i++) {
+                        if (i > 1) joined.append(' ');
+                        joined.append(args[i]);
+                    }
+                    dev.purefps.core.AsyncScreenshotManager.copyScreenshotToClipboardAsync(joined.toString());
+                }
+                return;
+            }
             if ("toggle".equalsIgnoreCase(sub)) {
                 PureFPSConfig.enabled = !PureFPSConfig.enabled;
                 PureFPSConfig.refreshProfileAfterManualEdit();
@@ -70,14 +81,15 @@ public class PureFPSCommand extends CommandBase {
                     Minecraft.getMinecraft().renderGlobal.loadRenderers();
                 }
                 sender.addChatMessage(new ChatComponentText(
-                        "\u00a76[MashClient 4.0] \u00a7fClient & Optimisations: " + (PureFPSConfig.enabled ? "\u00a7aACTIVÉS" : "\u00a7cDÉSACTIVÉS")
+                        "\u00a76[MashClient 4.5] \u00a7fClient & Optimisations: " + (PureFPSConfig.enabled ? "\u00a7aACTIVÉS" : "\u00a7cDÉSACTIVÉS")
                 ));
                 return;
             }
             if ("status".equalsIgnoreCase(sub)) {
                 sender.addChatMessage(new ChatComponentText(
-                        "\u00a76[MashClient 4.0] \u00a77Profil: " + PureFPSConfig.activeProfile.getColoredName()
-                                + " \u00a77| Modules: \u00a7e" + MashModules.getActiveCount() + "/200"
+                        "\u00a76[MashClient 4.5] \u00a77Profil: " + PureFPSConfig.activeProfile.getColoredName()
+                                + " \u00a77| Backend: " + dev.purefps.core.VulkanBackendHelper.getF3BackendBadge()
+                                + " \u00a77| Modules: \u00a7e" + MashModules.getActiveCount() + "/203"
                                 + " \u00a77| MultiDraw: \u00a7a" + PureFPSConfig.chunksBatchedLastFrame + "c->" + PureFPSConfig.multiDrawsLastFrame + "d"
                                 + " \u00a77| Culled E:\u00a7a" + PureFPSConfig.culledEntitiesLastFrame
                                 + " \u00a77TE:\u00a7a" + PureFPSConfig.culledTileEntitiesLastFrame

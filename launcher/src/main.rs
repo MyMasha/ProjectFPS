@@ -1,15 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! MashClient 4.4 — Native Desktop Launcher (`MashClient.exe`, WebView2 `tao` + `wry`)
+//! MashClient 4.5 — Native Desktop Launcher (`MashClient.exe`, WebView2 `tao` + `wry`)
 //! - Rendu temps-réel WebGL2 3D Gargantua de Schwarzschild (texture FBM pré-calculée + RK2 adaptatif 120+ FPS)
 //! - Transition cinématique sans changement de fenêtre visible et sans jamais rétrécir la fenêtre :
-//!   aspiration dans l'Horizon des Événements -> écran noir #000000 maintenu jusqu'à l'ouverture OpenGL de Minecraft ->
+//!   aspiration dans l'Horizon des Événements -> écran noir #000000 maintenu jusqu'à l'ouverture OpenGL/Vulkan de Minecraft ->
 //!   fermeture complète de la fenêtre Launcher vers la zone de notification en bas à droite (System Tray Windows, 0% GPU) ->
 //!   remplacement de l'écran "Mojang" par la caméra du joueur qui sort du Trou Noir à 100+ FPS constants.
 
 mod auth;
 mod config;
+mod dialog;
+mod mods_manager;
 mod runner;
+mod runtimes;
 mod tray;
 mod updater;
 #[cfg(all(target_os = "windows", not(target_env = "msvc")))]
@@ -20,12 +23,17 @@ use auth::{
     refresh_microsoft_session, start_device_code_flow, DeviceCodeChallenge,
 };
 use config::{
-    apply_module_entry_to_pure_settings, app_storage_dir, clear_microsoft_account,
-    effective_github_token, load_launcher_prefs, load_microsoft_account, load_modules_json,
-    save_all_client_configs, save_launcher_prefs, save_microsoft_account,
-    sync_pure_settings_to_modules_json, LaunchMode, LauncherPrefs, MicrosoftAccount,
-    PublicAccountView, PureClientSettings, PureProfile,
+    apply_module_entry_to_pure_settings, app_storage_dir, builtin_quick_servers,
+    clear_microsoft_account, delete_custom_profile_entry, effective_github_token,
+    export_profile_bundle_to_path, import_profile_bundle_from_path, load_account_store,
+    load_custom_profiles, load_launcher_prefs, load_microsoft_account, load_modules_json,
+    public_account_views, remove_microsoft_account, save_all_client_configs,
+    save_custom_profile_entry, save_launcher_prefs, save_microsoft_account,
+    switch_microsoft_account, sync_pure_settings_to_modules_json, CustomProfile,
+    CustomProfileSummary, InstanceFlavor, LaunchMode, LauncherPrefs, MicrosoftAccount,
+    PublicAccountView, PureClientSettings, PureProfile, QuickServerEntry,
 };
+use mods_manager::InstalledModEntry;
 use runner::{
     auto_fetch_mod_jar_if_needed, collect_watched_189_game_dirs, focus_visible_lwjgl_window,
     has_visible_lwjgl_window, offline_uuid_hex, prepare_prism_bridge_files,
@@ -195,6 +203,9 @@ pub enum AppEvent {
         message: String,
     },
     UpdateInstalled(Result<InstallOutcome, String>),
+    TemurinInstalled(Result<(String, String), String>),
+    ModsImported(Result<usize, String>),
+    ProfileImported(Result<CustomProfile, String>),
     PreLaunchModSynced,
     GameRunning(bool),
     GameCrashed(CrashReportInfo),
@@ -220,9 +231,26 @@ enum IpcCommand {
     MinimizeToTray,
     ToggleMaximize,
     Close,
+    SetInstanceFlavor {
+        flavor: InstanceFlavor,
+    },
     SetProfile {
         profile: String,
     },
+    SaveCustomProfile {
+        name: String,
+    },
+    ApplyCustomProfile {
+        id: String,
+    },
+    DeleteCustomProfile {
+        id: String,
+    },
+    ExportProfileJson {
+        #[serde(default)]
+        id: Option<String>,
+    },
+    ImportProfileJson,
     SetSetting {
         key: String,
         value: serde_json::Value,
@@ -239,6 +267,20 @@ enum IpcCommand {
         #[serde(default)]
         setting_key: Option<String>,
     },
+    SaveHudLayout {
+        positions: std::collections::BTreeMap<String, [f32; 2]>,
+    },
+    ResetHudLayout {
+        defaults: std::collections::BTreeMap<String, [f32; 2]>,
+    },
+    RefreshModsList,
+    ImportModsDialog,
+    ToggleThirdPartyMod {
+        file_name: String,
+    },
+    DeleteThirdPartyMod {
+        file_name: String,
+    },
     OpenCrashReport {
         path: String,
     },
@@ -251,6 +293,7 @@ enum IpcCommand {
     SetJavaPath {
         path: String,
     },
+    InstallTemurinJava8,
     SetGameDir {
         path: String,
     },
@@ -258,6 +301,22 @@ enum IpcCommand {
         mode: LaunchMode,
     },
     ToggleQuickHypixel,
+    SelectQuickServer {
+        #[serde(default)]
+        server: Option<QuickServerEntry>,
+    },
+    QuickConnectServer {
+        id: String,
+        name: String,
+        address: String,
+    },
+    AddCustomServer {
+        name: String,
+        address: String,
+    },
+    RemoveCustomServer {
+        id: String,
+    },
     StartMsLogin,
     CancelMsLogin,
     OpenMsLink,
@@ -265,6 +324,12 @@ enum IpcCommand {
         code: String,
     },
     RefreshMs,
+    SwitchMsAccount {
+        uuid: String,
+    },
+    RemoveMsAccount {
+        uuid: String,
+    },
     LogoutMs,
     OpenModsFolder,
     CheckUpdates {
@@ -295,7 +360,16 @@ struct UiStateSnapshot<'a> {
     settings: &'a PureClientSettings,
     modules: &'a serde_json::Value,
     prefs: &'a LauncherPrefs,
+    active_game_dir: &'a str,
     account: Option<PublicAccountView>,
+    accounts: &'a [PublicAccountView],
+    active_custom_profile_id: Option<&'a str>,
+    custom_profiles: &'a [CustomProfileSummary],
+    installed_mods: &'a [InstalledModEntry],
+    builtin_servers: &'a [QuickServerEntry],
+    java_status_label: &'a str,
+    java_needs_upgrade: bool,
+    java_installing: bool,
     game_running: bool,
     device_code: Option<UiDeviceCodeView>,
     update: &'a UiUpdateView,
@@ -336,7 +410,7 @@ fn merge_module_entry(
     replace_settings: bool,
 ) -> serde_json::Value {
     if !modules_json.is_object() {
-        *modules_json = json!({ "client": "MashClient", "version": "4.4.6", "modules": {} });
+        *modules_json = json!({ "client": "MashClient", "version": "4.5.0", "modules": {} });
     }
     let root_obj = modules_json.as_object_mut().expect("objet racine modules_json");
     if !root_obj.get("modules").is_some_and(serde_json::Value::is_object) {
@@ -380,6 +454,14 @@ struct Controller {
     settings: PureClientSettings,
     modules_json: serde_json::Value,
     account: Option<MicrosoftAccount>,
+    accounts: Vec<PublicAccountView>,
+    active_custom_profile_id: Option<String>,
+    custom_profiles: Vec<CustomProfileSummary>,
+    installed_mods: Vec<InstalledModEntry>,
+    builtin_servers: Vec<QuickServerEntry>,
+    java_status_label: String,
+    java_needs_upgrade: bool,
+    java_installing: bool,
     game_running: bool,
     prelaunch_syncing: bool,
     hidden_in_tray: bool,
@@ -399,17 +481,47 @@ struct Controller {
 impl Controller {
     fn new() -> Self {
         let mut prefs = load_launcher_prefs();
-        let (settings, modules_json) = load_synced_configs(&prefs.game_dir);
+        if prefs.instance_flavor == InstanceFlavor::VulkanBeta {
+            let _ = runtimes::ensure_vulkan_instance_initialized(&prefs);
+        }
+        let active_dir = runtimes::resolve_active_game_dir(&prefs);
+        let (settings, modules_json) = load_synced_configs(&active_dir);
+        let store = load_account_store();
+        let accounts = public_account_views(&store);
         let account = load_microsoft_account();
         if account.is_some() && prefs.launch_mode == LaunchMode::DirectOffline {
             prefs.launch_mode = LaunchMode::DirectMicrosoft;
         }
-        let update_view = UiUpdateView::initial(&prefs.game_dir);
+        let custom_profiles = load_custom_profiles()
+            .into_iter()
+            .map(|p| CustomProfileSummary {
+                id: p.id,
+                name: p.name,
+            })
+            .collect();
+        let installed_mods = mods_manager::list_installed_mods(&active_dir);
+        let builtin_servers = builtin_quick_servers();
+
+        let java_file = Path::new(&prefs.java_path);
+        let probe = runtimes::probe_java8_executable(java_file);
+        let java_needs_upgrade =
+            !java_file.is_file() || !probe.is_64bit || !probe.is_java8 || probe.update_version < 250;
+        let java_status_label = probe.label;
+
+        let update_view = UiUpdateView::initial(&active_dir);
         Self {
             prefs,
             settings,
             modules_json,
             account,
+            accounts,
+            active_custom_profile_id: None,
+            custom_profiles,
+            installed_mods,
+            builtin_servers,
+            java_status_label,
+            java_needs_upgrade,
+            java_installing: false,
             game_running: false,
             prelaunch_syncing: false,
             hidden_in_tray: false,
@@ -427,10 +539,56 @@ impl Controller {
         }
     }
 
+    fn active_game_dir(&self) -> String {
+        runtimes::resolve_active_game_dir(&self.prefs)
+    }
+
+    fn reload_active_instance_state(&mut self) {
+        if self.prefs.instance_flavor == InstanceFlavor::VulkanBeta {
+            let _ = runtimes::ensure_vulkan_instance_initialized(&self.prefs);
+            let vk_dir = self.active_game_dir();
+            if installed_mod_version(&vk_dir).is_none() {
+                let _ = runner::sync_pureclient_jar(&vk_dir);
+            }
+        }
+        let active_dir = self.active_game_dir();
+        let (settings, modules_json) = load_synced_configs(&active_dir);
+        self.settings = settings;
+        self.modules_json = modules_json;
+        self.installed_mods = mods_manager::list_installed_mods(&active_dir);
+        self.update_view.installed_jar_version =
+            installed_mod_version(&active_dir).map(format_semver);
+    }
+
+    fn refresh_accounts_cache(&mut self) {
+        let store = load_account_store();
+        self.accounts = public_account_views(&store);
+        self.account = load_microsoft_account();
+    }
+
+    fn refresh_custom_profiles_cache(&mut self) {
+        self.custom_profiles = load_custom_profiles()
+            .into_iter()
+            .map(|p| CustomProfileSummary {
+                id: p.id,
+                name: p.name,
+            })
+            .collect();
+    }
+
+    fn refresh_java_probe(&mut self) {
+        let java_file = Path::new(&self.prefs.java_path);
+        let probe = runtimes::probe_java8_executable(java_file);
+        self.java_needs_upgrade =
+            !java_file.is_file() || !probe.is_64bit || !probe.is_java8 || probe.update_version < 250;
+        self.java_status_label = probe.label;
+    }
+
     fn pull_newer_watched_configs_and_reload(&mut self) {
-        let primary_dir = Path::new(&self.prefs.game_dir);
+        let active_dir_str = self.active_game_dir();
+        let primary_dir = Path::new(&active_dir_str);
         let primary_cfg = primary_dir.join("config");
-        let watched = collect_watched_189_game_dirs(&self.prefs.game_dir);
+        let watched = collect_watched_189_game_dirs(&self.prefs, &active_dir_str);
         for fname in ["mashclient_modules.json", "purefps.properties"] {
             let dst = primary_cfg.join(fname);
             let dst_mtime = std::fs::metadata(&dst).and_then(|m| m.modified()).ok();
@@ -458,9 +616,10 @@ impl Controller {
                 }
             }
         }
-        let (settings, modules_json) = load_synced_configs(&self.prefs.game_dir);
+        let (settings, modules_json) = load_synced_configs(&active_dir_str);
         self.settings = settings;
         self.modules_json = modules_json;
+        self.installed_mods = mods_manager::list_installed_mods(&active_dir_str);
     }
 
     fn spawn_update_check(
@@ -480,7 +639,7 @@ impl Controller {
         self.push_full_state(webview);
 
         let repo = self.prefs.github_repo.clone();
-        let game_dir = self.prefs.game_dir.clone();
+        let game_dir = self.active_game_dir();
         let tok = effective_github_token();
         let p = proxy.clone();
         std::thread::spawn(move || {
@@ -496,11 +655,21 @@ impl Controller {
         static EMPTY_OBJ: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
         let fallback = EMPTY_OBJ.get_or_init(|| json!({}));
         let mods_ref = self.modules_json.get("modules").unwrap_or(fallback);
+        let active_dir = self.active_game_dir();
         let snap = UiStateSnapshot {
             settings: &self.settings,
             modules: mods_ref,
             prefs: &self.prefs,
+            active_game_dir: &active_dir,
             account: self.account.as_ref().map(PublicAccountView::from),
+            accounts: &self.accounts,
+            active_custom_profile_id: self.active_custom_profile_id.as_deref(),
+            custom_profiles: &self.custom_profiles,
+            installed_mods: &self.installed_mods,
+            builtin_servers: &self.builtin_servers,
+            java_status_label: &self.java_status_label,
+            java_needs_upgrade: self.java_needs_upgrade,
+            java_installing: self.java_installing,
             game_running: self.game_running,
             device_code: self.active_challenge.as_ref().map(|c| UiDeviceCodeView {
                 user_code: c.user_code.clone(),
@@ -713,8 +882,9 @@ fn begin_singularity_launch_now(
     tray: &SystemTray,
     proxy: &EventLoopProxy<AppEvent>,
 ) {
-    let _ = save_all_client_configs(&ctrl.prefs.game_dir, &ctrl.settings, &ctrl.modules_json);
-    sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
+    let active_dir = ctrl.active_game_dir();
+    let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+    sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
     let _ = save_launcher_prefs(&ctrl.prefs);
 
     let (screen_w, screen_h) = current_monitor_resolution(window);
@@ -736,6 +906,7 @@ fn begin_singularity_launch_now(
                                 details: e,
                                 exit_code: None,
                                 report_path: None,
+                                suspected_mod_file: None,
                             },
                         );
                     }
@@ -749,6 +920,7 @@ fn begin_singularity_launch_now(
                             details: e,
                             exit_code: None,
                             report_path: None,
+                            suspected_mod_file: None,
                         },
                     );
                 }
@@ -827,6 +999,130 @@ fn begin_singularity_launch_now(
     }
 }
 
+fn try_trigger_game_launch(
+    ctrl: &mut Controller,
+    window: &Window,
+    webview: &wry::WebView,
+    tray: &SystemTray,
+    proxy: &EventLoopProxy<AppEvent>,
+) {
+    if ctrl.game_running || ctrl.curtain_active || ctrl.prelaunch_syncing {
+        Controller::push_toast(webview, "Lancement déjà en cours.", false);
+        return;
+    }
+
+    if ctrl.prefs.launch_mode == LaunchMode::DirectMicrosoft && ctrl.account.is_none() {
+        Controller::push_toast(
+            webview,
+            "Connectez d'abord votre compte Microsoft en haut à droite.",
+            true,
+        );
+        return;
+    }
+    if ctrl.prefs.launch_mode == LaunchMode::PrismBridge
+        && !Path::new(&ctrl.prefs.prism_exe).is_file()
+    {
+        let err_msg = format!("PrismLauncher introuvable : {}", ctrl.prefs.prism_exe);
+        Controller::push_crash(
+            webview,
+            &CrashReportInfo {
+                title: "PrismLauncher introuvable".to_owned(),
+                summary: err_msg.clone(),
+                details: format!(
+                    "{err_msg}\n\nVérifiez l'installation de PrismLauncher ou passez en mode Lancement Direct (Microsoft / Hors-ligne) dans l'onglet Paramètres."
+                ),
+                exit_code: None,
+                report_path: None,
+                suspected_mod_file: None,
+            },
+        );
+        return;
+    }
+    let needs_java = ctrl.prefs.launch_mode != LaunchMode::PrismBridge
+        || ctrl.prefs.instance_flavor == InstanceFlavor::VulkanBeta;
+    if needs_java && !Path::new(&ctrl.prefs.java_path).is_file() {
+        let err_msg = format!("Java 8 introuvable : {}", ctrl.prefs.java_path);
+        Controller::push_crash(
+            webview,
+            &CrashReportInfo {
+                title: "Java 8 introuvable".to_owned(),
+                summary: err_msg.clone(),
+                details: format!(
+                    "{err_msg}\n\nOuvrez l'onglet Paramètres et cliquez sur « Installer Java 8 récent (Temurin) » en 1 clic."
+                ),
+                exit_code: None,
+                report_path: None,
+                suspected_mod_file: None,
+            },
+        );
+        return;
+    }
+
+    let active_dir = if ctrl.prefs.instance_flavor == InstanceFlavor::VulkanBeta {
+        match runtimes::ensure_vulkan_instance_initialized(&ctrl.prefs) {
+            Ok(d) => d,
+            Err(e) => {
+                Controller::push_toast(webview, &e, true);
+                return;
+            }
+        }
+    } else {
+        ctrl.prefs.game_dir.clone()
+    };
+
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 5, 0));
+    let mod_up_to_date =
+        installed_mod_version(&active_dir).is_some_and(|cur| cur >= launcher_ver);
+
+    if !mod_up_to_date {
+        ctrl.prelaunch_syncing = true;
+        Controller::push_toast(webview, "Préparation du moteur MashClient...", false);
+        let prefs_clone = ctrl.prefs.clone();
+        let p = proxy.clone();
+        std::thread::spawn(move || {
+            let _ = runner::sync_pureclient_jar(&active_dir);
+            auto_fetch_mod_jar_if_needed(&prefs_clone, &active_dir, &p);
+            let _ = p.send_event(AppEvent::PreLaunchModSynced);
+        });
+    } else {
+        begin_singularity_launch_now(ctrl, window, webview, tray, proxy);
+    }
+}
+
+fn apply_hud_positions_map(
+    modules_json: &mut serde_json::Value,
+    positions: &std::collections::BTreeMap<String, [f32; 2]>,
+) {
+    if !modules_json.is_object() {
+        *modules_json = json!({ "client": "MashClient", "version": "4.5.0", "modules": {} });
+    }
+    let root_obj = modules_json.as_object_mut().expect("objet racine modules_json");
+    if !root_obj.get("modules").is_some_and(serde_json::Value::is_object) {
+        root_obj.insert("modules".to_owned(), json!({}));
+    }
+    let Some(mods_map) = root_obj
+        .get_mut("modules")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+
+    for (mod_id, [x, y]) in positions {
+        if !mods_map.get(mod_id).is_some_and(serde_json::Value::is_object) {
+            mods_map.insert(mod_id.clone(), json!({}));
+        }
+        if let Some(m) = mods_map
+            .get_mut(mod_id)
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            let rx = (*x * 10.0).round() / 10.0;
+            let ry = (*y * 10.0).round() / 10.0;
+            m.insert("x".to_owned(), json!(rx));
+            m.insert("y".to_owned(), json!(ry));
+        }
+    }
+}
+
 fn handle_ipc(
     cmd: IpcCommand,
     ctrl: &mut Controller,
@@ -870,16 +1166,31 @@ fn handle_ipc(
             ctrl.auth_cancel.store(true, Ordering::Relaxed);
             return true;
         }
+        IpcCommand::SetInstanceFlavor { flavor } => {
+            if ctrl.prefs.instance_flavor != flavor {
+                ctrl.prefs.instance_flavor = flavor;
+                let _ = save_launcher_prefs(&ctrl.prefs);
+                ctrl.reload_active_instance_state();
+                let label = match flavor {
+                    InstanceFlavor::Standard => "Instance 1.8.9 PureFPS active.",
+                    InstanceFlavor::VulkanBeta => "Instance 1.8.9 PureFPS Vulkan (Bêta) active.",
+                };
+                Controller::push_toast(webview, label, false);
+                ctrl.push_full_state(webview);
+            }
+        }
         IpcCommand::SetProfile { profile } => {
             let target = PureProfile::from_id(&profile);
             ctrl.settings.apply_profile(target);
+            ctrl.active_custom_profile_id = None;
             sync_pure_settings_to_modules_json(&ctrl.settings, &mut ctrl.modules_json);
+            let active_dir = ctrl.active_game_dir();
             if let Err(e) =
-                save_all_client_configs(&ctrl.prefs.game_dir, &ctrl.settings, &ctrl.modules_json)
+                save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json)
             {
                 Controller::push_toast(webview, &e, true);
             } else {
-                sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
+                sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
                 Controller::push_toast(
                     webview,
                     &format!("Profil '{}' synchronisé.", target.id().to_uppercase()),
@@ -888,15 +1199,131 @@ fn handle_ipc(
             }
             ctrl.push_full_state(webview);
         }
+        IpcCommand::SaveCustomProfile { name } => {
+            match save_custom_profile_entry(&name, &ctrl.settings, &ctrl.modules_json) {
+                Ok(saved) => {
+                    ctrl.settings.active_profile = PureProfile::Custom;
+                    ctrl.active_custom_profile_id = Some(saved.id.clone());
+                    ctrl.refresh_custom_profiles_cache();
+                    let active_dir = ctrl.active_game_dir();
+                    let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+                    sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
+                    Controller::push_toast(
+                        webview,
+                        &format!("Profil '{}' enregistré.", saved.name),
+                        false,
+                    );
+                    ctrl.push_full_state(webview);
+                }
+                Err(e) => Controller::push_toast(webview, &e, true),
+            }
+        }
+        IpcCommand::ApplyCustomProfile { id } => {
+            if let Some(found) = load_custom_profiles().into_iter().find(|p| p.id == id) {
+                ctrl.settings = found.settings;
+                ctrl.settings.active_profile = PureProfile::Custom;
+                ctrl.modules_json = found.modules;
+                ctrl.active_custom_profile_id = Some(found.id);
+                let active_dir = ctrl.active_game_dir();
+                let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+                sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
+                Controller::push_toast(
+                    webview,
+                    &format!("Profil '{}' appliqué.", found.name),
+                    false,
+                );
+                ctrl.push_full_state(webview);
+            }
+        }
+        IpcCommand::DeleteCustomProfile { id } => {
+            if let Err(e) = delete_custom_profile_entry(&id) {
+                Controller::push_toast(webview, &e, true);
+            } else {
+                if ctrl.active_custom_profile_id.as_deref() == Some(id.as_str()) {
+                    ctrl.active_custom_profile_id = None;
+                }
+                ctrl.refresh_custom_profiles_cache();
+                Controller::push_toast(webview, "Profil personnalisé supprimé.", false);
+                ctrl.push_full_state(webview);
+            }
+        }
+        IpcCommand::ExportProfileJson { id } => {
+            let (prof_name, prof_settings, prof_modules) = if let Some(target_id) = id {
+                if let Some(p) = load_custom_profiles().into_iter().find(|x| x.id == target_id) {
+                    (p.name, p.settings, p.modules)
+                } else {
+                    (
+                        "MashClient_Profil".to_owned(),
+                        ctrl.settings.clone(),
+                        ctrl.modules_json.clone(),
+                    )
+                }
+            } else {
+                let current_name = ctrl
+                    .active_custom_profile_id
+                    .as_ref()
+                    .and_then(|cid| {
+                        ctrl.custom_profiles
+                            .iter()
+                            .find(|p| &p.id == cid)
+                            .map(|p| p.name.clone())
+                    })
+                    .unwrap_or_else(|| format!("MashClient_{}", ctrl.settings.active_profile.id()));
+                (
+                    current_name,
+                    ctrl.settings.clone(),
+                    ctrl.modules_json.clone(),
+                )
+            };
+            let suggested_file = format!(
+                "{}.json",
+                prof_name
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    })
+                    .collect::<String>()
+            );
+            let p = proxy.clone();
+            std::thread::spawn(move || {
+                if let Some(dest) = dialog::pick_save_json_dialog(&suggested_file) {
+                    match export_profile_bundle_to_path(&dest, &prof_name, &prof_settings, &prof_modules) {
+                        Ok(()) => {
+                            let _ = p.send_event(AppEvent::Toast {
+                                message: format!("Profil exporté : {}", dest.display()),
+                                is_error: false,
+                            });
+                        }
+                        Err(e) => {
+                            let _ = p.send_event(AppEvent::Toast {
+                                message: e,
+                                is_error: true,
+                            });
+                        }
+                    }
+                }
+            });
+        }
+        IpcCommand::ImportProfileJson => {
+            let p = proxy.clone();
+            std::thread::spawn(move || {
+                if let Some(src) = dialog::pick_open_json_dialog() {
+                    let res = import_profile_bundle_from_path(&src);
+                    let _ = p.send_event(AppEvent::ProfileImported(res));
+                }
+            });
+        }
         IpcCommand::SetSetting { key, value } => {
             if ctrl.settings.set_field(&key, &value) {
+                if ctrl.settings.active_profile == PureProfile::Custom {
+                    ctrl.active_custom_profile_id = None;
+                }
                 sync_pure_settings_to_modules_json(&ctrl.settings, &mut ctrl.modules_json);
-                let _ = save_all_client_configs(
-                    &ctrl.prefs.game_dir,
-                    &ctrl.settings,
-                    &ctrl.modules_json,
-                );
-                sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
+                let active_dir = ctrl.active_game_dir();
+                let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+                sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
                 ctrl.push_full_state(webview);
             }
         }
@@ -910,12 +1337,9 @@ fn handle_ipc(
             if let (Some(sk), Some(en)) = (setting_key.as_deref(), merged.get("enabled")) {
                 let _ = ctrl.settings.set_field(sk, en);
             }
-            let _ = save_all_client_configs(
-                &ctrl.prefs.game_dir,
-                &ctrl.settings,
-                &ctrl.modules_json,
-            );
-            sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
+            let active_dir = ctrl.active_game_dir();
+            let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+            sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
             ctrl.push_full_state(webview);
         }
         IpcCommand::ResetModuleEntry {
@@ -928,14 +1352,71 @@ fn handle_ipc(
             if let (Some(sk), Some(en)) = (setting_key.as_deref(), merged.get("enabled")) {
                 let _ = ctrl.settings.set_field(sk, en);
             }
-            let _ = save_all_client_configs(
-                &ctrl.prefs.game_dir,
-                &ctrl.settings,
-                &ctrl.modules_json,
-            );
-            sync_configs_across_watched_189_dirs(&ctrl.prefs.game_dir);
+            let active_dir = ctrl.active_game_dir();
+            let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+            sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
             Controller::push_toast(webview, "Réglages du module réinitialisés.", false);
             ctrl.push_full_state(webview);
+        }
+        IpcCommand::SaveHudLayout { positions } => {
+            apply_hud_positions_map(&mut ctrl.modules_json, &positions);
+            let active_dir = ctrl.active_game_dir();
+            let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+            sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
+            ctrl.push_full_state(webview);
+        }
+        IpcCommand::ResetHudLayout { defaults } => {
+            apply_hud_positions_map(&mut ctrl.modules_json, &defaults);
+            let active_dir = ctrl.active_game_dir();
+            let _ = save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+            sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
+            Controller::push_toast(webview, "Positions du HUD réinitialisées.", false);
+            ctrl.push_full_state(webview);
+        }
+        IpcCommand::RefreshModsList => {
+            ctrl.installed_mods = mods_manager::list_installed_mods(&ctrl.active_game_dir());
+            ctrl.push_full_state(webview);
+        }
+        IpcCommand::ImportModsDialog => {
+            let active_dir = ctrl.active_game_dir();
+            let p = proxy.clone();
+            std::thread::spawn(move || {
+                let picked = dialog::pick_jar_files_dialog();
+                if !picked.is_empty() {
+                    let res = mods_manager::import_mod_jars(&active_dir, &picked);
+                    let _ = p.send_event(AppEvent::ModsImported(res));
+                }
+            });
+        }
+        IpcCommand::ToggleThirdPartyMod { file_name } => {
+            let active_dir = ctrl.active_game_dir();
+            match mods_manager::toggle_mod_file(&active_dir, &file_name) {
+                Ok((_, now_enabled)) => {
+                    ctrl.installed_mods = mods_manager::list_installed_mods(&active_dir);
+                    Controller::push_toast(
+                        webview,
+                        if now_enabled {
+                            "Mod activé."
+                        } else {
+                            "Mod désactivé."
+                        },
+                        false,
+                    );
+                    ctrl.push_full_state(webview);
+                }
+                Err(e) => Controller::push_toast(webview, &e, true),
+            }
+        }
+        IpcCommand::DeleteThirdPartyMod { file_name } => {
+            let active_dir = ctrl.active_game_dir();
+            match mods_manager::delete_mod_file(&active_dir, &file_name) {
+                Ok(()) => {
+                    ctrl.installed_mods = mods_manager::list_installed_mods(&active_dir);
+                    Controller::push_toast(webview, "Mod supprimé du dossier mods/.", false);
+                    ctrl.push_full_state(webview);
+                }
+                Err(e) => Controller::push_toast(webview, &e, true),
+            }
         }
         IpcCommand::OpenCrashReport { path } => {
             let p = Path::new(&path);
@@ -963,9 +1444,27 @@ fn handle_ipc(
             let clean = path.trim();
             if !clean.is_empty() {
                 ctrl.prefs.java_path = clean.to_owned();
+                ctrl.refresh_java_probe();
                 let _ = save_launcher_prefs(&ctrl.prefs);
                 ctrl.push_full_state(webview);
             }
+        }
+        IpcCommand::InstallTemurinJava8 => {
+            if ctrl.java_installing {
+                return false;
+            }
+            ctrl.java_installing = true;
+            ctrl.push_full_state(webview);
+            Controller::push_toast(
+                webview,
+                "Téléchargement d'Eclipse Temurin Java 8 64-bit...",
+                false,
+            );
+            let p = proxy.clone();
+            std::thread::spawn(move || {
+                let res = runtimes::install_temurin_jre8(&p);
+                let _ = p.send_event(AppEvent::TemurinInstalled(res));
+            });
         }
         IpcCommand::SetGameDir { path } => {
             let clean = path.trim();
@@ -985,11 +1484,7 @@ fn handle_ipc(
                             prism_root.join("assets").to_string_lossy().to_string();
                     }
                 }
-                let (settings, modules_json) = load_synced_configs(&ctrl.prefs.game_dir);
-                ctrl.settings = settings;
-                ctrl.modules_json = modules_json;
-                ctrl.update_view.installed_jar_version =
-                    installed_mod_version(&ctrl.prefs.game_dir).map(format_semver);
+                ctrl.reload_active_instance_state();
                 let _ = save_launcher_prefs(&ctrl.prefs);
                 ctrl.push_full_state(webview);
             }
@@ -1000,7 +1495,82 @@ fn handle_ipc(
             ctrl.push_full_state(webview);
         }
         IpcCommand::ToggleQuickHypixel => {
-            ctrl.prefs.quick_join_hypixel = !ctrl.prefs.quick_join_hypixel;
+            if ctrl.prefs.selected_server.as_ref().is_some_and(|s| s.id == "hypixel") {
+                ctrl.prefs.selected_server = None;
+            } else {
+                ctrl.prefs.selected_server = builtin_quick_servers().into_iter().next();
+            }
+            ctrl.prefs.quick_join_hypixel = false;
+            let _ = save_launcher_prefs(&ctrl.prefs);
+            ctrl.push_full_state(webview);
+        }
+        IpcCommand::SelectQuickServer { server } => {
+            ctrl.prefs.selected_server = server.filter(|s| !s.address.trim().is_empty());
+            ctrl.prefs.quick_join_hypixel = false;
+            let _ = save_launcher_prefs(&ctrl.prefs);
+            ctrl.push_full_state(webview);
+        }
+        IpcCommand::QuickConnectServer { id, name, address } => {
+            let clean_addr = address.trim();
+            if clean_addr.is_empty() {
+                return false;
+            }
+            ctrl.prefs.selected_server = Some(QuickServerEntry {
+                id,
+                name: if name.trim().is_empty() {
+                    clean_addr.to_owned()
+                } else {
+                    name.trim().to_owned()
+                },
+                address: clean_addr.to_owned(),
+            });
+            ctrl.prefs.quick_join_hypixel = false;
+            let _ = save_launcher_prefs(&ctrl.prefs);
+            ctrl.push_full_state(webview);
+            try_trigger_game_launch(ctrl, window, webview, tray, proxy);
+        }
+        IpcCommand::AddCustomServer { name, address } => {
+            let clean_addr = address
+                .trim()
+                .trim_start_matches("http://")
+                .trim_start_matches("https://")
+                .trim_end_matches('/')
+                .to_owned();
+            if clean_addr.is_empty() {
+                Controller::push_toast(webview, "Adresse IP du serveur requise.", true);
+                return false;
+            }
+            let clean_name = if name.trim().is_empty() {
+                clean_addr.clone()
+            } else {
+                name.trim().to_owned()
+            };
+            let id = format!(
+                "srv_{}_{}",
+                clean_addr
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .take(12)
+                    .collect::<String>()
+                    .to_ascii_lowercase(),
+                ctrl.prefs.custom_servers.len() + 1
+            );
+            let entry = QuickServerEntry {
+                id,
+                name: clean_name.clone(),
+                address: clean_addr,
+            };
+            ctrl.prefs.custom_servers.push(entry.clone());
+            ctrl.prefs.selected_server = Some(entry);
+            let _ = save_launcher_prefs(&ctrl.prefs);
+            Controller::push_toast(webview, &format!("Serveur '{}' ajouté.", clean_name), false);
+            ctrl.push_full_state(webview);
+        }
+        IpcCommand::RemoveCustomServer { id } => {
+            ctrl.prefs.custom_servers.retain(|s| s.id != id);
+            if ctrl.prefs.selected_server.as_ref().is_some_and(|s| s.id == id) {
+                ctrl.prefs.selected_server = None;
+            }
             let _ = save_launcher_prefs(&ctrl.prefs);
             ctrl.push_full_state(webview);
         }
@@ -1048,10 +1618,39 @@ fn handle_ipc(
                 });
             }
         }
+        IpcCommand::SwitchMsAccount { uuid } => match switch_microsoft_account(&uuid) {
+            Ok(switched) => {
+                let uname = switched.username.clone();
+                ctrl.refresh_accounts_cache();
+                if ctrl.prefs.launch_mode == LaunchMode::DirectOffline {
+                    ctrl.prefs.launch_mode = LaunchMode::DirectMicrosoft;
+                    let _ = save_launcher_prefs(&ctrl.prefs);
+                }
+                Controller::push_toast(
+                    webview,
+                    &format!("Compte Microsoft actif : {uname}"),
+                    false,
+                );
+                ctrl.push_full_state(webview);
+            }
+            Err(e) => Controller::push_toast(webview, &e, true),
+        },
+        IpcCommand::RemoveMsAccount { uuid } => match remove_microsoft_account(&uuid) {
+            Ok(_) => {
+                ctrl.refresh_accounts_cache();
+                if ctrl.account.is_none() && ctrl.prefs.launch_mode == LaunchMode::DirectMicrosoft {
+                    ctrl.prefs.launch_mode = LaunchMode::PrismBridge;
+                    let _ = save_launcher_prefs(&ctrl.prefs);
+                }
+                Controller::push_toast(webview, "Compte Microsoft retiré.", false);
+                ctrl.push_full_state(webview);
+            }
+            Err(e) => Controller::push_toast(webview, &e, true),
+        },
         IpcCommand::LogoutMs => {
             clear_microsoft_account();
-            ctrl.account = None;
-            if ctrl.prefs.launch_mode == LaunchMode::DirectMicrosoft {
+            ctrl.refresh_accounts_cache();
+            if ctrl.account.is_none() && ctrl.prefs.launch_mode == LaunchMode::DirectMicrosoft {
                 ctrl.prefs.launch_mode = LaunchMode::PrismBridge;
                 let _ = save_launcher_prefs(&ctrl.prefs);
             }
@@ -1059,7 +1658,7 @@ fn handle_ipc(
             ctrl.push_full_state(webview);
         }
         IpcCommand::OpenModsFolder => {
-            let mods_dir = Path::new(&ctrl.prefs.game_dir).join("mods");
+            let mods_dir = Path::new(&ctrl.active_game_dir()).join("mods");
             let _ = std::fs::create_dir_all(&mods_dir);
             let _ = Command::new("explorer.exe").arg(mods_dir).spawn();
         }
@@ -1080,7 +1679,7 @@ fn handle_ipc(
             ctrl.push_full_state(webview);
 
             let tok = effective_github_token();
-            let game_dir = ctrl.prefs.game_dir.clone();
+            let game_dir = ctrl.active_game_dir();
             let p = proxy.clone();
             std::thread::spawn(move || {
                 let res = download_and_install_update(&plan, tok.as_deref(), &game_dir, &p);
@@ -1135,76 +1734,7 @@ fn handle_ipc(
             ctrl.restore_normal_window(window, webview, tray);
         }
         IpcCommand::LaunchGame => {
-            if ctrl.game_running || ctrl.curtain_active || ctrl.prelaunch_syncing {
-                Controller::push_toast(webview, "Lancement déjà en cours.", false);
-                return false;
-            }
-
-            if ctrl.prefs.launch_mode == LaunchMode::DirectMicrosoft && ctrl.account.is_none() {
-                Controller::push_toast(
-                    webview,
-                    "Connectez d'abord votre compte Microsoft en haut à droite.",
-                    true,
-                );
-                return false;
-            }
-            if ctrl.prefs.launch_mode == LaunchMode::PrismBridge
-                && !Path::new(&ctrl.prefs.prism_exe).is_file()
-            {
-                let err_msg = format!("PrismLauncher introuvable : {}", ctrl.prefs.prism_exe);
-                Controller::push_crash(
-                    webview,
-                    &CrashReportInfo {
-                        title: "PrismLauncher introuvable".to_owned(),
-                        summary: err_msg.clone(),
-                        details: format!(
-                            "{err_msg}\n\nVérifiez l'installation de PrismLauncher ou passez en mode Lancement Direct (Microsoft / Hors-ligne) dans l'onglet Système."
-                        ),
-                        exit_code: None,
-                        report_path: None,
-                    },
-                );
-                return false;
-            }
-            if ctrl.prefs.launch_mode != LaunchMode::PrismBridge
-                && !Path::new(&ctrl.prefs.java_path).is_file()
-            {
-                let err_msg = format!("Java 8 introuvable : {}", ctrl.prefs.java_path);
-                Controller::push_crash(
-                    webview,
-                    &CrashReportInfo {
-                        title: "Java 8 introuvable".to_owned(),
-                        summary: err_msg.clone(),
-                        details: format!(
-                            "{err_msg}\n\nIndiquez le chemin vers un exécutable javaw.exe Java 8 64-bit valide dans l'onglet Système."
-                        ),
-                        exit_code: None,
-                        report_path: None,
-                    },
-                );
-                return false;
-            }
-
-            let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 2, 0));
-            let mod_up_to_date = installed_mod_version(&ctrl.prefs.game_dir)
-                .is_some_and(|cur| cur >= launcher_ver);
-
-            if !mod_up_to_date {
-                ctrl.prelaunch_syncing = true;
-                Controller::push_toast(
-                    webview,
-                    "Mise à jour du mod MashClient...",
-                    false,
-                );
-                let prefs_clone = ctrl.prefs.clone();
-                let p = proxy.clone();
-                std::thread::spawn(move || {
-                    auto_fetch_mod_jar_if_needed(&prefs_clone, &p);
-                    let _ = p.send_event(AppEvent::PreLaunchModSynced);
-                });
-            } else {
-                begin_singularity_launch_now(ctrl, window, webview, tray, proxy);
-            }
+            try_trigger_game_launch(ctrl, window, webview, tray, proxy);
         }
     }
     false
@@ -1280,9 +1810,6 @@ fn main() -> wry::Result<()> {
                 event: WindowEvent::Focused(false),
                 ..
             } => {
-                // Ne JAMAIS réduire/rétrécir la fenêtre sur une perte de focus interne (ex: lancement PrismLauncher) !
-                // Si l'utilisateur appuie volontairement sur Alt+Tab ou Windows, on retire juste `always_on_top`
-                // pour laisser son autre application passer devant tout en conservant le rideau #000000 en dessous.
                 if ctrl.curtain_active && user_pressing_task_switch_keys() {
                     window.set_always_on_top(false);
                 }
@@ -1305,11 +1832,71 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::PreLaunchModSynced => {
                     ctrl.prelaunch_syncing = false;
+                    let active_dir = ctrl.active_game_dir();
                     ctrl.update_view.installed_jar_version =
-                        installed_mod_version(&ctrl.prefs.game_dir).map(format_semver);
+                        installed_mod_version(&active_dir).map(format_semver);
+                    ctrl.installed_mods = mods_manager::list_installed_mods(&active_dir);
                     ctrl.push_full_state(&webview);
                     begin_singularity_launch_now(&mut ctrl, &window, &webview, &tray, &proxy);
                 }
+                AppEvent::TemurinInstalled(res) => {
+                    ctrl.java_installing = false;
+                    match res {
+                        Ok((javaw_path, label)) => {
+                            ctrl.prefs.java_path = javaw_path;
+                            ctrl.refresh_java_probe();
+                            let _ = save_launcher_prefs(&ctrl.prefs);
+                            Controller::push_toast(
+                                &webview,
+                                &format!("{label} configuré automatiquement."),
+                                false,
+                            );
+                        }
+                        Err(e) => {
+                            Controller::push_toast(&webview, &e, true);
+                        }
+                    }
+                    ctrl.push_full_state(&webview);
+                }
+                AppEvent::ModsImported(res) => match res {
+                    Ok(count) => {
+                        ctrl.installed_mods =
+                            mods_manager::list_installed_mods(&ctrl.active_game_dir());
+                        if count > 0 {
+                            Controller::push_toast(
+                                &webview,
+                                &format!("{count} mod(s) .jar importé(s)."),
+                                false,
+                            );
+                        }
+                        ctrl.push_full_state(&webview);
+                    }
+                    Err(e) => {
+                        Controller::push_toast(&webview, &e, true);
+                    }
+                },
+                AppEvent::ProfileImported(res) => match res {
+                    Ok(imported) => {
+                        ctrl.settings = imported.settings;
+                        ctrl.settings.active_profile = PureProfile::Custom;
+                        ctrl.modules_json = imported.modules;
+                        ctrl.active_custom_profile_id = Some(imported.id);
+                        ctrl.refresh_custom_profiles_cache();
+                        let active_dir = ctrl.active_game_dir();
+                        let _ =
+                            save_all_client_configs(&active_dir, &ctrl.settings, &ctrl.modules_json);
+                        sync_configs_across_watched_189_dirs(&ctrl.prefs, &active_dir);
+                        Controller::push_toast(
+                            &webview,
+                            &format!("Profil '{}' importé et activé.", imported.name),
+                            false,
+                        );
+                        ctrl.push_full_state(&webview);
+                    }
+                    Err(e) => {
+                        Controller::push_toast(&webview, &e, true);
+                    }
+                },
                 AppEvent::DeviceCodeStarted(res) => match res {
                     Ok(challenge) => {
                         copy_to_windows_clipboard(&challenge.user_code);
@@ -1332,7 +1919,7 @@ fn main() -> wry::Result<()> {
                     Ok(acc) => {
                         let _ = save_microsoft_account(&acc);
                         let uname = acc.username.clone();
-                        ctrl.account = Some(acc);
+                        ctrl.refresh_accounts_cache();
                         ctrl.active_challenge = None;
                         ctrl.prefs.launch_mode = LaunchMode::DirectMicrosoft;
                         let _ = save_launcher_prefs(&ctrl.prefs);
@@ -1454,8 +2041,10 @@ fn main() -> wry::Result<()> {
                         Ok(outcome) => {
                             ctrl.pending_update = None;
                             ctrl.update_view.download_percent = 100;
+                            let active_dir = ctrl.active_game_dir();
                             ctrl.update_view.installed_jar_version =
-                                installed_mod_version(&ctrl.prefs.game_dir).map(format_semver);
+                                installed_mod_version(&active_dir).map(format_semver);
+                            ctrl.installed_mods = mods_manager::list_installed_mods(&active_dir);
                             if let Some(ref jar_name) = outcome.jar_installed {
                                 Controller::push_log(
                                     &webview,
@@ -1538,8 +2127,6 @@ fn main() -> wry::Result<()> {
                     ctrl.mc_menu_ready = true;
                     ctrl.try_schedule_seamless_handoff(&window, &proxy);
                     if ctrl.curtain_active && !ctrl.handoff_dispatched {
-                        // Si la WebView n'a pas encore émis PlungeDarknessReached après 3.2s (> 2050ms de plongée),
-                        // déclenche le handoff atomique complet (focus LWJGL + masquage rideau)
                         let expected_id = ctrl.curtain_id;
                         let p_quick = proxy.clone();
                         std::thread::spawn(move || {
@@ -1581,6 +2168,7 @@ fn main() -> wry::Result<()> {
                             details: err_msg,
                             exit_code: None,
                             report_path: None,
+                            suspected_mod_file: None,
                         },
                     );
                 }

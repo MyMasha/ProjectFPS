@@ -5,6 +5,8 @@ import dev.purefps.client.ui.NanoUiRenderer;
 import dev.purefps.client.ui.SmoothFontRenderer;
 import dev.purefps.config.PureFPSConfig;
 import dev.purefps.core.BlackHoleEmergenceRenderer;
+import dev.purefps.core.QuickServerLaunchBridge;
+import dev.purefps.core.VulkanBackendHelper;
 import dev.purefps.module.MashModules;
 import net.minecraft.client.gui.GuiMultiplayer;
 import net.minecraft.client.gui.GuiOptions;
@@ -19,8 +21,9 @@ import org.lwjgl.opengl.Display;
 import java.io.IOException;
 
 /**
- * Menu principal MashClient 4.4 :
+ * Menu principal MashClient 4.5 :
  * - Colonne compacte style Lunar Client avec icônes vectorielles SDF.
+ * - Connexion automatique aux serveurs rapides du Launcher (.purefps_quick_server) et bouton Dernier serveur.
  * - Trou noir 3D dégagé et ambiance sonore gravitationnelle activable/désactivable.
  */
 public class GuiPureMainMenu extends GuiScreen {
@@ -36,6 +39,7 @@ public class GuiPureMainMenu extends GuiScreen {
     private static final int ACT_SOUND = 7;
     private static final int ACT_QUIT = 8;
     private static final int ACT_BH_SOUND = 9;
+    private static final int ACT_LAST_SERVER = 10;
 
     private static final float STACK_X = 50.0F;
     private static final float STACK_W = 188.0F;
@@ -44,6 +48,7 @@ public class GuiPureMainMenu extends GuiScreen {
     private static final float MOD_H = 30.0F;
     private static final float SUB_H = 26.0F;
     private static final float SUB_GAP = 6.0F;
+    private static final float LAST_SRV_H = 25.0F;
 
     private static final float TOP_Y = 20.0F;
     private static final float TOP_BTN_SZ = 26.0F;
@@ -59,12 +64,19 @@ public class GuiPureMainMenu extends GuiScreen {
         return false;
     }
 
+    private static boolean hasLastServer() {
+        return PureFPSConfig.lastServerIp != null && !PureFPSConfig.lastServerIp.trim().isEmpty();
+    }
+
     @Override
     public void initGui() {
         this.buttonList.clear();
         this.lastHoveredAction = -1;
         MashModules.ensureRegistered();
         MashAudioEngine.ensurePrewarmed();
+        if (Display.isCreated()) {
+            Display.setTitle(VulkanBackendHelper.getWindowTitle("4.5.0"));
+        }
     }
 
     @Override
@@ -74,6 +86,18 @@ public class GuiPureMainMenu extends GuiScreen {
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        if (this.mc != null) {
+            QuickServerLaunchBridge.TargetServer pending =
+                    QuickServerLaunchBridge.consumePendingServer(this.mc.mcDataDir, System.currentTimeMillis());
+            if (pending != null) {
+                MashAudioEngine.updateMenuAmbientLoop(false);
+                PureFPSConfig.recordJoinedServer(pending.name, pending.hostPort);
+                ServerData data = new ServerData(pending.name, pending.hostPort, false);
+                this.mc.displayGuiScreen(new GuiConnecting(this, this.mc, data));
+                return;
+            }
+        }
+
         MashAudioEngine.updateMenuAmbientLoop(!Display.isCreated() || Display.isActive());
 
         float uiAlpha = BlackHoleEmergenceRenderer.renderMenuBackground(this.mc, this.width, this.height, mouseX, mouseY);
@@ -140,6 +164,8 @@ public class GuiPureMainMenu extends GuiScreen {
         float modY = soloY + SOLO_H + 7.0F;
         float subY = modY + MOD_H + 8.0F;
         float subW = (STACK_W - SUB_GAP * 2.0F) / 3.0F;
+        float lastSrvY = subY + SUB_H + 6.0F;
+        boolean showLastSrv = hasLastServer();
 
         boolean multiHov = interactive && inside(mx, my, STACK_X, multiY, STACK_W, MULTI_H);
         boolean soloHov = interactive && inside(mx, my, STACK_X, soloY, STACK_W, SOLO_H);
@@ -147,15 +173,18 @@ public class GuiPureMainMenu extends GuiScreen {
         boolean hypHov = interactive && inside(mx, my, STACK_X, subY, subW, SUB_H);
         boolean optHov = interactive && inside(mx, my, STACK_X + subW + SUB_GAP, subY, subW, SUB_H);
         boolean fmlHov = interactive && inside(mx, my, STACK_X + (subW + SUB_GAP) * 2.0F, subY, subW, SUB_H);
+        boolean lastSrvHov = showLastSrv && interactive && inside(mx, my, STACK_X, lastSrvY, STACK_W, LAST_SRV_H);
         boolean bhSoundHov = interactive && inside(mx, my, bhSoundX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ);
         boolean soundHov = interactive && inside(mx, my, soundX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ);
         boolean quitHov = interactive && inside(mx, my, quitX, TOP_Y, TOP_BTN_SZ, TOP_BTN_SZ);
+
+        boolean vulkanMode = VulkanBackendHelper.isVulkanActive();
 
         NanoUiRenderer.beginBatch();
 
         // Halo sombre discret sous la colonne gauche
         NanoUiRenderer.drawRoundedGradient(
-                STACK_X - 22.0F, stackTopY - 68.0F, STACK_W + 44.0F, 240.0F, 22.0F,
+                STACK_X - 22.0F, stackTopY - 68.0F, STACK_W + 44.0F, showLastSrv ? 270.0F : 240.0F, 22.0F,
                 mulAlpha(0x00020306, uiAlpha), mulAlpha(0x4C020306, uiAlpha), 0, 0.0F
         );
 
@@ -232,6 +261,12 @@ public class GuiPureMainMenu extends GuiScreen {
         drawGlassButton(STACK_X + subW + SUB_GAP, subY, subW, SUB_H, 7.0F, optHov, false, uiAlpha);
         drawGlassButton(STACK_X + (subW + SUB_GAP) * 2.0F, subY, subW, SUB_H, 7.0F, fmlHov, false, uiAlpha);
 
+        // 5. Dernier serveur (compact 25px) lorsqu'un serveur récent est mémorisé
+        if (showLastSrv) {
+            drawGlassButton(STACK_X, lastSrvY, STACK_W, LAST_SRV_H, 7.0F, lastSrvHov, true, uiAlpha);
+            NanoUiRenderer.drawBoltIcon(STACK_X + 14.0F, lastSrvY + LAST_SRV_H * 0.5F, 9.5F, mulAlpha(lastSrvHov ? 0xFFFFDF9E : 0xFFF5B85C, uiAlpha));
+        }
+
         // Infobulle discrète au survol des contrôles audio haut-droite
         String topHint = null;
         float hintCenterX = 0.0F;
@@ -260,7 +295,8 @@ public class GuiPureMainMenu extends GuiScreen {
         boldSmallF.beginBatch();
         boldSmallF.drawString("MASHCLIENT", 56.0F, 28.0F, mulAlpha(0xFFF5F3EE, uiAlpha));
         float topBrandW = boldSmallF.getStringWidth("MASHCLIENT");
-        boldSmallF.drawString("4.4.6  \u00B7  1.8.9", 56.0F + topBrandW + 7.0F, 28.0F, mulAlpha(0xFF7D869C, uiAlpha));
+        String verSubtitle = vulkanMode ? "4.5.0  \u00B7  1.8.9  \u00B7  VULKAN BÊTA" : "4.5.0  \u00B7  1.8.9";
+        boldSmallF.drawString(verSubtitle, 56.0F + topBrandW + 7.0F, 28.0F, mulAlpha(vulkanMode ? 0xFFE9C46A : 0xFF7D869C, uiAlpha));
         boldSmallF.drawCentered("MULTIJOUEUR", STACK_X + STACK_W * 0.5F + 4.0F, multiY + (MULTI_H - boldSmallF.getHeight()) * 0.5F + 0.5F, mulAlpha(0xFF0A0B0E, uiAlpha), false);
         boldSmallF.endBatch();
 
@@ -275,6 +311,13 @@ public class GuiPureMainMenu extends GuiScreen {
         smallF.drawCentered("Hypixel", STACK_X + subW * 0.5F, subY + (SUB_H - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(hypHov ? 0xFFFFDF9E : 0xFFB8C1D4, uiAlpha), false);
         smallF.drawCentered("Options", STACK_X + subW + SUB_GAP + subW * 0.5F, subY + (SUB_H - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(optHov ? 0xFFFFFFFF : 0xFFB8C1D4, uiAlpha), false);
         smallF.drawCentered("Mods", STACK_X + (subW + SUB_GAP) * 2.0F + subW * 0.5F, subY + (SUB_H - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(fmlHov ? 0xFFFFFFFF : 0xFFB8C1D4, uiAlpha), false);
+        if (showLastSrv) {
+            String srvLabel = (PureFPSConfig.lastServerName != null && !PureFPSConfig.lastServerName.isEmpty())
+                    ? PureFPSConfig.lastServerName
+                    : PureFPSConfig.lastServerIp;
+            String trimmedSrv = smallF.trimToWidth("Rejoindre " + srvLabel, STACK_W - 34.0F);
+            smallF.drawString(trimmedSrv, STACK_X + 26.0F, lastSrvY + (LAST_SRV_H - smallF.getHeight()) * 0.5F + 0.5F, mulAlpha(lastSrvHov ? 0xFFFFDF9E : 0xFFD8DFEC, uiAlpha));
+        }
         if (topHint != null) {
             smallF.drawCentered(topHint, hintX + hintW * 0.5F, TOP_Y + TOP_BTN_SZ + 11.0F, mulAlpha(0xFFECEFF6, uiAlpha), false);
         }
@@ -320,8 +363,19 @@ public class GuiPureMainMenu extends GuiScreen {
                 break;
             case ACT_HYPIXEL:
                 MashAudioEngine.playJoinAction();
+                PureFPSConfig.recordJoinedServer("Hypixel", "mc.hypixel.net");
                 ServerData hypixel = new ServerData("Hypixel", "mc.hypixel.net", false);
                 this.mc.displayGuiScreen(new GuiConnecting(this, this.mc, hypixel));
+                break;
+            case ACT_LAST_SERVER:
+                if (hasLastServer()) {
+                    MashAudioEngine.playJoinAction();
+                    String name = (PureFPSConfig.lastServerName != null && !PureFPSConfig.lastServerName.isEmpty())
+                            ? PureFPSConfig.lastServerName
+                            : PureFPSConfig.lastServerIp;
+                    ServerData last = new ServerData(name, PureFPSConfig.lastServerIp, false);
+                    this.mc.displayGuiScreen(new GuiConnecting(this, this.mc, last));
+                }
                 break;
             case ACT_OPTIONS:
                 MashAudioEngine.playClick();
@@ -382,6 +436,11 @@ public class GuiPureMainMenu extends GuiScreen {
         if (inside(mx, my, STACK_X, subY, subW, SUB_H)) return ACT_HYPIXEL;
         if (inside(mx, my, STACK_X + subW + SUB_GAP, subY, subW, SUB_H)) return ACT_OPTIONS;
         if (inside(mx, my, STACK_X + (subW + SUB_GAP) * 2.0F, subY, subW, SUB_H)) return ACT_MODS;
+
+        if (hasLastServer()) {
+            float lastSrvY = subY + SUB_H + 6.0F;
+            if (inside(mx, my, STACK_X, lastSrvY, STACK_W, LAST_SRV_H)) return ACT_LAST_SERVER;
+        }
 
         return -1;
     }

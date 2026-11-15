@@ -1,12 +1,18 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.4.0.
-//! - Synchronise automatiquement `purefps-4.4.0.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.0 (OpenGL & Vulkan Bêta).
+//! - Synchronise automatiquement `purefps-4.5.0.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
-//! - Détecte instantanément l'ouverture de la fenêtre OpenGL (`DISPLAY_CREATED` / `.purefps_display_ready`)
+//! - Isolat dédié pour `1.8.9 PureFPS Vulkan` (Bêta) via Mesa3D Zink (`javaw.exe.local` + `GALLIUM_DRIVER=zink`)
+//! - Détecte instantanément l'ouverture de la fenêtre (`DISPLAY_CREATED` / `.purefps_display_ready`)
 //!   pour réduire le Launcher en bas à droite (System Tray) à l'instant exact où Minecraft prend sa place.
 
 use crate::config::{
     app_storage_dir, effective_github_token, is_real_prism_instance, prepare_seamless_launch_files,
-    resolve_prism_instance_game_dir, LauncherPrefs,
+    resolve_prism_instance_game_dir, split_server_host_port, write_or_clear_quick_server_file,
+    InstanceFlavor, LauncherPrefs, PureClientSettings,
+};
+use crate::runtimes::{
+    ensure_vulkan_instance_initialized, prepare_isolated_vulkan_jre, resolve_active_game_dir,
+    PRISM_VULKAN_INSTANCE_NAME,
 };
 use crate::updater::{
     check_for_updates, download_and_install_update, extract_purefps_jar_semver,
@@ -24,7 +30,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.6.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.0.jar";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -33,6 +39,7 @@ pub struct CrashReportInfo {
     pub details: String,
     pub exit_code: Option<i32>,
     pub report_path: Option<String>,
+    pub suspected_mod_file: Option<String>,
 }
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
@@ -106,18 +113,22 @@ pub fn offline_uuid_hex(username: &str) -> String {
     hex
 }
 
-/// Si le mod `purefps-*.jar` est absent ou plus ancien que le Launcher, tente de le récupérer
-/// automatiquement depuis GitHub Releases avant le lancement pour garantir le Trou Noir Mojang !
-pub fn auto_fetch_mod_jar_if_needed(prefs: &LauncherPrefs, proxy: &EventLoopProxy<AppEvent>) {
-    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 0, 0));
-    let cur_mod = installed_mod_version(&prefs.game_dir);
+/// Si le mod `purefps-*.jar` est absent ou plus ancien que le Launcher dans l'instance active,
+/// tente de le récupérer automatiquement depuis GitHub Releases avant le lancement !
+pub fn auto_fetch_mod_jar_if_needed(
+    prefs: &LauncherPrefs,
+    target_game_dir: &str,
+    proxy: &EventLoopProxy<AppEvent>,
+) {
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 5, 0));
+    let cur_mod = installed_mod_version(target_game_dir);
     if cur_mod.is_some_and(|v| v >= launcher_ver) {
         return;
     }
 
     let tok = effective_github_token();
     if let Ok(UpdateCheckOutcome::Available(mut plan)) =
-        check_for_updates(&prefs.github_repo, tok.as_deref(), &prefs.game_dir)
+        check_for_updates(&prefs.github_repo, tok.as_deref(), target_game_dir)
     {
         if plan.jar_asset.is_some() {
             plan.exe_asset = None;
@@ -125,7 +136,7 @@ pub fn auto_fetch_mod_jar_if_needed(prefs: &LauncherPrefs, proxy: &EventLoopProx
                 "[MashClient] Téléchargement automatique du mod MashClient v{}...",
                 plan.version
             )));
-            let _ = download_and_install_update(&plan, tok.as_deref(), &prefs.game_dir, proxy);
+            let _ = download_and_install_update(&plan, tok.as_deref(), target_game_dir, proxy);
         }
     }
 }
@@ -135,6 +146,20 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
     std::fs::create_dir_all(&mods_dir).map_err(|e| format!("Création dossier mods: {e}"))?;
 
     let mut search_dirs: Vec<PathBuf> = vec![app_storage_dir().join("updates"), mods_dir.clone()];
+    // Permet aussi à l'instance `1.8.9 PureFPS Vulkan` de récupérer le jar moteur depuis l'instance sœur hors-ligne
+    if let Some(instances_dir) = Path::new(game_dir).parent().and_then(|p| p.parent()) {
+        if let Ok(entries) = std::fs::read_dir(instances_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    let sib_mods = resolve_prism_instance_game_dir(&p).join("mods");
+                    if sib_mods != mods_dir && sib_mods.is_dir() {
+                        search_dirs.push(sib_mods);
+                    }
+                }
+            }
+        }
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             search_dirs.push(dir.to_path_buf());
@@ -198,7 +223,7 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
     }
 
     Err(format!(
-        "Archive {FALLBACK_PURECLIENT_JAR_NAME} introuvable (lancez une mise à jour dans l'onglet Système)."
+        "Archive {FALLBACK_PURECLIENT_JAR_NAME} introuvable (lancez une mise à jour dans l'onglet Paramètres)."
     ))
 }
 
@@ -263,10 +288,16 @@ pub fn build_classpath(libraries_dir: &str) -> Result<String, String> {
 }
 
 pub fn resolve_prism_instance_id(prefs: &LauncherPrefs) -> String {
+    if prefs.instance_flavor == InstanceFlavor::VulkanBeta {
+        return PRISM_VULKAN_INSTANCE_NAME.to_owned();
+    }
     if let Some(inst_root) = Path::new(&prefs.game_dir).parent() {
         if is_real_prism_instance(inst_root) {
             if let Some(name) = inst_root.file_name() {
-                return name.to_string_lossy().to_string();
+                let s = name.to_string_lossy().to_string();
+                if !s.to_ascii_lowercase().contains("vulkan") {
+                    return s;
+                }
             }
         }
         if let Some(instances_dir) = inst_root.parent() {
@@ -275,6 +306,9 @@ pub fn resolve_prism_instance_id(prefs: &LauncherPrefs) -> String {
                     let p = entry.path();
                     if p.is_dir() && is_real_prism_instance(&p) {
                         let fname = entry.file_name().to_string_lossy().to_string();
+                        if fname.to_ascii_lowercase().contains("vulkan") {
+                            continue;
+                        }
                         let mmc = std::fs::read_to_string(p.join("mmc-pack.json")).unwrap_or_default();
                         if mmc.contains("1.8.9") || fname.contains("1.8.9") {
                             return fname;
@@ -287,9 +321,12 @@ pub fn resolve_prism_instance_id(prefs: &LauncherPrefs) -> String {
     "1.8.9".to_owned()
 }
 
-pub fn collect_watched_189_game_dirs(primary_game_dir: &str) -> Vec<PathBuf> {
-    let mut dirs = vec![PathBuf::from(primary_game_dir)];
-    if let Some(instances_dir) = Path::new(primary_game_dir)
+pub fn collect_watched_189_game_dirs(prefs: &LauncherPrefs, active_game_dir: &str) -> Vec<PathBuf> {
+    let mut dirs = vec![PathBuf::from(active_game_dir)];
+    if prefs.instance_flavor == InstanceFlavor::VulkanBeta {
+        return dirs;
+    }
+    if let Some(instances_dir) = Path::new(active_game_dir)
         .parent()
         .and_then(|p| p.parent())
     {
@@ -299,8 +336,11 @@ pub fn collect_watched_189_game_dirs(primary_game_dir: &str) -> Vec<PathBuf> {
                 if !p.is_dir() || !is_real_prism_instance(&p) {
                     continue;
                 }
-                let mmc = std::fs::read_to_string(p.join("mmc-pack.json")).unwrap_or_default();
                 let fname = entry.file_name().to_string_lossy().to_string();
+                if fname.to_ascii_lowercase().contains("vulkan") {
+                    continue;
+                }
+                let mmc = std::fs::read_to_string(p.join("mmc-pack.json")).unwrap_or_default();
                 if mmc.contains("1.8.9") || fname.contains("1.8.9") {
                     let gdir = resolve_prism_instance_game_dir(&p);
                     if !dirs.contains(&gdir) {
@@ -383,7 +423,13 @@ fn compute_launch_window_dimensions(game_dir: &Path, screen_w: u32, screen_h: u3
     }
 }
 
-pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: u32, screen_h: u32) {
+pub fn sync_prism_instance_cfg(
+    instance_game_dir: &Path,
+    ram_mb: u32,
+    screen_w: u32,
+    screen_h: u32,
+    vulkan_javaw: Option<&Path>,
+) {
     let Some(instance_root) = instance_game_dir.parent() else {
         return;
     };
@@ -393,6 +439,11 @@ pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: 
     };
 
     let (win_w, win_h) = compute_launch_window_dimensions(instance_game_dir, screen_w, screen_h);
+    let vk_java_fwd = vulkan_javaw.map(|p| p.to_string_lossy().replace('\\', "/"));
+    const VK_JVM_ARGS: &str =
+        "-Dpurefps.rendererBackend=vulkan -Dorg.lwjgl.opengl.Window.undecorated=true -Dpurefps.seamlessLaunch=true";
+    const VK_ENV_INI: &str =
+        "\"{\\\"GALLIUM_DRIVER\\\":\\\"zink\\\",\\\"MESA_GL_VERSION_OVERRIDE\\\":\\\"4.6COMPAT\\\",\\\"MESA_GLSL_VERSION_OVERRIDE\\\":\\\"460\\\",\\\"ZINK_DESCRIPTORS\\\":\\\"lazy\\\"}\"";
 
     let mut updated_lines: Vec<String> = Vec::new();
     let mut saw_min = false;
@@ -400,6 +451,12 @@ pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: 
     let mut saw_override_win = false;
     let mut saw_win_w = false;
     let mut saw_win_h = false;
+    let mut saw_override_java = false;
+    let mut saw_java_path = false;
+    let mut saw_override_args = false;
+    let mut saw_jvm_args = false;
+    let mut saw_override_env = false;
+    let mut saw_env = false;
 
     for line in existing.lines() {
         if line.starts_with("MinMemAlloc=") {
@@ -417,6 +474,28 @@ pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: 
         } else if line.starts_with("WindowHeight=") {
             updated_lines.push(format!("WindowHeight={win_h}"));
             saw_win_h = true;
+        } else if vk_java_fwd.is_some() && line.starts_with("OverrideJavaLocation=") {
+            updated_lines.push("OverrideJavaLocation=true".to_owned());
+            saw_override_java = true;
+        } else if let Some(ref jp) = vk_java_fwd {
+            if line.starts_with("JavaPath=") {
+                updated_lines.push(format!("JavaPath={jp}"));
+                saw_java_path = true;
+            } else if line.starts_with("OverrideJavaArgs=") {
+                updated_lines.push("OverrideJavaArgs=true".to_owned());
+                saw_override_args = true;
+            } else if line.starts_with("JvmArgs=") {
+                updated_lines.push(format!("JvmArgs={VK_JVM_ARGS}"));
+                saw_jvm_args = true;
+            } else if line.starts_with("OverrideEnv=") {
+                updated_lines.push("OverrideEnv=true".to_owned());
+                saw_override_env = true;
+            } else if line.starts_with("Env=") {
+                updated_lines.push(format!("Env={VK_ENV_INI}"));
+                saw_env = true;
+            } else {
+                updated_lines.push(line.to_owned());
+            }
         } else {
             updated_lines.push(line.to_owned());
         }
@@ -435,6 +514,26 @@ pub fn sync_prism_instance_cfg(instance_game_dir: &Path, ram_mb: u32, screen_w: 
     }
     if !saw_win_h {
         updated_lines.push(format!("WindowHeight={win_h}"));
+    }
+    if let Some(ref jp) = vk_java_fwd {
+        if !saw_override_java {
+            updated_lines.push("OverrideJavaLocation=true".to_owned());
+        }
+        if !saw_java_path {
+            updated_lines.push(format!("JavaPath={jp}"));
+        }
+        if !saw_override_args {
+            updated_lines.push("OverrideJavaArgs=true".to_owned());
+        }
+        if !saw_jvm_args {
+            updated_lines.push(format!("JvmArgs={VK_JVM_ARGS}"));
+        }
+        if !saw_override_env {
+            updated_lines.push("OverrideEnv=true".to_owned());
+        }
+        if !saw_env {
+            updated_lines.push(format!("Env={VK_ENV_INI}"));
+        }
     }
     let _ = std::fs::write(&cfg_path, updated_lines.join("\n") + "\n");
 }
@@ -754,12 +853,16 @@ pub fn detect_recent_crash_in_dirs(
     if let Some((_, report_path)) = newest_report {
         if let Some(text) = read_file_head_lossy(&report_path, 24_576) {
             let summary = extract_crash_summary_from_report(&text);
+            let suspected_mod_file = dirs.iter().find_map(|d| {
+                crate::mods_manager::identify_suspected_crash_mod(&d.to_string_lossy(), &text)
+            });
             return Some(CrashReportInfo {
                 title: "Minecraft a planté".to_owned(),
                 summary,
                 details: text,
                 exit_code,
                 report_path: Some(report_path.to_string_lossy().to_string()),
+                suspected_mod_file,
             });
         }
     }
@@ -808,12 +911,17 @@ pub fn detect_recent_crash_in_dirs(
                         "Erreur critique détectée pendant le chargement de Forge 1.8.9.".to_owned()
                     });
 
+                let suspected_mod_file = crate::mods_manager::identify_suspected_crash_mod(
+                    &dir.to_string_lossy(),
+                    &tail_text,
+                );
                 return Some(CrashReportInfo {
                     title: "Erreur au lancement de Minecraft".to_owned(),
                     summary,
                     details: snippet,
                     exit_code,
                     report_path: Some(log_path.to_string_lossy().to_string()),
+                    suspected_mod_file,
                 });
             }
         }
@@ -864,12 +972,17 @@ pub fn detect_recent_crash_in_dirs(
             .filter(|p| p.is_file())
             .map(|p| p.to_string_lossy().to_string());
 
+        let suspected_mod_file = dirs.iter().find_map(|d| {
+            crate::mods_manager::identify_suspected_crash_mod(&d.to_string_lossy(), &details)
+        });
+
         return Some(CrashReportInfo {
             title: "Minecraft s'est fermé avec une erreur".to_owned(),
             summary,
             details,
             exit_code,
             report_path: fallback_log,
+            suspected_mod_file,
         });
     }
 
@@ -877,7 +990,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.4.6 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.0 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\
@@ -917,12 +1030,33 @@ pub fn run_direct_jvm_blocking(
         return Err(format!("Java introuvable : {}", prefs.java_path));
     }
 
-    auto_fetch_mod_jar_if_needed(&prefs, &proxy);
+    let is_vulkan = prefs.instance_flavor == InstanceFlavor::VulkanBeta;
+    let active_game_dir = if is_vulkan {
+        ensure_vulkan_instance_initialized(&prefs)?
+    } else {
+        prefs.game_dir.clone()
+    };
 
-    let jar_msg = sync_pureclient_jar(&prefs.game_dir)?;
+    let effective_java: PathBuf = if is_vulkan {
+        prepare_isolated_vulkan_jre(Path::new(&prefs.java_path), &prefs, &proxy)?
+    } else {
+        PathBuf::from(&prefs.java_path)
+    };
+
+    auto_fetch_mod_jar_if_needed(&prefs, &active_game_dir, &proxy);
+
+    let jar_msg = sync_pureclient_jar(&active_game_dir)?;
     let _ = proxy.send_event(AppEvent::LogLine(format!("[MashClient] {jar_msg}")));
 
-    prepare_seamless_launch_files(&prefs.game_dir);
+    prepare_seamless_launch_files(&active_game_dir);
+
+    let client_settings = PureClientSettings::load_from_game_dir(&active_game_dir);
+    let use_quick_bridge_file = client_settings.enabled && client_settings.custom_main_menu;
+    if use_quick_bridge_file {
+        write_or_clear_quick_server_file(&active_game_dir, prefs.selected_server.as_ref());
+    } else {
+        write_or_clear_quick_server_file(&active_game_dir, None);
+    }
 
     let natives_dir = extract_natives_if_needed(&prefs.libraries_dir)?;
     let _ = proxy.send_event(AppEvent::LogLine(format!(
@@ -931,20 +1065,27 @@ pub fn run_direct_jvm_blocking(
     )));
 
     let classpath = build_classpath(&prefs.libraries_dir)?;
-    let game_dir_path = Path::new(&prefs.game_dir);
+    let game_dir_path = Path::new(&active_game_dir);
     let alsoft_ini = ensure_low_latency_alsoft_ini(game_dir_path);
     let (win_w, win_h) = compute_launch_window_dimensions(game_dir_path, screen_w, screen_h);
+    let flavor_tag = if is_vulkan { "Vulkan Bêta" } else { "OpenGL" };
     let _ = proxy.send_event(AppEvent::LogLine(format!(
-        "[MashClient] Démarrage de Minecraft 1.8.9 ({} Mo, {}x{}, {})...",
-        prefs.ram_mb, screen_w, screen_h, username
+        "[MashClient] Démarrage de Minecraft 1.8.9 [{}] ({} Mo, {}x{}, {})...",
+        flavor_tag, prefs.ram_mb, screen_w, screen_h, username
     )));
 
-    let mut cmd = Command::new(&prefs.java_path);
-    cmd.current_dir(&prefs.game_dir)
+    let mut cmd = Command::new(&effective_java);
+    cmd.current_dir(&active_game_dir)
         .env_remove("SHIM_MCCOMPAT")
         .env("__GL_THREADED_OPTIMIZATIONS", "0")
         .env("__GL_YIELD", "USLEEP")
         .env("ALSOFT_DRIVERS", "mmdevapi,dsound");
+    if is_vulkan {
+        cmd.env("GALLIUM_DRIVER", "zink")
+            .env("MESA_GL_VERSION_OVERRIDE", "4.6COMPAT")
+            .env("MESA_GLSL_VERSION_OVERRIDE", "460")
+            .env("ZINK_DESCRIPTORS", "lazy");
+    }
     if let Some(ref ini_path) = alsoft_ini {
         cmd.env("ALSOFT_CONF", ini_path);
     }
@@ -965,8 +1106,11 @@ pub fn run_direct_jvm_blocking(
         .arg("-Dfml.ignorePatchDiscrepancies=true")
         .arg("-Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=false")
         .arg("-Dorg.lwjgl.opengl.Window.undecorated=true")
-        .arg("-Dpurefps.seamlessLaunch=true")
-        .arg(format!("-Djava.library.path={}", natives_dir.display()))
+        .arg("-Dpurefps.seamlessLaunch=true");
+    if is_vulkan {
+        cmd.arg("-Dpurefps.rendererBackend=vulkan");
+    }
+    cmd.arg(format!("-Djava.library.path={}", natives_dir.display()))
         .arg("-cp")
         .arg(classpath)
         .arg("net.minecraft.launchwrapper.Launch")
@@ -975,7 +1119,7 @@ pub fn run_direct_jvm_blocking(
         .arg("--version")
         .arg("1.8.9")
         .arg("--gameDir")
-        .arg(&prefs.game_dir)
+        .arg(&active_game_dir)
         .arg("--assetsDir")
         .arg(&prefs.assets_dir)
         .arg("--assetIndex")
@@ -993,11 +1137,13 @@ pub fn run_direct_jvm_blocking(
         .arg("--tweakClass")
         .arg("net.minecraftforge.fml.common.launcher.FMLTweaker");
 
-    if prefs.quick_join_hypixel {
-        cmd.arg("--server")
-            .arg("mc.hypixel.net")
-            .arg("--port")
-            .arg("25565");
+    if !use_quick_bridge_file {
+        if let Some(ref srv) = prefs.selected_server {
+            let (host, port) = split_server_host_port(&srv.address);
+            if !host.is_empty() {
+                cmd.arg("--server").arg(host).arg("--port").arg(port.to_string());
+            }
+        }
     }
 
     #[cfg(windows)]
@@ -1018,7 +1164,7 @@ pub fn run_direct_jvm_blocking(
 
     let stop_watcher = Arc::new(AtomicBool::new(false));
     spawn_display_ready_watcher(
-        vec![PathBuf::from(&prefs.game_dir)],
+        vec![PathBuf::from(&active_game_dir)],
         proxy.clone(),
         Arc::clone(&stop_watcher),
     );
@@ -1090,7 +1236,7 @@ pub fn run_direct_jvm_blocking(
     )));
 
     if let Some(crash_info) = detect_recent_crash_in_dirs(
-        &[PathBuf::from(&prefs.game_dir)],
+        &[PathBuf::from(&active_game_dir)],
         launch_time,
         &tail_lines,
         if status.success() { None } else { exit_code },
@@ -1102,11 +1248,14 @@ pub fn run_direct_jvm_blocking(
     Ok(())
 }
 
-pub fn sync_configs_across_watched_189_dirs(primary_game_dir: &str) {
+pub fn sync_configs_across_watched_189_dirs(prefs: &LauncherPrefs, primary_game_dir: &str) {
+    if prefs.instance_flavor == InstanceFlavor::VulkanBeta {
+        return;
+    }
     let primary_cfg = Path::new(primary_game_dir).join("config");
     let src_props = primary_cfg.join("purefps.properties");
     let src_mods = primary_cfg.join("mashclient_modules.json");
-    for gdir in collect_watched_189_game_dirs(primary_game_dir) {
+    for gdir in collect_watched_189_game_dirs(prefs, primary_game_dir) {
         if gdir == Path::new(primary_game_dir) {
             continue;
         }
@@ -1131,11 +1280,31 @@ pub fn prepare_prism_bridge_files(
         return Err(format!("PrismLauncher introuvable : {}", prefs.prism_exe));
     }
 
-    auto_fetch_mod_jar_if_needed(prefs, proxy);
+    let is_vulkan = prefs.instance_flavor == InstanceFlavor::VulkanBeta;
+    let active_game_dir = if is_vulkan {
+        ensure_vulkan_instance_initialized(prefs)?
+    } else {
+        prefs.game_dir.clone()
+    };
+
+    let vulkan_javaw: Option<PathBuf> = if is_vulkan {
+        Some(prepare_isolated_vulkan_jre(
+            Path::new(&prefs.java_path),
+            prefs,
+            proxy,
+        )?)
+    } else {
+        None
+    };
+
+    auto_fetch_mod_jar_if_needed(prefs, &active_game_dir, proxy);
 
     let instance_id = resolve_prism_instance_id(prefs);
-    let watched_dirs = collect_watched_189_game_dirs(&prefs.game_dir);
-    sync_configs_across_watched_189_dirs(&prefs.game_dir);
+    let watched_dirs = collect_watched_189_game_dirs(prefs, &active_game_dir);
+    sync_configs_across_watched_189_dirs(prefs, &active_game_dir);
+
+    let client_settings = PureClientSettings::load_from_game_dir(&active_game_dir);
+    let use_quick_bridge_file = client_settings.enabled && client_settings.custom_main_menu;
 
     let mut synced_any = false;
     let mut last_err = String::new();
@@ -1150,9 +1319,20 @@ pub fn prepare_prism_bridge_files(
             }
             Err(e) => last_err = e,
         }
-        sync_prism_instance_cfg(gdir, prefs.ram_mb, screen_w, screen_h);
+        sync_prism_instance_cfg(
+            gdir,
+            prefs.ram_mb,
+            screen_w,
+            screen_h,
+            vulkan_javaw.as_deref(),
+        );
         let _ = ensure_low_latency_alsoft_ini(gdir);
         prepare_seamless_launch_files(&gdir_str);
+        if use_quick_bridge_file {
+            write_or_clear_quick_server_file(&gdir_str, prefs.selected_server.as_ref());
+        } else {
+            write_or_clear_quick_server_file(&gdir_str, None);
+        }
     }
 
     if !synced_any && !last_err.is_empty() {
@@ -1178,28 +1358,43 @@ pub fn spawn_prism_bridge_now(
 ) -> Result<(), String> {
     let pre_existing_lwjgl = current_visible_lwjgl_hwnd();
     let launch_time = SystemTime::now();
+    let is_vulkan = prefs.instance_flavor == InstanceFlavor::VulkanBeta;
 
     let _ = proxy.send_event(AppEvent::LogLine(format!(
         "[MashClient] PrismLauncher : lancement de '{}' ({} Mo RAM)...",
         instance_id, prefs.ram_mb
     )));
 
+    let active_dir = resolve_active_game_dir(prefs);
+    let client_settings = PureClientSettings::load_from_game_dir(&active_dir);
+    let use_quick_bridge_file = client_settings.enabled && client_settings.custom_main_menu;
+
     let alsoft_ini = watched_dirs
         .first()
         .and_then(|d| ensure_low_latency_alsoft_ini(d))
-        .or_else(|| ensure_low_latency_alsoft_ini(Path::new(&prefs.game_dir)));
+        .or_else(|| ensure_low_latency_alsoft_ini(Path::new(&active_dir)));
 
     let mut cmd = Command::new(&prefs.prism_exe);
     cmd.env_remove("SHIM_MCCOMPAT")
         .env("__GL_THREADED_OPTIMIZATIONS", "0")
         .env("__GL_YIELD", "USLEEP")
         .env("ALSOFT_DRIVERS", "mmdevapi,dsound");
+    if is_vulkan {
+        cmd.env("GALLIUM_DRIVER", "zink")
+            .env("MESA_GL_VERSION_OVERRIDE", "4.6COMPAT")
+            .env("MESA_GLSL_VERSION_OVERRIDE", "460")
+            .env("ZINK_DESCRIPTORS", "lazy");
+    }
     if let Some(ref ini_path) = alsoft_ini {
         cmd.env("ALSOFT_CONF", ini_path);
     }
     cmd.arg("--launch").arg(instance_id);
-    if prefs.quick_join_hypixel {
-        cmd.arg("--server").arg("mc.hypixel.net");
+    if !use_quick_bridge_file {
+        if let Some(ref srv) = prefs.selected_server {
+            if !srv.address.trim().is_empty() {
+                cmd.arg("--server").arg(srv.address.trim());
+            }
+        }
     }
 
     let mut prism_child = cmd
@@ -1253,6 +1448,7 @@ pub fn spawn_prism_bridge_now(
                             ),
                             exit_code: code,
                             report_path: None,
+                            suspected_mod_file: None,
                         });
                     let _ = p_life.send_event(AppEvent::GameCrashed(info));
                     return;
@@ -1295,6 +1491,7 @@ pub fn spawn_prism_bridge_now(
                     ),
                     exit_code: None,
                     report_path: fallback_log,
+                    suspected_mod_file: None,
                 });
             let _ = p_life.send_event(AppEvent::GameCrashed(info));
         }

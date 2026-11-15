@@ -1445,6 +1445,474 @@
     user-select: text;
     -webkit-user-select: text;
   }
+
+  .crash-suspect-bar {
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: rgba(240, 178, 84, 0.11);
+    border: 1px solid rgba(240, 178, 84, 0.36);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .beta-tag {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(240, 178, 84, 0.16);
+    border: 1px solid rgba(240, 178, 84, 0.42);
+    color: var(--gold-bright);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    line-height: 1.2;
+  }
+
+  .profile-row {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .profile-strip {
+    margin-top: 0;
+    max-width: calc(100vw - 220px);
+    overflow-x: auto;
+  }
+
+  .profile-strip::-webkit-scrollbar {
+    height: 0;
+  }
+
+  .prof-del {
+    margin-left: 2px;
+    width: 15px;
+    height: 15px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0.55;
+    color: inherit;
+  }
+
+  .prof-del:hover {
+    opacity: 1;
+    background: rgba(248, 113, 113, 0.24);
+    color: #fecaca;
+  }
+
+  .prof-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px;
+    border-radius: 9px;
+    background: rgba(9, 11, 16, 0.72);
+    border: 1px solid var(--border-hairline);
+    backdrop-filter: blur(18px);
+  }
+
+  .prof-tool-btn {
+    height: 27px;
+    padding: 0 9px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+
+  .prof-tool-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.055);
+  }
+
+  .qs-anchor {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .qs-clear-x {
+    width: 15px;
+    height: 15px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    opacity: 0.7;
+  }
+
+  .qs-clear-x:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .qs-popover {
+    position: absolute;
+    bottom: calc(100% + 9px);
+    left: 0;
+    width: 336px;
+    padding: 10px;
+    border-radius: var(--radius-lg);
+    background: rgba(10, 12, 18, 0.97);
+    border: 1px solid var(--border-strong);
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(22px);
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 24;
+  }
+
+  .qs-popover.open {
+    display: flex;
+  }
+
+  .qs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 250px;
+    overflow-y: auto;
+  }
+
+  .qs-row {
+    padding: 6px 8px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.02);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.14s ease, border-color 0.14s ease;
+  }
+
+  .qs-row:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .qs-row.active {
+    background: rgba(240, 178, 84, 0.11);
+    border-color: rgba(240, 178, 84, 0.38);
+  }
+
+  .qs-join-btn {
+    height: 23px;
+    padding: 0 9px;
+    border-radius: 5px;
+    border: 1px solid rgba(240, 178, 84, 0.42);
+    background: rgba(240, 178, 84, 0.14);
+    color: var(--gold-bright);
+    font-family: inherit;
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .qs-join-btn:hover {
+    background: rgba(240, 178, 84, 0.26);
+    border-color: rgba(255, 223, 158, 0.72);
+  }
+
+  .qs-add-row {
+    padding-top: 6px;
+    border-top: 1px solid var(--border-hairline);
+    display: grid;
+    grid-template-columns: 0.85fr 1.15fr auto;
+    gap: 5px;
+  }
+
+  .qs-mini-input {
+    height: 27px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-hairline);
+    background: rgba(0, 0, 0, 0.45);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 11px;
+    outline: none;
+    min-width: 0;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .qs-mini-input:focus {
+    border-color: var(--border-warm);
+  }
+
+  .mods-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .mod-jar-row {
+    padding: 9px 12px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.024);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .mod-jar-row.is-on {
+    border-color: rgba(240, 178, 84, 0.22);
+    background: linear-gradient(90deg, rgba(240, 178, 84, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  }
+
+  .mod-jar-row.is-off {
+    opacity: 0.66;
+  }
+
+  .acc-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  .acc-item {
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--border-hairline);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    cursor: pointer;
+    transition: background 0.14s ease, border-color 0.14s ease;
+  }
+
+  .acc-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--border-strong);
+  }
+
+  .acc-item.active {
+    background: rgba(240, 178, 84, 0.10);
+    border-color: rgba(240, 178, 84, 0.40);
+    cursor: default;
+  }
+
+  .hud-studio-card {
+    width: min(1090px, calc(100vw - 44px));
+    max-height: calc(100vh - 48px);
+    padding: 16px 18px;
+    gap: 12px;
+  }
+
+  .hud-studio-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 216px;
+    gap: 12px;
+    min-height: 0;
+    align-items: stretch;
+  }
+
+  .hud-stage-outer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.48);
+    border: 1px solid var(--border-hairline);
+    border-radius: 10px;
+    padding: 8px;
+    min-height: 0;
+  }
+
+  .hud-stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: calc(100vh - 165px);
+    background:
+      linear-gradient(180deg, rgba(16, 21, 32, 0.92) 0%, rgba(8, 10, 16, 0.96) 100%);
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+      radial-gradient(circle at 50% 45%, rgba(240, 178, 84, 0.06) 0%, rgba(8, 10, 16, 0.95) 75%);
+    background-size: 5% 8.888%, 5% 8.888%, 100% 100%;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+
+  .hud-guide-x,
+  .hud-guide-y {
+    position: absolute;
+    pointer-events: none;
+    display: none;
+    z-index: 5;
+  }
+
+  .hud-guide-x {
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(240, 178, 84, 0.78);
+  }
+
+  .hud-guide-y {
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: rgba(240, 178, 84, 0.78);
+  }
+
+  .hud-ref-crosshair {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 11px;
+    height: 11px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0.36;
+  }
+
+  .hud-ref-crosshair::before,
+  .hud-ref-crosshair::after {
+    content: "";
+    position: absolute;
+    background: #ffffff;
+  }
+
+  .hud-ref-crosshair::before {
+    left: 5px;
+    top: 0;
+    width: 1px;
+    height: 11px;
+  }
+
+  .hud-ref-crosshair::after {
+    top: 5px;
+    left: 0;
+    height: 1px;
+    width: 11px;
+  }
+
+  .hud-ref-hotbar {
+    position: absolute;
+    left: 40.52%;
+    bottom: 0.6%;
+    width: 18.96%;
+    height: 4.07%;
+    border-radius: 3px;
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    background: rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.28);
+    letter-spacing: 0.08em;
+  }
+
+  .hud-widget {
+    position: absolute;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(8, 10, 15, 0.78);
+    color: #f5f3ee;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: grab;
+    z-index: 2;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+
+  .hud-widget:hover {
+    border-color: rgba(240, 178, 84, 0.65);
+    z-index: 3;
+  }
+
+  .hud-widget.dragging {
+    cursor: grabbing;
+    border-color: var(--gold-bright);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65);
+    z-index: 6;
+  }
+
+  .hud-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-height: 0;
+    max-height: calc(100vh - 150px);
+    background: rgba(0, 0, 0, 0.32);
+    border: 1px solid var(--border-hairline);
+    border-radius: 10px;
+    padding: 9px;
+  }
+
+  .hud-side-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-right: 2px;
+  }
+
+  .hud-side-item {
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.02);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .hud-side-item:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .hud-side-item.is-on {
+    color: var(--gold-bright);
+    border-color: rgba(240, 178, 84, 0.32);
+    background: rgba(240, 178, 84, 0.09);
+  }
 </style>
 </head>
 <body>
@@ -1459,7 +1927,7 @@
           <img id="brand-logo-img" alt="MashClient" src="data:image/png;base64,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">
         </div>
         <span class="brand-wordmark">MASHCLIENT</span>
-        <span class="brand-ver">4.4.6</span>
+        <span class="brand-ver">4.5.0</span>
       </div>
 
       <nav class="top-nav" aria-label="Navigation principale">
@@ -1470,6 +1938,10 @@
         <button class="nav-tab" id="tab-btn-modules" data-tab="modules" onclick="switchTab('modules')">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
           <span>Modules</span>
+        </button>
+        <button class="nav-tab" id="tab-btn-mods" data-tab="mods" onclick="switchTab('mods')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
+          <span>Mods</span>
         </button>
         <button class="nav-tab" id="tab-btn-engine" data-tab="engine" onclick="switchTab('engine')">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -1519,22 +1991,33 @@
         <div class="hero-minimal">
           <div class="hero-kicker">
             <span class="online-dot"></span>
-            <span>Minecraft 1.8.9 &middot; Forge</span>
+            <span id="hero-kicker-text">Minecraft 1.8.9 &middot; Forge</span>
+            <span class="beta-tag" id="hero-beta-tag" style="display:none;">BÊTA</span>
           </div>
           <h1 class="hero-title">MASHCLIENT</h1>
-          <div class="profile-strip" role="radiogroup" aria-label="Profil">
-            <button class="prof-pill" id="prof-fps" onclick="selectProfile('fps')">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              <span>FPS</span>
-            </button>
-            <button class="prof-pill active" id="prof-balanced" onclick="selectProfile('balanced')">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
-              <span>Équilibré</span>
-            </button>
-            <button class="prof-pill" id="prof-quality" onclick="selectProfile('quality')">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-              <span>Qualité</span>
-            </button>
+          <div class="profile-row">
+            <div class="profile-strip" id="profile-strip" role="radiogroup" aria-label="Profil">
+              <button class="prof-pill" id="prof-fps" onclick="selectProfile('fps')">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                <span>FPS</span>
+              </button>
+              <button class="prof-pill active" id="prof-balanced" onclick="selectProfile('balanced')">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+                <span>Équilibré</span>
+              </button>
+              <button class="prof-pill" id="prof-quality" onclick="selectProfile('quality')">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span>Qualité</span>
+              </button>
+            </div>
+            <div class="prof-tools">
+              <button type="button" class="prof-tool-btn" onclick="openSaveProfileModal()" title="Enregistrer un profil personnalisé">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Profil</span>
+              </button>
+              <button type="button" class="prof-tool-btn" onclick="importProfileJson()" title="Importer un profil (.json)">Importer</button>
+              <button type="button" class="prof-tool-btn" onclick="exportCurrentProfile()" title="Exporter le profil actif (.json)">Exporter</button>
+            </div>
           </div>
         </div>
       </section>
@@ -1597,9 +2080,15 @@
               <h2 class="sheet-title">Modules</h2>
               <p class="sheet-desc">Clic gauche pour activer, clic droit pour régler le module.</p>
             </div>
-            <div class="search-wrap">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input type="search" class="search-field" id="mod-search" placeholder="Filtrer un module..." oninput="renderModules()">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <button type="button" class="btn-outline" onclick="openHudStudio()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h6"/></svg>
+                <span>Éditer le HUD</span>
+              </button>
+              <div class="search-wrap">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="search" class="search-field" id="mod-search" placeholder="Filtrer un module..." oninput="renderModules()">
+              </div>
             </div>
           </div>
           <div class="mod-cat-bar" id="mod-cat-bar"></div>
@@ -1609,7 +2098,27 @@
         </div>
       </section>
 
-      <!-- VUE 4 : PARAMÈTRES -->
+      <!-- VUE 4 : MODS TIERS -->
+      <section class="stage-view" id="view-mods">
+        <div class="glass-sheet">
+          <div class="sheet-header">
+            <div>
+              <h2 class="sheet-title">Mods</h2>
+              <p class="sheet-desc" id="mods-instance-desc">Mods Forge 1.8.9 installés dans l'instance active.</p>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button type="button" class="btn-gold" style="flex:none;height:30px;padding:0 12px;font-size:11.5px;" onclick="importModsDialog()">+ Importer (.jar)</button>
+              <button type="button" class="btn-outline" onclick="MashSfx.click();sendIpc({cmd:'refresh_mods_list'})">Actualiser</button>
+              <button type="button" class="btn-outline" onclick="MashSfx.click();sendIpc({cmd:'open_mods_folder'})">Dossier mods</button>
+            </div>
+          </div>
+          <div class="sheet-scroll">
+            <div class="mods-list" id="mods-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VUE 5 : PARAMÈTRES -->
       <section class="stage-view" id="view-system">
         <div class="glass-sheet">
           <div class="sheet-header">
@@ -1633,7 +2142,7 @@
               <div class="updater-top">
                 <div class="updater-title-group">
                   <span class="updater-title">Mises à jour</span>
-                  <span class="updater-badge" id="upd-status-badge">v4.4.6</span>
+                  <span class="updater-badge" id="upd-status-badge">v4.5.0</span>
                 </div>
                 <div style="display:flex;gap:6px;align-items:center;">
                   <button class="btn-outline" id="btn-upd-check" onclick="MashSfx.click();triggerManualUpdateCheck()">
@@ -1676,9 +2185,15 @@
               </div>
 
               <div class="sys-card">
-                <div class="sys-label">Exécutable Java 8</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <div class="sys-label" style="margin:0;">Exécutable Java 8</div>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <span class="updater-badge" id="java-probe-badge" style="font-size:10px;">Java 8</span>
+                    <button type="button" class="btn-outline" id="btn-install-temurin" style="height:24px;padding:0 8px;font-size:10.5px;" onclick="triggerInstallTemurin()">Temurin 8</button>
+                  </div>
+                </div>
                 <input type="text" class="sys-input" id="inp-java-path" onchange="sendIpc({cmd:'set_java_path', path:this.value})">
-                <div class="sys-label">Dossier Minecraft 1.8.9</div>
+                <div class="sys-label" id="lbl-game-dir-title">Dossier Minecraft 1.8.9</div>
                 <input type="text" class="sys-input" id="inp-game-dir" onchange="sendIpc({cmd:'set_game_dir', path:this.value})">
               </div>
             </div>
@@ -1692,25 +2207,38 @@
 
     <footer class="bottom-dock">
       <div class="dock-meta">
+        <div class="mode-selector" id="instance-flavor-seg" title="Instance Minecraft">
+          <button type="button" class="mode-btn active" data-flavor="standard" onclick="selectInstanceFlavor('standard')">
+            <span>1.8.9 PureFPS</span>
+          </button>
+          <button type="button" class="mode-btn" data-flavor="vulkan_beta" onclick="selectInstanceFlavor('vulkan_beta')">
+            <span>1.8.9 PureFPS Vulkan</span>
+            <span class="beta-tag">BÊTA</span>
+          </button>
+        </div>
+
         <div class="mode-selector" id="launch-mode-seg">
-          <button class="mode-btn" data-mode="DirectMicrosoft" onclick="MashSfx.click();sendIpc({cmd:'set_launch_mode', mode:'DirectMicrosoft'})">
+          <button type="button" class="mode-btn" data-mode="DirectMicrosoft" onclick="MashSfx.click();sendIpc({cmd:'set_launch_mode', mode:'DirectMicrosoft'})">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <span>Microsoft</span>
           </button>
-          <button class="mode-btn active" data-mode="PrismBridge" onclick="MashSfx.click();sendIpc({cmd:'set_launch_mode', mode:'PrismBridge'})">
+          <button type="button" class="mode-btn active" data-mode="PrismBridge" onclick="MashSfx.click();sendIpc({cmd:'set_launch_mode', mode:'PrismBridge'})">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
             <span>Prism</span>
           </button>
-          <button class="mode-btn" data-mode="DirectOffline" onclick="MashSfx.click();sendIpc({cmd:'set_launch_mode', mode:'DirectOffline'})">
+          <button type="button" class="mode-btn" data-mode="DirectOffline" onclick="MashSfx.click();sendIpc({cmd:'set_launch_mode', mode:'DirectOffline'})">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 20c1.5-3.5 12.5-3.5 14 0"/></svg>
             <span>Hors-ligne</span>
           </button>
         </div>
 
-        <button class="quick-chip" id="btn-quick-hypixel" onclick="toggleHypixelChip()">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-          <span>Hypixel direct</span>
-        </button>
+        <div class="qs-anchor" id="qs-anchor">
+          <button type="button" class="quick-chip" id="btn-quick-servers" onclick="toggleQuickServersPopover(event)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <span id="quick-server-chip-label">Serveurs rapides</span>
+          </button>
+          <div class="qs-popover" id="quick-servers-popover" onclick="event.stopPropagation()"></div>
+        </div>
       </div>
 
       <button class="play-cta" id="btn-launch" onclick="triggerPlaySequence()">
@@ -1720,11 +2248,32 @@
     </footer>
   </div>
 
-  <div class="modal-backdrop" id="account-modal">
+  <div class="modal-backdrop" id="account-modal" onclick="if(event.target===this && !state.device_code)closeAccountModal()">
     <div class="modal-card" id="account-modal-body"></div>
   </div>
 
-  <div class="modal-backdrop" id="module-settings-modal" onclick="if(event.target===this)closeModuleSettingsModal()">
+  <div class="modal-backdrop" id="hud-studio-modal" style="z-index:26;" onclick="if(event.target===this)closeHudStudio()">
+    <div class="modal-card hud-studio-card" id="hud-studio-body"></div>
+  </div>
+
+  <div class="modal-backdrop" id="save-profile-modal" style="z-index:32;" onclick="if(event.target===this)closeSaveProfileModal()">
+    <div class="modal-card" style="width:360px;">
+      <div class="modal-head">
+        <div class="modal-title">Nouveau profil</div>
+        <button type="button" class="btn-outline" style="height:28px;" onclick="closeSaveProfileModal()">Fermer</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);">
+        Enregistre les réglages actuels des modules, du HUD et des performances.
+      </div>
+      <input type="text" class="sys-input" id="inp-custom-profile-name" maxlength="28" placeholder="Ex : BedWars Rush" onkeydown="if(event.key==='Enter')confirmSaveCustomProfile()">
+      <div class="modal-actions" style="justify-content:flex-end;">
+        <button type="button" class="btn-outline" style="height:32px;" onclick="closeSaveProfileModal()">Annuler</button>
+        <button type="button" class="btn-gold" style="flex:none;height:32px;padding:0 14px;" onclick="confirmSaveCustomProfile()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="module-settings-modal" style="z-index:34;" onclick="if(event.target===this)closeModuleSettingsModal()">
     <div class="modal-card mod-modal-card" id="module-settings-body"></div>
   </div>
 
@@ -2454,15 +3003,33 @@
       java_path: "javaw.exe",
       game_dir: "%APPDATA%\\PrismLauncher\\instances\\1.8.9\\minecraft",
       github_repo: "MyMasha/ProjectFPS",
-      auto_update_check: true
+      auto_update_check: true,
+      instance_flavor: "standard",
+      selected_server: null,
+      custom_servers: []
     },
+    active_game_dir: "%APPDATA%\\PrismLauncher\\instances\\1.8.9\\minecraft",
     account: null,
+    accounts: [],
+    active_custom_profile_id: null,
+    custom_profiles: [],
+    installed_mods: [],
+    builtin_servers: [
+      { id: "hypixel", name: "Hypixel", address: "mc.hypixel.net" },
+      { id: "pika", name: "PikaNetwork", address: "play.pikanetwork.net" },
+      { id: "jartex", name: "JartexNetwork", address: "play.jartexnetwork.com" },
+      { id: "minemen", name: "Minemen Club", address: "eu.minemen.club" },
+      { id: "blocksmc", name: "BlocksMC", address: "blocksmc.com" }
+    ],
+    java_status_label: "Java 8",
+    java_needs_upgrade: false,
+    java_installing: false,
     game_running: false,
     device_code: null,
     update: {
       status: "idle",
-      current_version: "4.4.6",
-      installed_jar_version: "4.4.6",
+      current_version: "4.5.0",
+      installed_jar_version: "4.5.0",
       latest_version: null,
       release_notes: null,
       download_percent: 0,
@@ -2470,6 +3037,76 @@
       has_exe_update: false,
       has_jar_update: false
     }
+  };
+
+  const HUD_VIRTUAL_W = 960;
+  const HUD_VIRTUAL_H = 540;
+  const HUD_BOX_DEFAULTS = {
+    hud_watermark: [8, 8, 108, 19],
+    hud_fps: [8, 30, 78, 19],
+    hud_cps: [8, 52, 86, 19],
+    hud_ping: [8, 74, 78, 19],
+    hud_sprint: [8, 96, 98, 19],
+    hud_keystrokes: [8, 120, 78, 84],
+    hud_armor: [492, 468, 86, 22],
+    hud_potions: [8, 210, 112, 44],
+    hud_coords: [8, 260, 118, 32],
+    hud_direction: [380, 8, 120, 20],
+    hud_reach: [92, 30, 84, 19],
+    hud_combo: [92, 52, 84, 19],
+    hud_speed: [92, 74, 88, 19],
+    hud_clock: [92, 96, 76, 19],
+    hud_game_time: [180, 30, 86, 19],
+    hud_memory: [180, 52, 94, 19],
+    hud_frametime: [180, 74, 88, 19],
+    hud_fps_graph: [8, 298, 112, 34],
+    hud_cps_graph: [8, 338, 112, 30],
+    hud_server_ip: [180, 96, 108, 19],
+    hud_tps: [292, 30, 86, 19],
+    hud_pack_display: [292, 52, 116, 19],
+    hud_biome: [292, 74, 104, 19],
+    hud_held_item: [292, 96, 106, 22],
+    hud_arrow_count: [404, 30, 74, 20],
+    hud_pot_count: [404, 52, 82, 20],
+    hud_gapple_count: [404, 74, 82, 20],
+    hud_pearl_count: [404, 96, 80, 20],
+    hud_soup_count: [404, 118, 82, 20],
+    hud_totem_block: [404, 140, 86, 20],
+    hud_fireball_count: [404, 162, 88, 20],
+    hud_bw_resources: [8, 374, 134, 21],
+    hud_session_timer: [492, 30, 92, 19],
+    hud_stopwatch: [492, 52, 92, 19],
+    hud_pitch_yaw: [492, 74, 106, 19],
+    hud_light_level: [492, 96, 86, 19],
+    hud_saturation: [492, 118, 86, 19],
+    hud_absorption: [492, 140, 90, 19],
+    hud_xp_info: [492, 162, 90, 19],
+    hud_day_counter: [492, 184, 82, 19],
+    hud_chunk_coords: [492, 206, 104, 19],
+    hud_entity_count: [492, 228, 108, 19],
+    hud_vbo_stats: [492, 250, 112, 19],
+    hud_cps_ratio: [492, 272, 92, 19],
+    hud_hit_counter: [492, 294, 88, 19],
+    hud_damage_taken: [492, 316, 94, 19],
+    hud_target_hud: [380, 320, 128, 34],
+    hud_mouse_stroker: [130, 120, 52, 52],
+    hud_wasd_mini: [190, 120, 44, 30],
+    hud_sneak_badge: [190, 156, 86, 19],
+    hud_fly_speed: [190, 178, 84, 19],
+    hud_ping_graph: [126, 298, 108, 30],
+    hud_packet_rate: [190, 200, 92, 19],
+    hud_weather_badge: [190, 222, 86, 19],
+    hud_moon_phase: [190, 244, 98, 19],
+    hud_durability_helmet: [608, 30, 82, 19],
+    hud_durability_chest: [608, 52, 82, 19],
+    hud_durability_legs: [608, 74, 82, 19],
+    hud_durability_boots: [608, 96, 82, 19],
+    hud_weapon_dura: [608, 118, 92, 19],
+    hud_hotbar_mirror: [290, 410, 166, 22],
+    hud_inventory_grid: [8, 402, 166, 58],
+    hud_pearl_cooldown: [608, 140, 96, 19],
+    hud_gapple_cooldown: [608, 162, 98, 19],
+    hud_custom_label: [608, 184, 108, 19]
   };
 
   let activeTab = "play";
@@ -2481,6 +3118,10 @@
   let activeModCustomTitle = null;
   let listeningKeyTarget = null;
   let activeCrashReport = null;
+  let hudStudioOpen = false;
+  let hudDragState = null;
+  let saveProfileModalOpen = false;
+  let quickServersPopoverOpen = false;
 
   let plungeActive = false;
   let plungeStartMs = 0;
@@ -2596,6 +3237,12 @@
     }
   });
 
+  window.addEventListener("click", (e) => {
+    if (quickServersPopoverOpen && !e.target.closest("#qs-anchor")) {
+      closeQuickServersPopover();
+    }
+  });
+
   window.addEventListener("mousemove", (e) => {
     mouseTargetX = (e.clientX / Math.max(1, window.innerWidth)) * 2.0 - 1.0;
     mouseTargetY = (e.clientY / Math.max(1, window.innerHeight)) * 2.0 - 1.0;
@@ -2608,7 +3255,13 @@
       return;
     }
     if (plungeActive || activeCrashReport) return;
-    if (e.target.closest("#module-settings-modal") || e.target.closest("#account-modal")) return;
+    if (
+      e.target.closest("#module-settings-modal") ||
+      e.target.closest("#account-modal") ||
+      e.target.closest("#save-profile-modal")
+    ) {
+      return;
+    }
     const card = e.target.closest("[data-mod-id]");
     if (card && card.dataset.modId) {
       openModuleSettingsModal(
@@ -2658,6 +3311,12 @@
         closeCrashModal();
       } else if (activeModModalId) {
         closeModuleSettingsModal();
+      } else if (saveProfileModalOpen) {
+        closeSaveProfileModal();
+      } else if (hudStudioOpen) {
+        closeHudStudio();
+      } else if (quickServersPopoverOpen) {
+        closeQuickServersPopover();
       } else if (plungeActive) {
         resetPlungeSequence();
         sendIpc({ cmd: "abort_launch_curtain" });
@@ -2678,6 +3337,9 @@
     document.querySelectorAll(".stage-view").forEach((v) => {
       v.classList.toggle("active", v.id === "view-" + tab);
     });
+    if (tab === "mods" && hasNativeIpc()) {
+      sendIpc({ cmd: "refresh_mods_list" });
+    }
   }
 
   function selectModCategory(catId) {
@@ -2690,6 +3352,7 @@
 
   function selectProfile(prof) {
     MashSfx.click();
+    state.active_custom_profile_id = null;
     state.settings.active_profile = prof;
     if (prof === "fps") {
       state.settings.max_entity_render_distance = 48;
@@ -2711,16 +3374,360 @@
     sendIpc({ cmd: "set_profile", profile: prof });
   }
 
-  function toggleHypixelChip() {
-    state.prefs.quick_join_hypixel = !state.prefs.quick_join_hypixel;
-    MashSfx.toggle(state.prefs.quick_join_hypixel);
+  function openSaveProfileModal() {
+    MashSfx.click();
+    saveProfileModalOpen = true;
+    const inp = document.getElementById("inp-custom-profile-name");
+    if (inp) inp.value = "";
+    document.getElementById("save-profile-modal").classList.add("open");
+    setTimeout(() => { if (inp) inp.focus(); }, 30);
+  }
+
+  function closeSaveProfileModal() {
+    if (!saveProfileModalOpen) return;
+    MashSfx.click();
+    saveProfileModalOpen = false;
+    document.getElementById("save-profile-modal").classList.remove("open");
+  }
+
+  function confirmSaveCustomProfile() {
+    const inp = document.getElementById("inp-custom-profile-name");
+    const name = ((inp && inp.value) || "").trim();
+    if (!name) {
+      showToast("Indiquez un nom de profil.", true);
+      return;
+    }
+    MashSfx.click();
+    saveProfileModalOpen = false;
+    document.getElementById("save-profile-modal").classList.remove("open");
+    if (!hasNativeIpc()) {
+      const id = "prof_" + Date.now();
+      state.custom_profiles = (state.custom_profiles || []).concat([{ id, name }]);
+      state.active_custom_profile_id = id;
+      state.settings.active_profile = "custom";
+      renderAll();
+      showToast("Profil « " + name + " » enregistré.", false);
+      return;
+    }
+    sendIpc({ cmd: "save_custom_profile", name });
+  }
+
+  function applyCustomProfile(id) {
+    if (!id) return;
+    MashSfx.click();
+    state.active_custom_profile_id = id;
+    state.settings.active_profile = "custom";
     renderDockAndHeader();
-    sendIpc({ cmd: "toggle_quick_hypixel" });
+    sendIpc({ cmd: "apply_custom_profile", id });
+  }
+
+  function deleteCustomProfile(ev, id) {
+    if (ev) ev.stopPropagation();
+    MashSfx.click();
+    if (!hasNativeIpc()) {
+      state.custom_profiles = (state.custom_profiles || []).filter((p) => p.id !== id);
+      if (state.active_custom_profile_id === id) state.active_custom_profile_id = null;
+      renderAll();
+      return;
+    }
+    sendIpc({ cmd: "delete_custom_profile", id });
+  }
+
+  function exportCurrentProfile() {
+    MashSfx.click();
+    sendIpc({
+      cmd: "export_profile_json",
+      id: state.active_custom_profile_id || null
+    });
+  }
+
+  function importProfileJson() {
+    MashSfx.click();
+    sendIpc({ cmd: "import_profile_json" });
+  }
+
+  function getHudWidgetBox(modId) {
+    const def = HUD_BOX_DEFAULTS[modId] || [16, 16, 88, 19];
+    const entry = state.modules && state.modules[modId];
+    let scale = 1.0;
+    const scaleDef = findSettingDefForMod(modId, "hud_scale");
+    if (scaleDef) {
+      const raw = Number(getModSettingValue(modId, scaleDef));
+      if (!Number.isNaN(raw) && raw > 0) {
+        scale = Math.max(0.5, Math.min(2.0, raw));
+      }
+    }
+    const w = Math.max(24, Math.round(def[2] * scale));
+    const h = Math.max(14, Math.round(def[3] * scale));
+    const rawX = entry && typeof entry.x === "number" ? entry.x : def[0];
+    const rawY = entry && typeof entry.y === "number" ? entry.y : def[1];
+    const x = Math.max(0, Math.min(HUD_VIRTUAL_W - w, rawX));
+    const y = Math.max(0, Math.min(HUD_VIRTUAL_H - h, rawY));
+    return { x, y, w, h };
+  }
+
+  function openHudStudio() {
+    MashSfx.click();
+    hudStudioOpen = true;
+    renderHudStudio();
+    document.getElementById("hud-studio-modal").classList.add("open");
+  }
+
+  function closeHudStudio() {
+    if (!hudStudioOpen) return;
+    MashSfx.click();
+    hudStudioOpen = false;
+    hudDragState = null;
+    document.getElementById("hud-studio-modal").classList.remove("open");
+  }
+
+  function renderHudStudio() {
+    if (!hudStudioOpen) return;
+    const body = document.getElementById("hud-studio-body");
+    if (!body) return;
+
+    const allHudMods = ((MASH_CATALOG && MASH_CATALOG.modules) || []).filter((m) => !!m.hud);
+    let stageWidgetsHtml = "";
+    let sideItemsHtml = "";
+
+    for (const m of allHudMods) {
+      const on = isModEnabled(m.id, null);
+      sideItemsHtml += `
+        <div class="hud-side-item ${on ? "is-on" : ""}" data-mod-id="${escapeHtml(m.id)}" onclick="toggleCatalogModule('${escapeJsStr(m.id)}')" title="Clic gauche : activer/désactiver · Clic droit : réglages">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(m.fr)}</span>
+          <span style="font-family:var(--font-mono);font-size:9.5px;opacity:0.8;">${on ? "ON" : "OFF"}</span>
+        </div>
+      `;
+      if (!on) continue;
+      const box = getHudWidgetBox(m.id);
+      const leftPct = ((box.x / HUD_VIRTUAL_W) * 100).toFixed(3);
+      const topPct = ((box.y / HUD_VIRTUAL_H) * 100).toFixed(3);
+      const wPct = ((box.w / HUD_VIRTUAL_W) * 100).toFixed(3);
+      const hPct = ((box.h / HUD_VIRTUAL_H) * 100).toFixed(3);
+      stageWidgetsHtml += `
+        <div class="hud-widget"
+             id="hud-w-${escapeHtml(m.id)}"
+             data-mod-id="${escapeHtml(m.id)}"
+             style="left:${leftPct}%;top:${topPct}%;width:${wPct}%;height:${hPct}%;"
+             onpointerdown="onHudWidgetPointerDown(event, '${escapeJsStr(m.id)}')"
+             title="${escapeHtml(m.fr)} — Glisser pour déplacer · Clic droit pour régler">
+          <span>${escapeHtml(m.fr)}</span>
+        </div>
+      `;
+    }
+
+    body.innerHTML = `
+      <div class="modal-head">
+        <div style="min-width:0;">
+          <div class="modal-title">Éditeur HUD</div>
+          <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">
+            Glissez les widgets actifs &middot; Clic droit pour les réglages &middot; Maintenez <span style="font-family:var(--font-mono);color:var(--text-primary);">Alt</span> sans aimantation
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          <button type="button" class="btn-outline" style="height:28px;" onclick="resetHudPositions()">Réinitialiser positions</button>
+          <button type="button" class="btn-outline" style="height:28px;" onclick="closeHudStudio()">Fermer</button>
+        </div>
+      </div>
+
+      <div class="hud-studio-layout">
+        <div class="hud-stage-outer">
+          <div class="hud-stage" id="hud-stage">
+            <div class="hud-guide-x" id="hud-guide-x"></div>
+            <div class="hud-guide-y" id="hud-guide-y"></div>
+            <div class="hud-ref-crosshair"></div>
+            <div class="hud-ref-hotbar">HOTBAR</div>
+            ${stageWidgetsHtml}
+          </div>
+        </div>
+
+        <div class="hud-sidebar">
+          <div style="font-size:10.5px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-secondary);padding:2px 4px;">
+            Widgets HUD (${allHudMods.filter((m) => isModEnabled(m.id, null)).length}/${allHudMods.length})
+          </div>
+          <div class="hud-side-list">${sideItemsHtml}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function onHudWidgetPointerDown(ev, modId) {
+    if (ev.button !== 0) return;
+    const stage = document.getElementById("hud-stage");
+    const el = document.getElementById("hud-w-" + modId);
+    if (!stage || !el) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const box = getHudWidgetBox(modId);
+    const siblings = [];
+    const allHudMods = ((MASH_CATALOG && MASH_CATALOG.modules) || []).filter((m) => !!m.hud);
+    for (const m of allHudMods) {
+      if (m.id !== modId && isModEnabled(m.id, null)) {
+        siblings.push(getHudWidgetBox(m.id));
+      }
+    }
+
+    el.classList.add("dragging");
+    if (el.setPointerCapture) {
+      try { el.setPointerCapture(ev.pointerId); } catch (_) {}
+    }
+
+    hudDragState = {
+      modId,
+      pointerId: ev.pointerId,
+      startClientX: ev.clientX,
+      startClientY: ev.clientY,
+      origX: box.x,
+      origY: box.y,
+      w: box.w,
+      h: box.h,
+      curX: box.x,
+      curY: box.y,
+      moved: false,
+      siblings
+    };
+  }
+
+  window.addEventListener("pointermove", (ev) => {
+    if (!hudDragState || ev.pointerId !== hudDragState.pointerId) return;
+    const stage = document.getElementById("hud-stage");
+    const el = document.getElementById("hud-w-" + hudDragState.modId);
+    if (!stage || !el) return;
+    const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const dxVirt = ((ev.clientX - hudDragState.startClientX) / rect.width) * HUD_VIRTUAL_W;
+    const dyVirt = ((ev.clientY - hudDragState.startClientY) / rect.height) * HUD_VIRTUAL_H;
+    if (Math.abs(dxVirt) > 0.5 || Math.abs(dyVirt) > 0.5) {
+      hudDragState.moved = true;
+    }
+
+    const w = hudDragState.w;
+    const h = hudDragState.h;
+    let nx = Math.max(0, Math.min(HUD_VIRTUAL_W - w, hudDragState.origX + dxVirt));
+    let ny = Math.max(0, Math.min(HUD_VIRTUAL_H - h, hudDragState.origY + dyVirt));
+
+    let guideX = null;
+    let guideY = null;
+
+    if (!ev.altKey) {
+      const SNAP = 6.0;
+      let bestDx = SNAP + 0.01;
+      const xCandidates = [
+        { targetX: 8, guide: 8 },
+        { targetX: HUD_VIRTUAL_W - 8 - w, guide: HUD_VIRTUAL_W - 8 },
+        { targetX: HUD_VIRTUAL_W / 2 - w / 2, guide: HUD_VIRTUAL_W / 2 }
+      ];
+      for (const s of hudDragState.siblings) {
+        xCandidates.push({ targetX: s.x, guide: s.x });
+        xCandidates.push({ targetX: s.x + s.w - w, guide: s.x + s.w });
+        xCandidates.push({ targetX: s.x + s.w + 4, guide: s.x + s.w });
+        xCandidates.push({ targetX: s.x - w - 4, guide: s.x });
+      }
+      for (const c of xCandidates) {
+        const d = Math.abs(nx - c.targetX);
+        if (d < bestDx && c.targetX >= 0 && c.targetX <= HUD_VIRTUAL_W - w) {
+          bestDx = d;
+          nx = c.targetX;
+          guideX = c.guide;
+        }
+      }
+
+      let bestDy = SNAP + 0.01;
+      const yCandidates = [
+        { targetY: 8, guide: 8 },
+        { targetY: HUD_VIRTUAL_H - 8 - h, guide: HUD_VIRTUAL_H - 8 },
+        { targetY: HUD_VIRTUAL_H / 2 - h / 2, guide: HUD_VIRTUAL_H / 2 }
+      ];
+      for (const s of hudDragState.siblings) {
+        yCandidates.push({ targetY: s.y, guide: s.y });
+        yCandidates.push({ targetY: s.y + s.h - h, guide: s.y + s.h });
+        yCandidates.push({ targetY: s.y + s.h + 3, guide: s.y + s.h });
+        yCandidates.push({ targetY: s.y - h - 3, guide: s.y });
+      }
+      for (const c of yCandidates) {
+        const d = Math.abs(ny - c.targetY);
+        if (d < bestDy && c.targetY >= 0 && c.targetY <= HUD_VIRTUAL_H - h) {
+          bestDy = d;
+          ny = c.targetY;
+          guideY = c.guide;
+        }
+      }
+    }
+
+    hudDragState.curX = nx;
+    hudDragState.curY = ny;
+    el.style.left = ((nx / HUD_VIRTUAL_W) * 100).toFixed(3) + "%";
+    el.style.top = ((ny / HUD_VIRTUAL_H) * 100).toFixed(3) + "%";
+
+    const gxEl = document.getElementById("hud-guide-x");
+    const gyEl = document.getElementById("hud-guide-y");
+    if (gxEl) {
+      if (guideX !== null) {
+        gxEl.style.display = "block";
+        gxEl.style.left = ((guideX / HUD_VIRTUAL_W) * 100).toFixed(3) + "%";
+      } else {
+        gxEl.style.display = "none";
+      }
+    }
+    if (gyEl) {
+      if (guideY !== null) {
+        gyEl.style.display = "block";
+        gyEl.style.top = ((guideY / HUD_VIRTUAL_H) * 100).toFixed(3) + "%";
+      } else {
+        gyEl.style.display = "none";
+      }
+    }
+  });
+
+  function finishHudWidgetDrag(ev) {
+    if (!hudDragState || (ev && ev.pointerId !== hudDragState.pointerId)) return;
+    const drag = hudDragState;
+    hudDragState = null;
+
+    const el = document.getElementById("hud-w-" + drag.modId);
+    if (el) el.classList.remove("dragging");
+    const gxEl = document.getElementById("hud-guide-x");
+    const gyEl = document.getElementById("hud-guide-y");
+    if (gxEl) gxEl.style.display = "none";
+    if (gyEl) gyEl.style.display = "none";
+
+    if (!drag.moved) return;
+    const rx = Math.round(drag.curX);
+    const ry = Math.round(drag.curY);
+    const entry = ensureLocalModEntry(drag.modId);
+    entry.x = rx;
+    entry.y = ry;
+    sendIpc({
+      cmd: "save_hud_layout",
+      positions: { [drag.modId]: [rx, ry] }
+    });
+  }
+
+  window.addEventListener("pointerup", finishHudWidgetDrag);
+  window.addEventListener("pointercancel", finishHudWidgetDrag);
+
+  function resetHudPositions() {
+    MashSfx.click();
+    const defaults = {};
+    for (const [modId, box] of Object.entries(HUD_BOX_DEFAULTS)) {
+      defaults[modId] = [box[0], box[1]];
+      if (state.modules && state.modules[modId]) {
+        state.modules[modId].x = box[0];
+        state.modules[modId].y = box[1];
+      }
+    }
+    renderHudStudio();
+    sendIpc({ cmd: "reset_hud_layout", defaults });
   }
 
   function triggerPlaySequence() {
     if (state.game_running || plungeActive) return;
     MashSfx.click();
+    closeQuickServersPopover();
     if (hasNativeIpc()) {
       sendIpc({ cmd: "launch_game" });
     } else {
@@ -2734,10 +3741,17 @@
     plungeProgress = 0.0;
     darknessSignaled = false;
     accountModalManualOpen = false;
+    hudStudioOpen = false;
+    hudDragState = null;
+    saveProfileModalOpen = false;
+    quickServersPopoverOpen = false;
     listeningKeyTarget = null;
     activeModModalId = null;
     document.getElementById("account-modal").classList.remove("open");
+    document.getElementById("hud-studio-modal").classList.remove("open");
+    document.getElementById("save-profile-modal").classList.remove("open");
     document.getElementById("module-settings-modal").classList.remove("open");
+    document.getElementById("quick-servers-popover").classList.remove("open");
     document.body.classList.add("plunging");
     syncMenuAmbient();
     MashSfx.playPlunge();
@@ -2882,6 +3896,7 @@
     renderBhSoundButton();
     renderEngine();
     renderModules();
+    if (hudStudioOpen) renderHudStudio();
     syncMenuAmbient();
     sendIpc({
       cmd: "save_module_entry",
@@ -2911,6 +3926,7 @@
     activeModSettingKey = null;
     activeModCustomTitle = null;
     document.getElementById("module-settings-modal").classList.remove("open");
+    if (hudStudioOpen) renderHudStudio();
   }
 
   function toggleActiveModalModuleEnabled() {
@@ -2923,6 +3939,7 @@
       renderBhSoundButton();
       renderEngine();
       renderModules();
+      if (hudStudioOpen) renderHudStudio();
       syncMenuAmbient();
       sendIpc({
         cmd: "save_module_entry",
@@ -2983,6 +4000,7 @@
     renderBhSoundButton();
     renderEngine();
     renderModules();
+    if (hudStudioOpen) renderHudStudio();
     renderModuleSettingsModal();
     syncMenuAmbient();
     sendIpc({
@@ -3049,6 +4067,7 @@
     }
     renderBhSoundButton();
     renderEngine();
+    if (hudStudioOpen) renderHudStudio();
     syncMenuAmbient();
     sendIpc({
       cmd: "save_module_entry",
@@ -3313,7 +4332,7 @@
       </div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:4px;border-top:1px solid var(--border-hairline);">
-        <span style="font-size:11px;color:var(--text-muted);">${m.hud ? "Position ajustable en jeu sur RSHIFT" : "Sauvegardé automatiquement"}</span>
+        <span style="font-size:11px;color:var(--text-muted);">${m.hud ? "Position ajustable dans Éditer le HUD ou RSHIFT" : "Sauvegardé automatiquement"}</span>
         <button type="button" class="btn-outline" style="height:28px;" onclick="resetActiveModuleToDefault()">Réinitialiser</button>
       </div>
     `;
@@ -3331,6 +4350,16 @@
     const codeBadge = report.exit_code !== null && report.exit_code !== undefined
       ? `<span class="updater-badge err">Code ${escapeHtml(String(report.exit_code))}</span>`
       : `<span class="updater-badge err">Crash</span>`;
+    const suspectBlock = report.suspected_mod_file
+      ? `
+        <div class="crash-suspect-bar" id="crash-suspect-bar">
+          <div style="font-size:12px;color:var(--text-primary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            Mod suspect détecté : <strong style="color:var(--gold-bright);">${escapeHtml(report.suspected_mod_file)}</strong>
+          </div>
+          <button type="button" class="btn-gold" style="flex:none;height:28px;padding:0 11px;font-size:11px;" onclick="disableSuspectedCrashMod('${escapeJsStr(report.suspected_mod_file)}')">Désactiver ce mod</button>
+        </div>
+      `
+      : "";
     const detailsBlock = report.details
       ? `<pre class="crash-log-box">${escapeHtml(report.details)}</pre>`
       : "";
@@ -3347,6 +4376,7 @@
         <button type="button" class="btn-outline" style="height:28px;flex-shrink:0;" onclick="closeCrashModal()">Fermer</button>
       </div>
       <div class="crash-summary-box">${escapeHtml(report.summary || "Une erreur a empêché l'ouverture du client.")}</div>
+      ${suspectBlock}
       ${detailsBlock}
       <div class="modal-actions" style="justify-content:flex-end;flex-wrap:wrap;">
         <button type="button" class="btn-outline" style="height:32px;margin-right:auto;" onclick="MashSfx.click();sendIpc({cmd:'open_mods_folder'})">Dossier mods</button>
@@ -3355,6 +4385,16 @@
       </div>
     `;
     modal.classList.add("open");
+  }
+
+  function disableSuspectedCrashMod(fileName) {
+    if (!fileName) return;
+    MashSfx.click();
+    sendIpc({ cmd: "toggle_third_party_mod", file_name: fileName });
+    const bar = document.getElementById("crash-suspect-bar");
+    if (bar) {
+      bar.innerHTML = `<span style="font-size:12px;color:var(--status-ok);">Mod <strong>${escapeHtml(fileName)}</strong> désactivé (.disabled). Vous pouvez relancer Minecraft.</span>`;
+    }
   }
 
   function closeCrashModal() {
@@ -3416,6 +4456,19 @@
     sendIpc({ cmd: "start_ms_login" });
   }
 
+  function switchMsAccount(uuid) {
+    if (!uuid) return;
+    MashSfx.click();
+    sendIpc({ cmd: "switch_ms_account", uuid });
+  }
+
+  function removeMsAccount(ev, uuid) {
+    if (ev) ev.stopPropagation();
+    if (!uuid) return;
+    MashSfx.click();
+    sendIpc({ cmd: "remove_ms_account", uuid });
+  }
+
   function renderAccountModal() {
     const modal = document.getElementById("account-modal");
     const box = document.getElementById("account-modal-body");
@@ -3425,7 +4478,7 @@
       box.innerHTML = `
         <div class="modal-head">
           <div class="modal-title">Connexion Microsoft</div>
-          <button class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Annuler</button>
+          <button type="button" class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Annuler</button>
         </div>
         <p style="font-size:12.5px;color:var(--text-secondary);">
           Entrez ce code sur la page Microsoft ouverte dans votre navigateur.
@@ -3435,8 +4488,8 @@
           <div class="device-code-hint">Code copié &bull; En attente...</div>
         </div>
         <div class="modal-actions">
-          <button class="btn-gold" onclick="MashSfx.click();sendIpc({cmd:'open_ms_link'})">Ouvrir microsoft.com/link</button>
-          <button class="btn-outline" style="height:34px;" onclick="MashSfx.click();copyCurrentDeviceCode()">Copier</button>
+          <button type="button" class="btn-gold" onclick="MashSfx.click();sendIpc({cmd:'open_ms_link'})">Ouvrir microsoft.com/link</button>
+          <button type="button" class="btn-outline" style="height:34px;" onclick="MashSfx.click();copyCurrentDeviceCode()">Copier</button>
         </div>
       `;
       return;
@@ -3447,49 +4500,264 @@
       return;
     }
 
-    if (state.account) {
-      const cleanUuid = state.account.uuid.replace(/-/g, "");
+    const accounts = Array.isArray(state.accounts) && state.accounts.length > 0
+      ? state.accounts
+      : (state.account ? [{ username: state.account.username, uuid: state.account.uuid, active: true }] : []);
+
+    if (accounts.length > 0) {
+      let listHtml = "";
+      for (const acc of accounts) {
+        const cleanUuid = String(acc.uuid || "").replace(/-/g, "");
+        const isActive = !!acc.active || (state.account && state.account.uuid === acc.uuid);
+        listHtml += `
+          <div class="acc-item ${isActive ? "active" : ""}" onclick="${isActive ? "" : `switchMsAccount('${escapeJsStr(acc.uuid)}')`}">
+            <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+              <img src="https://mc-heads.net/avatar/${encodeURIComponent(cleanUuid)}/36" width="30" height="30" style="border-radius:6px;image-rendering:pixelated;flex-shrink:0;" alt="">
+              <div style="min-width:0;">
+                <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(acc.username)}</div>
+                <div style="font-size:10.5px;color:${isActive ? "var(--status-ok)" : "var(--text-muted)"};">${isActive ? "Compte actif" : "Cliquer pour basculer"}</div>
+              </div>
+            </div>
+            <button type="button" class="btn-outline" style="height:25px;padding:0 7px;flex-shrink:0;" title="Retirer ce compte" onclick="removeMsAccount(event, '${escapeJsStr(acc.uuid)}')">&times;</button>
+          </div>
+        `;
+      }
+
       box.innerHTML = `
         <div class="modal-head">
-          <div class="modal-title">Compte Microsoft</div>
-          <button class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Fermer</button>
+          <div class="modal-title">Comptes Microsoft</div>
+          <button type="button" class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Fermer</button>
         </div>
-        <div style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:9px;background:rgba(255,255,255,0.03);border:1px solid var(--border-hairline);">
-          <img src="https://mc-heads.net/avatar/${encodeURIComponent(cleanUuid)}/48" width="36" height="36" style="border-radius:7px;image-rendering:pixelated;" alt="">
-          <div>
-            <div style="font-weight:600;font-size:13.5px;">${escapeHtml(state.account.username)}</div>
-            <div style="font-size:11px;color:var(--status-ok);">Session active</div>
-          </div>
-        </div>
+        <div class="acc-list">${listHtml}</div>
         <div class="modal-actions">
-          <button class="btn-outline" style="flex:1;height:32px;" onclick="MashSfx.click();sendIpc({cmd:'refresh_ms'})">Actualiser</button>
-          <button class="btn-outline" style="flex:1;height:32px;color:#fca5a5;" onclick="MashSfx.click();sendIpc({cmd:'logout_ms'});closeAccountModal();">Déconnecter</button>
+          <button type="button" class="btn-gold" style="height:32px;font-size:12px;" onclick="startMicrosoftDeviceFlow()">+ Ajouter un compte</button>
+          <button type="button" class="btn-outline" style="height:32px;" onclick="MashSfx.click();sendIpc({cmd:'refresh_ms'})">Actualiser</button>
         </div>
       `;
     } else {
       box.innerHTML = `
         <div class="modal-head">
-          <div class="modal-title">Compte Microsoft</div>
-          <button class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Fermer</button>
+          <div class="modal-title">Comptes Microsoft</div>
+          <button type="button" class="btn-outline" style="height:28px;" onclick="closeAccountModal()">Fermer</button>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);">
-          Connectez un compte Microsoft pour rejoindre Hypixel et les serveurs officiels.
+          Connectez un ou plusieurs comptes Microsoft pour basculer en un clic.
         </p>
         <div class="modal-actions">
-          <button class="btn-gold" onclick="startMicrosoftDeviceFlow()">Se connecter</button>
+          <button type="button" class="btn-gold" onclick="startMicrosoftDeviceFlow()">Se connecter</button>
         </div>
       `;
     }
   }
 
+  function selectInstanceFlavor(flavor) {
+    if (!flavor || state.prefs.instance_flavor === flavor) return;
+    MashSfx.click();
+    state.prefs.instance_flavor = flavor;
+    renderAll();
+    sendIpc({ cmd: "set_instance_flavor", flavor });
+  }
+
+  function toggleQuickServersPopover(ev) {
+    if (ev) ev.stopPropagation();
+    MashSfx.click();
+    quickServersPopoverOpen = !quickServersPopoverOpen;
+    const pop = document.getElementById("quick-servers-popover");
+    if (quickServersPopoverOpen) {
+      renderQuickServersPopover();
+      pop.classList.add("open");
+    } else {
+      pop.classList.remove("open");
+    }
+  }
+
+  function closeQuickServersPopover() {
+    if (!quickServersPopoverOpen) return;
+    quickServersPopoverOpen = false;
+    const pop = document.getElementById("quick-servers-popover");
+    if (pop) pop.classList.remove("open");
+  }
+
+  function selectQuickServerTarget(id, name, address) {
+    MashSfx.click();
+    const server = id ? { id, name, address } : null;
+    state.prefs.selected_server = server;
+    closeQuickServersPopover();
+    renderDockAndHeader();
+    sendIpc({ cmd: "select_quick_server", server });
+  }
+
+  function clearSelectedQuickServer(ev) {
+    if (ev) ev.stopPropagation();
+    MashSfx.click();
+    state.prefs.selected_server = null;
+    renderDockAndHeader();
+    sendIpc({ cmd: "select_quick_server", server: null });
+  }
+
+  function quickConnectNow(ev, id, name, address) {
+    if (ev) ev.stopPropagation();
+    if (state.game_running || plungeActive) return;
+    MashSfx.click();
+    state.prefs.selected_server = { id, name, address };
+    closeQuickServersPopover();
+    renderDockAndHeader();
+    if (hasNativeIpc()) {
+      sendIpc({ cmd: "quick_connect_server", id, name, address });
+    } else {
+      startPlungeAnimation(true);
+    }
+  }
+
+  function submitCustomServer() {
+    const nameInp = document.getElementById("inp-qs-name");
+    const addrInp = document.getElementById("inp-qs-addr");
+    const addr = ((addrInp && addrInp.value) || "").trim();
+    if (!addr) {
+      showToast("Indiquez l'adresse IP du serveur.", true);
+      return;
+    }
+    const name = ((nameInp && nameInp.value) || "").trim() || addr;
+    MashSfx.click();
+    if (nameInp) nameInp.value = "";
+    if (addrInp) addrInp.value = "";
+    if (!hasNativeIpc()) {
+      const entry = { id: "srv_" + Date.now(), name, address: addr };
+      state.prefs.custom_servers = (state.prefs.custom_servers || []).concat([entry]);
+      state.prefs.selected_server = entry;
+      renderQuickServersPopover();
+      renderDockAndHeader();
+      return;
+    }
+    sendIpc({ cmd: "add_custom_server", name, address: addr });
+  }
+
+  function removeCustomServer(ev, id) {
+    if (ev) ev.stopPropagation();
+    MashSfx.click();
+    if (!hasNativeIpc()) {
+      state.prefs.custom_servers = (state.prefs.custom_servers || []).filter((s) => s.id !== id);
+      if (state.prefs.selected_server && state.prefs.selected_server.id === id) {
+        state.prefs.selected_server = null;
+      }
+      renderQuickServersPopover();
+      renderDockAndHeader();
+      return;
+    }
+    sendIpc({ cmd: "remove_custom_server", id });
+  }
+
+  function renderQuickServersPopover() {
+    const pop = document.getElementById("quick-servers-popover");
+    if (!pop) return;
+    if (document.activeElement && (document.activeElement.id === "inp-qs-name" || document.activeElement.id === "inp-qs-addr")) {
+      return;
+    }
+
+    const sel = state.prefs.selected_server || null;
+    const builtins = Array.isArray(state.builtin_servers) ? state.builtin_servers : [];
+    const customs = Array.isArray(state.prefs.custom_servers) ? state.prefs.custom_servers : [];
+
+    let rowsHtml = `
+      <div class="qs-row ${!sel ? "active" : ""}" onclick="selectQuickServerTarget('', '', '')">
+        <div style="min-width:0;">
+          <div style="font-size:12px;font-weight:600;color:var(--text-primary);">Menu principal</div>
+          <div style="font-size:10.5px;color:var(--text-muted);">Ouvrir sans connexion automatique</div>
+        </div>
+      </div>
+    `;
+
+    const renderSrvRow = (srv, isCustom) => {
+      const active = !!(sel && (sel.id === srv.id || sel.address.toLowerCase() === srv.address.toLowerCase()));
+      const delBtn = isCustom
+        ? `<button type="button" class="btn-outline" style="height:23px;padding:0 6px;font-size:11px;" title="Supprimer" onclick="removeCustomServer(event, '${escapeJsStr(srv.id)}')">&times;</button>`
+        : "";
+      return `
+        <div class="qs-row ${active ? "active" : ""}" onclick="selectQuickServerTarget('${escapeJsStr(srv.id)}', '${escapeJsStr(srv.name)}', '${escapeJsStr(srv.address)}')">
+          <div style="min-width:0;">
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(srv.name)}</div>
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(srv.address)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+            <button type="button" class="qs-join-btn" onclick="quickConnectNow(event, '${escapeJsStr(srv.id)}', '${escapeJsStr(srv.name)}', '${escapeJsStr(srv.address)}')">Rejoindre</button>
+            ${delBtn}
+          </div>
+        </div>
+      `;
+    };
+
+    for (const s of builtins) rowsHtml += renderSrvRow(s, false);
+    for (const s of customs) rowsHtml += renderSrvRow(s, true);
+
+    pop.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px 2px;">
+        <span style="font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-secondary);">Connexion directe</span>
+        <span style="font-size:10px;color:var(--text-muted);">1 clic</span>
+      </div>
+      <div class="qs-list">${rowsHtml}</div>
+      <div class="qs-add-row">
+        <input type="text" class="qs-mini-input" id="inp-qs-name" maxlength="22" placeholder="Nom" onkeydown="if(event.key==='Enter')submitCustomServer()">
+        <input type="text" class="qs-mini-input" id="inp-qs-addr" maxlength="64" placeholder="play.serveur.fr" onkeydown="if(event.key==='Enter')submitCustomServer()">
+        <button type="button" class="btn-outline" style="height:27px;padding:0 9px;font-size:12px;" title="Ajouter ce serveur" onclick="submitCustomServer()">+</button>
+      </div>
+    `;
+  }
+
   function renderDockAndHeader() {
     const p = state.settings.active_profile || "balanced";
-    document.getElementById("prof-fps").classList.toggle("active", p === "fps");
-    document.getElementById("prof-balanced").classList.toggle("active", p === "balanced");
-    document.getElementById("prof-quality").classList.toggle("active", p === "quality");
+    const activeCustomId = state.active_custom_profile_id || null;
+    const customProfiles = Array.isArray(state.custom_profiles) ? state.custom_profiles : [];
+
+    const strip = document.getElementById("profile-strip");
+    if (strip) {
+      let pillsHtml = `
+        <button type="button" class="prof-pill ${p === "fps" && !activeCustomId ? "active" : ""}" id="prof-fps" onclick="selectProfile('fps')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>FPS</span>
+        </button>
+        <button type="button" class="prof-pill ${p === "balanced" && !activeCustomId ? "active" : ""}" id="prof-balanced" onclick="selectProfile('balanced')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+          <span>Équilibré</span>
+        </button>
+        <button type="button" class="prof-pill ${p === "quality" && !activeCustomId ? "active" : ""}" id="prof-quality" onclick="selectProfile('quality')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span>Qualité</span>
+        </button>
+      `;
+      for (const cp of customProfiles) {
+        const isAct = activeCustomId === cp.id;
+        pillsHtml += `
+          <button type="button" class="prof-pill ${isAct ? "active" : ""}" onclick="applyCustomProfile('${escapeJsStr(cp.id)}')">
+            <span>${escapeHtml(cp.name)}</span>
+            <span class="prof-del" title="Supprimer" onclick="deleteCustomProfile(event, '${escapeJsStr(cp.id)}')">&times;</span>
+          </button>
+        `;
+      }
+      strip.innerHTML = pillsHtml;
+    }
 
     const profNames = { fps: "FPS", balanced: "ÉQUILIBRÉ", quality: "QUALITÉ", custom: "PERSONNALISÉ" };
-    document.getElementById("engine-profile-badge").textContent = profNames[p] || "PERSONNALISÉ";
+    const matchedCustom = activeCustomId ? customProfiles.find((c) => c.id === activeCustomId) : null;
+    document.getElementById("engine-profile-badge").textContent = matchedCustom
+      ? matchedCustom.name.toUpperCase()
+      : (profNames[p] || "PERSONNALISÉ");
+
+    const flavor = state.prefs.instance_flavor || "standard";
+    const isVulkan = flavor === "vulkan_beta";
+    document.querySelectorAll("#instance-flavor-seg .mode-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.flavor === flavor);
+    });
+
+    const selSrv = state.prefs.selected_server || null;
+    const kickerTxt = document.getElementById("hero-kicker-text");
+    const betaTag = document.getElementById("hero-beta-tag");
+    if (kickerTxt) {
+      const baseLabel = isVulkan ? "1.8.9 PureFPS Vulkan" : "1.8.9 PureFPS · Forge";
+      kickerTxt.textContent = selSrv ? `${baseLabel} · → ${selSrv.name}` : baseLabel;
+    }
+    if (betaTag) {
+      betaTag.style.display = isVulkan ? "inline-flex" : "none";
+    }
 
     const upd = state.update || {};
     const updPill = document.getElementById("btn-update-pill");
@@ -3527,7 +4795,21 @@
       b.classList.toggle("active", b.dataset.mode === state.prefs.launch_mode);
     });
 
-    document.getElementById("btn-quick-hypixel").classList.toggle("active", !!state.prefs.quick_join_hypixel);
+    const qsBtn = document.getElementById("btn-quick-servers");
+    if (qsBtn) {
+      qsBtn.classList.toggle("active", !!selSrv);
+      const chipSpan = document.getElementById("quick-server-chip-label");
+      if (chipSpan) {
+        if (selSrv) {
+          chipSpan.innerHTML = `${escapeHtml(selSrv.name)} <span class="qs-clear-x" title="Menu principal" onclick="clearSelectedQuickServer(event)">&times;</span>`;
+        } else {
+          chipSpan.textContent = "Serveurs rapides";
+        }
+      }
+    }
+    if (quickServersPopoverOpen) {
+      renderQuickServersPopover();
+    }
 
     const launchBtn = document.getElementById("btn-launch");
     const launchTxt = document.getElementById("launch-btn-text");
@@ -3629,6 +4911,130 @@
     grid.innerHTML = html;
   }
 
+  function formatModFileSize(bytes) {
+    const b = Number(bytes) || 0;
+    if (b >= 1048576) return (b / 1048576).toFixed(1) + " Mo";
+    return Math.max(1, Math.round(b / 1024)) + " Ko";
+  }
+
+  function importModsDialog() {
+    MashSfx.click();
+    sendIpc({ cmd: "import_mods_dialog" });
+  }
+
+  function toggleInstalledMod(fileName) {
+    if (!fileName) return;
+    MashSfx.click();
+    sendIpc({ cmd: "toggle_third_party_mod", file_name: fileName });
+  }
+
+  function deleteInstalledMod(fileName) {
+    if (!fileName) return;
+    MashSfx.click();
+    sendIpc({ cmd: "delete_third_party_mod", file_name: fileName });
+  }
+
+  function renderModsView() {
+    const descEl = document.getElementById("mods-instance-desc");
+    const isVulkan = (state.prefs && state.prefs.instance_flavor) === "vulkan_beta";
+    if (descEl) {
+      descEl.textContent = isVulkan
+        ? "Instance active : 1.8.9 PureFPS Vulkan (Bêta) — dossier mods dédié."
+        : "Instance active : 1.8.9 PureFPS — activez, désactivez ou importez vos mods Forge (.jar).";
+    }
+
+    const listEl = document.getElementById("mods-list");
+    if (!listEl) return;
+    const mods = Array.isArray(state.installed_mods) ? state.installed_mods : [];
+
+    if (mods.length === 0) {
+      listEl.innerHTML = `
+        <div style="padding:26px 16px;text-align:center;color:var(--text-secondary);font-size:12.5px;border:1px dashed var(--border-hairline);border-radius:10px;">
+          Aucun mod détecté dans cette instance. Cliquez sur <strong>+ Importer (.jar)</strong> pour ajouter vos mods Forge 1.8.9.
+        </div>
+      `;
+      return;
+    }
+
+    let html = "";
+    let thirdPartyCount = 0;
+    for (const m of mods) {
+      if (!m.is_core) thirdPartyCount++;
+      const verBadge = m.version
+        ? `<span class="mod-cat-tag">v${escapeHtml(m.version)}</span>`
+        : "";
+      const sizeStr = formatModFileSize(m.size_bytes);
+
+      if (m.is_core) {
+        html += `
+          <div class="mod-jar-row is-on">
+            <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+              <div class="row-icon" style="color:var(--gold-bright);border-color:rgba(240,178,84,0.34);background:rgba(240,178,84,0.12);">${iconSvg("vortex")}</div>
+              <div style="min-width:0;">
+                <div style="display:flex;align-items:center;gap:7px;">
+                  <span class="setting-name">${escapeHtml(m.display_name || "MashClient")}</span>
+                  ${verBadge}
+                </div>
+                <div class="setting-sub">${escapeHtml(m.file_name)} &middot; ${escapeHtml(sizeStr)}</div>
+              </div>
+            </div>
+            <span class="updater-badge gold">Intégré</span>
+          </div>
+        `;
+      } else {
+        const on = !!m.enabled;
+        html += `
+          <div class="mod-jar-row ${on ? "is-on" : "is-off"}">
+            <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+              <div class="row-icon">${iconSvg("package")}</div>
+              <div style="min-width:0;">
+                <div style="display:flex;align-items:center;gap:7px;">
+                  <span class="setting-name">${escapeHtml(m.display_name || m.file_name)}</span>
+                  ${verBadge}
+                </div>
+                <div class="setting-sub">${escapeHtml(m.file_name)} &middot; ${escapeHtml(sizeStr)}</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+              <div class="setting-row ${on ? "is-on" : ""}" style="min-height:28px;padding:3px 8px;border:none;background:transparent;" onclick="toggleInstalledMod('${escapeJsStr(m.file_name)}')" title="${on ? "Désactiver ce mod" : "Activer ce mod"}">
+                <div class="toggle-pill"></div>
+              </div>
+              <button type="button" class="btn-outline" style="height:26px;padding:0 8px;color:#fca5a5;" title="Supprimer le fichier" onclick="deleteInstalledMod('${escapeJsStr(m.file_name)}')">Supprimer</button>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    if (thirdPartyCount === 0) {
+      html += `
+        <div style="padding:14px 12px;text-align:center;color:var(--text-muted);font-size:11.5px;border:1px dashed var(--border-hairline);border-radius:9px;">
+          Aucun mod tiers installé. Utilisez <strong>+ Importer (.jar)</strong> pour ajouter vos propres mods 1.8.9.
+        </div>
+      `;
+    }
+
+    listEl.innerHTML = html;
+  }
+
+  function triggerInstallTemurin() {
+    if (state.java_installing) return;
+    MashSfx.click();
+    if (!hasNativeIpc()) {
+      state.java_installing = true;
+      renderSystem();
+      setTimeout(() => {
+        state.java_installing = false;
+        state.java_needs_upgrade = false;
+        state.java_status_label = "Java 8u442 (64-bit)";
+        renderSystem();
+        showToast("Eclipse Temurin Java 8 installé.", false);
+      }, 900);
+      return;
+    }
+    sendIpc({ cmd: "install_temurin_java8" });
+  }
+
   function renderSystem() {
     setSlider("rng-ram", "lbl-ram", state.prefs.ram_mb.toLocaleString("fr-FR"), " Mo", state.prefs.ram_mb);
     const offInput = document.getElementById("inp-offline-name");
@@ -3638,6 +5044,27 @@
     const javaInput = document.getElementById("inp-java-path");
     if (javaInput && document.activeElement !== javaInput) {
       javaInput.value = state.prefs.java_path || "";
+    }
+    const javaBadge = document.getElementById("java-probe-badge");
+    if (javaBadge) {
+      javaBadge.textContent = state.java_status_label || "Java 8";
+      javaBadge.className = "updater-badge " + (state.java_needs_upgrade ? "gold" : "ok");
+    }
+    const temurinBtn = document.getElementById("btn-install-temurin");
+    if (temurinBtn) {
+      temurinBtn.disabled = !!state.java_installing;
+      temurinBtn.style.opacity = state.java_installing ? "0.55" : "1";
+      temurinBtn.textContent = state.java_installing
+        ? "Installation..."
+        : (state.java_needs_upgrade ? "Installer Temurin 8" : "Temurin 8");
+    }
+
+    const gameDirTitle = document.getElementById("lbl-game-dir-title");
+    if (gameDirTitle) {
+      const isVulkan = state.prefs.instance_flavor === "vulkan_beta";
+      gameDirTitle.textContent = isVulkan
+        ? "Dossier Minecraft 1.8.9 (base pour Vulkan Bêta)"
+        : "Dossier Minecraft 1.8.9";
     }
     const gameDirInput = document.getElementById("inp-game-dir");
     if (gameDirInput && document.activeElement !== gameDirInput) {
@@ -3661,7 +5088,7 @@
     const checkBtn = document.getElementById("btn-upd-check");
     const actBtn = document.getElementById("btn-upd-action");
 
-    const curVer = upd.current_version || "4.4.6";
+    const curVer = upd.current_version || "4.5.0";
     const modVer = upd.installed_jar_version ? ` • Mod v${upd.installed_jar_version}` : "";
     if (msgEl) msgEl.textContent = upd.message || `MashClient v${curVer}${modVer}`;
 
@@ -3719,12 +5146,12 @@
   function triggerManualUpdateCheck() {
     if (!hasNativeIpc()) {
       state.update.status = "available";
-      state.update.latest_version = "4.4.6";
+      state.update.latest_version = "4.5.0";
       state.update.has_jar_update = true;
       state.update.has_exe_update = true;
-      state.update.message = "Version v4.4.6 disponible.";
+      state.update.message = "Version v4.5.0 disponible.";
       renderAll();
-      showToast("Mise à jour v4.4.6 disponible.", false);
+      showToast("Mise à jour v4.5.0 disponible.", false);
       return;
     }
     sendIpc({ cmd: "check_updates", manual: true });
@@ -3795,6 +5222,7 @@
     renderBhSoundButton();
     renderEngine();
     renderModules();
+    if (hudStudioOpen) renderHudStudio();
     syncMenuAmbient();
     sendIpc({ cmd: "set_setting", key, value: next });
   }
@@ -3849,14 +5277,28 @@
       .replace(/"/g, "&quot;");
   }
 
+  function escapeJsStr(s) {
+    return String(s == null ? "" : s)
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, "")
+      .replace(/\n/g, " ")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
   function renderAll() {
     renderBhSoundButton();
     renderSfxButton();
     renderDockAndHeader();
     renderEngine();
     renderModules();
+    renderModsView();
     renderSystem();
     renderAccountModal();
+    if (hudStudioOpen && !hudDragState) renderHudStudio();
     syncMenuAmbient();
   }
 
@@ -4376,7 +5818,7 @@
     const params = new URLSearchParams(window.location.search);
     const demo = params.get("demo") || params.get("tab");
 
-    if (demo === "engine" || demo === "modules" || demo === "system") {
+    if (demo === "engine" || demo === "modules" || demo === "mods" || demo === "system") {
       fixedDemoTimeSec = 14.2;
       lensOffsetCurrentX = 0.0;
       switchTab(demo, true);
@@ -4385,12 +5827,12 @@
       lensOffsetCurrentX = 0.0;
       state.update = {
         status: "available",
-        current_version: "4.4.0",
-        installed_jar_version: "4.4.0",
-        latest_version: "4.4.6",
-        release_notes: "MashClient 4.4.6",
+        current_version: "4.4.6",
+        installed_jar_version: "4.4.6",
+        latest_version: "4.5.0",
+        release_notes: "MashClient 4.5.0",
         download_percent: 0,
-        message: "Mise à jour v4.4.6 disponible.",
+        message: "Mise à jour v4.5.0 disponible.",
         has_exe_update: true,
         has_jar_update: true
       };

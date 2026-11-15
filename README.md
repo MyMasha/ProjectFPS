@@ -18,7 +18,7 @@ Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://
 
 2. **Mod seul (`purefps-*.jar`)**
    - Installez **Minecraft Forge 1.8.9** (`11.15.1.2318`).
-   - Placez `purefps-4.4.6.jar` dans votre dossier `.minecraft/mods/`.
+   - Placez `purefps-4.5.0.jar` dans votre dossier `.minecraft/mods/`.
 
 ---
 
@@ -26,21 +26,27 @@ Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://
 
 ### Moteur et performances (`1.8.9`)
 - Pipeline OpenGL optimisé compatible *NVIDIA Threaded Optimization* (suppression du `SharedDrawable` bloquant, VBO/VAO matériels, copie FBO DMA, ordonnanceur de chunks différé sans verrou `SmartChunkUpdateScheduler`).
+- **Instance séparée `1.8.9 PureFPS Vulkan` (`BÊTA`)** : traduction OpenGL -> Vulkan via **Mesa3D Zink** (`opengl32.dll` + isolation JRE DotLocal) dans un répertoire d'instance totalement indépendant de `1.8.9 PureFPS`.
 - Déchargement intérieur des îles (*Island Core Culling*), culling frustum rapide sur les entités, coffres, panneaux et *Item Frames* compilés.
+- **Rechargement rapide des Resource Packs** sans coupure ni redémarrage du moteur audio OpenAL, avec **barre de recherche en temps réel** et navigation dans les **sous-dossiers** de `resourcepacks/`.
+- **Captures d'écran `F2` sans micro-freeze** : encodage PNG asynchrone hors thread de rendu et actions cliquables **`[Ouvrir]`** / **`[Copier]`** directement dans le chat.
+- **Reconnexion rapide** : bouton *Dernier serveur* dans le menu Multijoueur et bouton *Reconnecter* sur l'écran de déconnexion.
 - Déchargement du rendu monde sous menu ouvert, mode plein écran sans bordure (*Borderless Windowed*) et limiteur FPS automatique hors focus.
 
-### Modules et configuration en jeu (`RSHIFT`)
+### Modules et configuration (`RSHIFT` & Launcher)
 - **200+ modules** répartis en 6 catégories : *HUD*, *PvP*, *Visuel*, *Hypixel*, *Monde* et *FPS* (incluant `TNT Timer` 3D interpolé BedWars/Vanilla, *Armor Status*, *Toggle Sprint*, *Custom Crosshair*, *Time Changer*, *Zoom*, etc.).
 - **Recherche bilingue FR / EN** dans le menu `RSHIFT` et dans le launcher.
 - **Sous-paramètres au clic droit** sur chaque module (dans le launcher comme en jeu) : curseur personnalisé, FOV dynamique, zoom progressif à la molette, position du bras/objet (*Viewmodel*), intensité HurtCam, couleurs et échelles.
-- **Éditeur HUD magnétique** : déplacement direct des widgets à l'écran avec lignes guides d'alignement.
+- **Studio HUD visuel 16:9 dans le Launcher & en jeu** : déplacement magnétique des widgets HUD avec guides d'alignement centraux et marges sans avoir à lancer Minecraft.
+- **Profils personnalisés** : sauvegarde de configurations nommées et **Import / Export `.json`** en un clic.
 
 ### Launcher Windows (`MashClient.exe`)
-- Instance unique sous Windows : relancer `MashClient.exe` réactive la fenêtre existante (même réduite dans la zone de notification).
-- Configuration complète des modules et de leurs sous-paramètres au clic droit directement depuis le launcher sans avoir à lancer Minecraft, et pop-up de diagnostic détaillé en cas de crash du jeu.
-- Réduction automatique dans la zone de notification système (*System Tray*, `0 %` d'activité WebView2/GPU) dès l'ouverture de Minecraft.
-- Effets sonores d'interface et son d'ambiance du trou noir désactivables en un clic.
-- Connexion **Microsoft OAuth2** officielle (*Device Code Flow*) ou mode hors-ligne.
+- **Sélecteur d'instance** dans le dock inférieur : bascule immédiate entre **`1.8.9 PureFPS`** (OpenGL) et **`1.8.9 PureFPS Vulkan`** (`BÊTA`).
+- **Serveurs rapides instantanés** : connexion directe au lancement vers *Hypixel*, *PikaNetwork*, *JartexNetwork*, *Minemen Club*, *BlocksMC* ou vos propres serveurs favoris.
+- **Gestionnaire & Importation de Mods tiers (`.jar`)** : onglet dédié permettant d'importer vos propres mods Forge `1.8.9`, de les activer/désactiver individuellement et de désactiver en un clic un mod tiers responsable d'un crash détecté.
+- **Multi-comptes Microsoft OAuth2** (*Device Code Flow*) et comptes hors-ligne avec changement de compte instantané.
+- **Runtime Java 8 récent automatique** : détection classée des installations Java 8 64-bit et téléchargement/installation en un clic d'**Eclipse Temurin JRE 8 x64 (`8u400+`)**.
+- Instance unique sous Windows et réduction automatique dans la zone de notification système (*System Tray*, `0 %` d'activité WebView2/GPU) dès l'ouverture de Minecraft.
 - **Auto-Updater** connecté à GitHub Releases pour mettre à jour `purefps-*.jar` et `MashClient.exe`.
 
 ---
@@ -52,7 +58,7 @@ Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://
 ├── src/main/java/dev/purefps/   # Code source du mod Forge 1.8.9 (Mixins, rendu OpenGL, HUD, modules)
 ├── src/test/java/dev/purefps/   # Tests unitaires Java (JUnit 4)
 ├── launcher/                    # Launcher Windows natif en Rust + interface WebView2
-│   ├── src/                     # Code Rust (auth, config, runner, tray, updater, ui.html)
+│   ├── src/                     # Code Rust (auth, config, dialog, mods_manager, runner, runtimes, tray, updater, ui.html)
 │   ├── assets/                  # Icônes et ressources embarquées (.ico, .png)
 │   └── .env.example             # Modèle des variables de compilation administrateur
 ├── .github/workflows/           # CI publique (ci.yml) et publication des releases (release.yml)
@@ -83,7 +89,7 @@ Si vos JDK ne sont pas dans les emplacements standards détectés automatiquemen
   -Porg.gradle.java.installations.paths=/chemin/vers/jdk8,/chemin/vers/jdk17
 ```
 
-Le fichier final obfusqué est généré dans `build/libs/purefps-4.4.6.jar`.
+Le fichier final obfusqué est généré dans `build/libs/purefps-4.5.0.jar`.
 
 ### 2. Launcher Windows (`MashClient.exe`)
 

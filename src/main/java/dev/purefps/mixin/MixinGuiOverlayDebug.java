@@ -25,11 +25,12 @@ public class MixinGuiOverlayDebug {
             return;
         }
         if (!PureFPSConfig.enabled) {
-            lines.add("\u00a7b[MashClient 4.3]\u00a7r Désactivé (/pureclient)");
+            lines.add("\u00a7b[MashClient 4.5.0]\u00a7r Désactivé (/mashclient)");
         } else {
             lines.add(String.format(
-                    "\u00a7b[MashClient 4.3 | %s\u00a7b]\u00a7r VAO+EBO: %dc (%dd) | CoreUnload:%d | StaticSkip:%d | Culled E:%d TE:%d P:%d",
+                    "\u00a7b[MashClient 4.5.0 | %s\u00a7b | %s\u00a7b]\u00a7r VAO+EBO: %dc (%dd) | CoreUnload:%d | StaticSkip:%d | Culled E:%d TE:%d P:%d",
                     PureFPSConfig.activeProfile.getColoredName(),
+                    dev.purefps.core.VulkanBackendHelper.getF3BackendBadge(),
                     PureFPSConfig.chunksBatchedLastFrame,
                     PureFPSConfig.multiDrawsLastFrame,
                     PureFPSConfig.unloadedIslandCoresTotal,
