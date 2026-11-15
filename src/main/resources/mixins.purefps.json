@@ -50,6 +50,7 @@
     "MixinRenderXPOrb",
     "MixinRendererLivingEntity",
     "MixinScoreboard",
+    "MixinSoundManager",
     "MixinSplashProgressThread",
     "MixinTextureManager",
     "MixinTextureMap",

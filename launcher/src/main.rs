@@ -1004,6 +1004,7 @@ fn main() -> wry::Result<()> {
 
     let ipc_proxy = proxy.clone();
     let webview = WebViewBuilder::new_with_web_context(&mut context)
+        .with_autoplay(true)
         .with_background_color((0, 0, 0, 255))
         .with_html(UI_HTML)
         .with_ipc_handler(move |req: wry::http::Request<String>| {

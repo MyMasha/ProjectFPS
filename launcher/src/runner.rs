@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.4.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.4.5.jar";
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -620,6 +620,32 @@ fn spawn_display_ready_watcher(
     });
 }
 
+pub fn build_low_latency_alsoft_ini() -> &'static str {
+    "# MashClient 4.4.5 — Profil OpenAL Soft WASAPI Basse Latence\n\
+[general]\n\
+drivers = mmdevapi,dsound\n\
+periods = 3\n\
+period_size = 320\n\
+sources = 256\n\
+slots = 4\n\
+cf_level = 0\n"
+}
+
+fn ensure_low_latency_alsoft_ini(game_dir: &Path) -> Option<PathBuf> {
+    let content = build_low_latency_alsoft_ini();
+    let cfg_dir = game_dir.join("config");
+    let _ = std::fs::create_dir_all(&cfg_dir);
+    let game_ini = cfg_dir.join("mashclient_alsoft.ini");
+    if std::fs::write(&game_ini, content).is_ok() {
+        return Some(game_ini);
+    }
+    let storage = app_storage_dir();
+    let _ = std::fs::create_dir_all(&storage);
+    let fallback_ini = storage.join("mashclient_alsoft.ini");
+    std::fs::write(&fallback_ini, content).ok()?;
+    Some(fallback_ini)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_direct_jvm_blocking(
     prefs: LauncherPrefs,
@@ -649,8 +675,9 @@ pub fn run_direct_jvm_blocking(
     )));
 
     let classpath = build_classpath(&prefs.libraries_dir)?;
-    let (win_w, win_h) =
-        compute_launch_window_dimensions(Path::new(&prefs.game_dir), screen_w, screen_h);
+    let game_dir_path = Path::new(&prefs.game_dir);
+    let alsoft_ini = ensure_low_latency_alsoft_ini(game_dir_path);
+    let (win_w, win_h) = compute_launch_window_dimensions(game_dir_path, screen_w, screen_h);
     let _ = proxy.send_event(AppEvent::LogLine(format!(
         "[MashClient] Démarrage de Minecraft 1.8.9 ({} Mo, {}x{}, {})...",
         prefs.ram_mb, screen_w, screen_h, username
@@ -661,7 +688,11 @@ pub fn run_direct_jvm_blocking(
         .env_remove("SHIM_MCCOMPAT")
         .env("__GL_THREADED_OPTIMIZATIONS", "0")
         .env("__GL_YIELD", "USLEEP")
-        .arg(format!("-Xms{}M", prefs.ram_mb))
+        .env("ALSOFT_DRIVERS", "mmdevapi,dsound");
+    if let Some(ref ini_path) = alsoft_ini {
+        cmd.env("ALSOFT_CONF", ini_path);
+    }
+    cmd.arg(format!("-Xms{}M", prefs.ram_mb))
         .arg(format!("-Xmx{}M", prefs.ram_mb))
         .arg("-XX:+UnlockExperimentalVMOptions")
         .arg("-XX:+UseG1GC")
@@ -798,6 +829,7 @@ pub fn prepare_prism_bridge_files(
             Err(e) => last_err = e,
         }
         sync_prism_instance_cfg(gdir, prefs.ram_mb, screen_w, screen_h);
+        let _ = ensure_low_latency_alsoft_ini(gdir);
         prepare_seamless_launch_files(&gdir_str);
     }
 
@@ -829,12 +861,20 @@ pub fn spawn_prism_bridge_now(
         instance_id, prefs.ram_mb
     )));
 
+    let alsoft_ini = watched_dirs
+        .first()
+        .and_then(|d| ensure_low_latency_alsoft_ini(d))
+        .or_else(|| ensure_low_latency_alsoft_ini(Path::new(&prefs.game_dir)));
+
     let mut cmd = Command::new(&prefs.prism_exe);
     cmd.env_remove("SHIM_MCCOMPAT")
         .env("__GL_THREADED_OPTIMIZATIONS", "0")
         .env("__GL_YIELD", "USLEEP")
-        .arg("--launch")
-        .arg(instance_id);
+        .env("ALSOFT_DRIVERS", "mmdevapi,dsound");
+    if let Some(ref ini_path) = alsoft_ini {
+        cmd.env("ALSOFT_CONF", ini_path);
+    }
+    cmd.arg("--launch").arg(instance_id);
     if prefs.quick_join_hypixel {
         cmd.arg("--server").arg("mc.hypixel.net");
     }
@@ -908,5 +948,15 @@ mod tests {
             resolve_dwm_safe_borderless_size(1920, 1080, 0, -1080, 1920, 3240),
             (1921, 1080)
         );
+    }
+
+    #[test]
+    fn test_low_latency_alsoft_ini_profile() {
+        let ini = build_low_latency_alsoft_ini();
+        assert!(ini.contains("[general]"));
+        assert!(ini.contains("drivers = mmdevapi,dsound"));
+        assert!(ini.contains("periods = 3"));
+        assert!(ini.contains("period_size = 320"));
+        assert!(ini.contains("sources = 256"));
     }
 }

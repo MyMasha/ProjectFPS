@@ -216,8 +216,9 @@ public final class MashHudRenderer {
                 dev.purefps.client.audio.MashAudioEngine.updateMenuAmbientLoop(false);
                 if (!mutedByFocusLoss) {
                     savedMasterVolume = mc.gameSettings.getSoundLevel(SoundCategory.MASTER);
-                    if (savedMasterVolume > 0.001F) {
-                        mc.gameSettings.setSoundLevel(SoundCategory.MASTER, 0.0F);
+                    float targetBgVol = Math.max(0.0F, Math.min(0.5F, MashModules.num("wld_mute_unfocused", "bg_vol", 0.0F) * 0.01F));
+                    if (savedMasterVolume > targetBgVol + 0.001F) {
+                        mc.gameSettings.setSoundLevel(SoundCategory.MASTER, targetBgVol);
                         mutedByFocusLoss = true;
                     }
                 }

@@ -701,7 +701,7 @@ public class PureFPSCoreTest {
             java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
             java.util.List<dev.purefps.module.MashModule> huds = dev.purefps.module.MashModules.getHudModules();
 
-            assertEquals("MashClient 4.4.4 must expose exactly 204 modules", 204, all.size());
+            assertEquals("MashClient 4.4.5 must expose exactly 204 modules", 204, all.size());
             assertEquals("MashClient 4.0 must expose 65 draggable HUD widgets", 65, huds.size());
 
             for (dev.purefps.module.MashModule mod : all) {
@@ -1213,5 +1213,74 @@ public class PureFPSCoreTest {
             assertTrue("Doit couvrir tout le moniteur pour masquer la barre des tâches",
                     left <= 0 && top <= 0 && right >= 1920 && bottom >= 1080);
         }
+    }
+
+    @Test
+    public void testLowLatencyAudioPipeline445() throws Exception {
+        // 1. Profil OpenAL Soft WASAPI basse latence (~20 ms au lieu des ~93-180 ms par défaut de OpenAL Soft 1.15.1)
+        String ini = dev.purefps.client.audio.LowLatencyAudioConfigurator.buildAlsoftIniContent();
+        assertTrue(ini.contains("[general]"));
+        assertTrue(ini.contains("drivers = mmdevapi,dsound"));
+        assertTrue(ini.contains("periods = 3"));
+        assertTrue(ini.contains("period_size = 320"));
+        assertTrue(ini.contains("sources = 256"));
+        assertEquals(64, dev.purefps.client.audio.LowLatencyAudioConfigurator.TARGET_NORMAL_CHANNELS);
+        assertEquals(8, dev.purefps.client.audio.LowLatencyAudioConfigurator.TARGET_STREAMING_CHANNELS);
+
+        File tmpMcDir = java.nio.file.Files.createTempDirectory("purefps-audio-test").toFile();
+        try {
+            File generated = dev.purefps.client.audio.LowLatencyAudioConfigurator.ensureConfigFile(tmpMcDir);
+            assertNotNull(generated);
+            assertTrue(generated.isFile());
+            String onDisk = new String(java.nio.file.Files.readAllBytes(generated.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+            assertEquals(ini, onDisk);
+        } finally {
+            new File(new File(tmpMcDir, "config"), dev.purefps.client.audio.LowLatencyAudioConfigurator.ALSOFT_INI_FILENAME).delete();
+            new File(tmpMcDir, "config").delete();
+            tmpMcDir.delete();
+        }
+
+        // 2. Limiteur anti-saturation par tick (évite que 20 explosions simultanées retardent CommandThread)
+        dev.purefps.client.audio.LowLatencyAudioConfigurator.resetLimiterState();
+        for (int i = 0; i < 4; i++) {
+            assertTrue(dev.purefps.client.audio.LowLatencyAudioConfigurator.allowSoundOnTick(100, "minecraft:random.explode", 4));
+        }
+        assertFalse("La 5e explosion sur le même tick doit être filtrée",
+                dev.purefps.client.audio.LowLatencyAudioConfigurator.allowSoundOnTick(100, "minecraft:random.explode", 4));
+        assertTrue("Les autres sons sur le même tick ne doivent jamais être retardés ni bloqués",
+                dev.purefps.client.audio.LowLatencyAudioConfigurator.allowSoundOnTick(100, "minecraft:random.successful_hit", 4));
+        assertTrue("Le tick suivant réinitialise immédiatement le compteur",
+                dev.purefps.client.audio.LowLatencyAudioConfigurator.allowSoundOnTick(101, "minecraft:random.explode", 4));
+
+        // 3. Modules audio (volume boss / portail / tonalité d'impact) + cycle de vie sans OpenAL natif chargé
+        dev.purefps.module.MashModules.init(null);
+        PureFPSConfig.enabled = true;
+        float dragonScale = dev.purefps.client.audio.LowLatencyAudioConfigurator.computeModuleVolumeScale("minecraft:mob.enderdragon.growl");
+        assertEquals(0.35F, dragonScale, 0.001F);
+
+        dev.purefps.module.MashModule hitMod = dev.purefps.module.MashModules.getById("pvp_sound_hit_confirm");
+        assertNotNull(hitMod);
+        boolean prevHitEn = hitMod.isEnabled();
+        dev.purefps.module.MashSetting.NumberSetting pitchSet =
+                (dev.purefps.module.MashSetting.NumberSetting) hitMod.findSetting("pitch");
+        float prevPitch = pitchSet.get();
+        try {
+            hitMod.setEnabled(true);
+            pitchSet.set(1.25F);
+            assertEquals(1.25F,
+                    dev.purefps.client.audio.LowLatencyAudioConfigurator.computeModulePitchScale("minecraft:random.successful_hit"),
+                    0.001F);
+            assertEquals(1.0F,
+                    dev.purefps.client.audio.LowLatencyAudioConfigurator.computeModulePitchScale("minecraft:step.stone"),
+                    0.001F);
+        } finally {
+            pitchSet.set(prevPitch);
+            hitMod.setEnabled(prevHitEn);
+        }
+
+        // 4. MashAudioEngine : purge/migration OpenAL tolérante hors contexte natif
+        dev.purefps.client.audio.MashAudioEngine.ensurePrewarmed();
+        dev.purefps.client.audio.MashAudioEngine.migrateToOpenALIfReady();
+        dev.purefps.client.audio.MashAudioEngine.onOpenALUnloading();
     }
 }

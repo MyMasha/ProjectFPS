@@ -55,7 +55,7 @@ fn embed_windows_exe_icon() {
         return;
     }
 
-    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "4.4.4".to_owned());
+    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "4.4.5".to_owned());
     let mut parts = pkg_ver.split('.').map(|p| p.parse::<u16>().unwrap_or(0));
     let v_maj = parts.next().unwrap_or(4);
     let v_min = parts.next().unwrap_or(4);
