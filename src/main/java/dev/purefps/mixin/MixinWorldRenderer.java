@@ -48,6 +48,9 @@ public class MixinWorldRenderer {
     @Shadow
     private VertexFormat vertexFormat;
 
+    @Shadow
+    private int drawMode;
+
     @Inject(method = "sortVertexData", at = @At("HEAD"), cancellable = true)
     private void purefps$fastSortVertexData(float x, float y, float z, CallbackInfo ci) {
         if (PureFPSConfig.enabled && PureFPSConfig.fastWorldVertexSort) {
@@ -65,5 +68,62 @@ public class MixinWorldRenderer {
             );
             ci.cancel();
         }
+    }
+
+    @Inject(method = "finishDrawing", at = @At("RETURN"))
+    private void purefps$convertImmediateQuadsToNativeTriangles(CallbackInfo ci) {
+        if (!PureFPSConfig.enabled
+                || this.drawMode != 7
+                || this.vertexFormat == DefaultVertexFormats.BLOCK
+                || this.vertexCount < 4
+                || (this.vertexCount & 3) != 0
+                || this.rawIntBuffer == null
+                || this.byteBuffer == null) {
+            return;
+        }
+        int strideInts = this.vertexFormat.getIntegerSize();
+        int strideBytes = this.vertexFormat.getNextOffset();
+        if (strideInts <= 0 || strideBytes != (strideInts << 2)) {
+            return;
+        }
+        int quadCount = this.vertexCount >> 2;
+        int triVerts = quadCount * 6;
+        int requiredBytes = triVerts * strideBytes;
+        if (requiredBytes > this.byteBuffer.capacity() || (triVerts * strideInts) > this.rawIntBuffer.capacity()) {
+            return;
+        }
+
+        IntBuffer ib = this.rawIntBuffer;
+        for (int q = quadCount - 1; q >= 0; q--) {
+            int v0 = (q << 2) * strideInts;
+            int v1 = v0 + strideInts;
+            int v2 = v1 + strideInts;
+            int v3 = v2 + strideInts;
+
+            int d0 = (q * 6) * strideInts;
+            int d1 = d0 + strideInts;
+            int d2 = d1 + strideInts;
+            int d3 = d2 + strideInts;
+            int d4 = d3 + strideInts;
+            int d5 = d4 + strideInts;
+
+            for (int k = 0; k < strideInts; k++) {
+                ib.put(d5 + k, ib.get(v0 + k));
+                ib.put(d4 + k, ib.get(v3 + k));
+                ib.put(d3 + k, ib.get(v2 + k));
+            }
+            if (q > 0) {
+                for (int k = 0; k < strideInts; k++) {
+                    ib.put(d2 + k, ib.get(v2 + k));
+                    ib.put(d1 + k, ib.get(v1 + k));
+                    ib.put(d0 + k, ib.get(v0 + k));
+                }
+            }
+        }
+
+        this.drawMode = 4; // GL11.GL_TRIANGLES
+        this.vertexCount = triVerts;
+        this.byteBuffer.position(0);
+        this.byteBuffer.limit(requiredBytes);
     }
 }

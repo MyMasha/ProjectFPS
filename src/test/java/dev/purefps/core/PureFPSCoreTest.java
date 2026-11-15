@@ -701,7 +701,7 @@ public class PureFPSCoreTest {
             java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
             java.util.List<dev.purefps.module.MashModule> huds = dev.purefps.module.MashModules.getHudModules();
 
-            assertEquals("MashClient 4.5.6 must expose exactly 205 modules", 205, all.size());
+            assertEquals("MashClient 4.5.7 must expose exactly 205 modules", 205, all.size());
             assertEquals("MashClient 4.0 must expose 65 draggable HUD widgets", 65, huds.size());
 
             for (dev.purefps.module.MashModule mod : all) {
@@ -1525,9 +1525,9 @@ public class PureFPSCoreTest {
                 System.setProperty(VulkanBackendHelper.BACKEND_PROP, "vulkan");
                 assertTrue(VulkanBackendHelper.isVulkanFlagSet());
                 PureFPSConfig.language = "en";
-                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.6").contains("[Vulkan Beta]"));
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.7").contains("[Vulkan Beta]"));
                 PureFPSConfig.language = "fr";
-                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.6").contains("[Vulkan Bêta]"));
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.7").contains("[Vulkan Bêta]"));
             } finally {
                 PureFPSConfig.language = prevLang;
                 if (prev == null) {
@@ -1674,6 +1674,44 @@ public class PureFPSCoreTest {
             PureFPSConfig.enabled = prevEnabled;
             dev.purefps.module.MashFlags.nickHiderEnabled = prevNick;
             dev.purefps.module.MashFlags.nickReplacement = prevRep;
+        }
+    }
+
+    @Test
+    public void testPartyChatAliasCollisionFixAndNativeTriangleConversion457() {
+        dev.purefps.command.PureFPSCommand cmd = new dev.purefps.command.PureFPSCommand();
+        java.util.List<String> aliases = cmd.getCommandAliases();
+        assertFalse("PureFPSCommand must never alias 'pc' (Hypixel Party Chat /pc)", aliases.contains("pc"));
+        assertFalse("PureFPSCommand must never alias 'tc' (Hypixel Team Chat /tc)", aliases.contains("tc"));
+        assertTrue(aliases.contains("mash"));
+        assertTrue(aliases.contains("pureclient"));
+
+        int quadCount = 2;
+        int quadVerts = quadCount * 4;
+        int triVerts = quadCount * 6;
+        int stride = RegionLayerArena.VERTEX_STRIDE_BYTES;
+        ByteBuffer src = ByteBuffer.allocateDirect(quadVerts * stride).order(ByteOrder.nativeOrder());
+        ByteBuffer dst = ByteBuffer.allocateDirect(triVerts * stride).order(ByteOrder.nativeOrder());
+
+        for (int v = 0; v < quadVerts; v++) {
+            int off = v * stride;
+            src.putFloat(off, (float) (v * 2));
+            src.putFloat(off + 4, (float) (v * 3));
+            src.putFloat(off + 8, (float) (v * 4));
+            src.putLong(off + 12, 0xAABBCCDDEEFF0000L + v);
+            src.putLong(off + 20, 0x1122334455660000L + v);
+        }
+
+        ChunkRegionManager.transformBlockQuadsToTriangles(src, quadVerts, 16.0f, 32.0f, 48.0f, dst);
+        assertEquals(triVerts * stride, dst.limit());
+
+        // Quad 0 vertices (0, 1, 2, 3) -> Triangle vertices (0, 1, 2, 2, 3, 0)
+        int[] expectedMap = new int[]{0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4};
+        for (int t = 0; t < triVerts; t++) {
+            int origV = expectedMap[t];
+            int off = t * stride;
+            assertEquals(0xAABBCCDDEEFF0000L + origV, dst.getLong(off + 12));
+            assertEquals(0x1122334455660000L + origV, dst.getLong(off + 20));
         }
     }
 }

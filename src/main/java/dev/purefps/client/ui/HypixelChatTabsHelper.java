@@ -45,10 +45,8 @@ public final class HypixelChatTabsHelper {
 
     public static void cycleChannel() {
         Minecraft mc = Minecraft.getMinecraft();
-        int prev = activeChannel;
         activeChannel = (activeChannel + 1) % CHANNEL_LABELS.length;
         MashAudioEngine.playClick();
-        notifyServerChannelSwitch(mc, prev, activeChannel);
         if (mc != null && mc.ingameGUI != null && mc.ingameGUI.getChatGUI() != null) {
             mc.ingameGUI.getChatGUI().refreshChat();
         }
@@ -136,10 +134,8 @@ public final class HypixelChatTabsHelper {
             int tabW = textW + 14;
             if (mouseX >= curX && mouseX < curX + tabW) {
                 if (activeChannel != i) {
-                    int prev = activeChannel;
                     activeChannel = i;
                     MashAudioEngine.playClick();
-                    notifyServerChannelSwitch(mc, prev, activeChannel);
                     if (mc.ingameGUI != null && mc.ingameGUI.getChatGUI() != null) {
                         mc.ingameGUI.getChatGUI().refreshChat();
                     }
@@ -151,36 +147,33 @@ public final class HypixelChatTabsHelper {
         return false;
     }
 
-    private static void notifyServerChannelSwitch(Minecraft mc, int prevChannel, int newChannel) {
-        if (!MashFlags.hypChatTabsAutoPrefix || mc == null || mc.thePlayer == null) {
-            return;
-        }
-        if (!isHypixelServer(mc)) {
-            return;
-        }
-        if (newChannel == CHANNEL_PARTY) {
-            mc.thePlayer.sendChatMessage("/chat p");
-        } else if (prevChannel == CHANNEL_PARTY && (newChannel == CHANNEL_ALL || newChannel == CHANNEL_TEAM)) {
-            mc.thePlayer.sendChatMessage("/chat a");
-        }
-    }
-
     public static void sendRoutedChatMessage(GuiScreen chatScreen, String rawMessage) {
         if (chatScreen == null || rawMessage == null) {
             return;
         }
-        String transformed = transformOutgoingChatMessage(rawMessage);
+        String trimmedRaw = rawMessage.trim();
+        if (trimmedRaw.isEmpty()) {
+            return;
+        }
         Minecraft mc = Minecraft.getMinecraft();
         if (mc != null && mc.ingameGUI != null && mc.ingameGUI.getChatGUI() != null) {
             mc.ingameGUI.getChatGUI().addToSentMessages(rawMessage);
         }
-        if (mc != null && mc.thePlayer != null && transformed != null && !transformed.trim().isEmpty()) {
+        if (mc == null || mc.thePlayer == null) {
+            return;
+        }
+        if (trimmedRaw.startsWith("/")) {
             try {
-                if (net.minecraftforge.client.ClientCommandHandler.instance.executeCommand(mc.thePlayer, transformed) != 0) {
+                if (net.minecraftforge.client.ClientCommandHandler.instance.executeCommand(mc.thePlayer, rawMessage) != 0) {
                     return;
                 }
             } catch (Throwable ignored) {
             }
+            mc.thePlayer.sendChatMessage(rawMessage);
+            return;
+        }
+        String transformed = transformOutgoingChatMessage(rawMessage);
+        if (transformed != null && !transformed.trim().isEmpty()) {
             mc.thePlayer.sendChatMessage(transformed);
         }
     }
@@ -202,7 +195,7 @@ public final class HypixelChatTabsHelper {
             if (singleplayer) {
                 return "[Team] " + rawMessage;
             }
-            return isHypixelServer(mc) ? rawMessage : ("/tc " + rawMessage);
+            return "/tc " + rawMessage;
         }
         return rawMessage;
     }

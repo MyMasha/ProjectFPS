@@ -46,10 +46,23 @@ public abstract class MixinVboRenderList extends MixinChunkRenderContainer {
             ChunkRegionManager.renderLayer(layer, chunks, viewX, viewY, viewZ);
         } else {
             int layerOrd = layer.ordinal();
+            boolean indexSupported = dev.purefps.core.QuadIndexBuffer.isSupported();
+            int ushortEbo = indexSupported
+                    ? dev.purefps.core.QuadIndexBuffer.ensureIndexBufferReady(dev.purefps.core.QuadIndexBuffer.MAX_USHORT_VERTICES)
+                    : -1;
+            int boundEbo = -1;
+            if (indexSupported && ushortEbo >= 0) {
+                boundEbo = ushortEbo;
+                 org.lwjgl.opengl.GL15.glBindBuffer(org.lwjgl.opengl.GL15.GL_ELEMENT_ARRAY_BUFFER, boundEbo);
+            }
             for (int i = 0; i < size; i++) {
                 RenderChunk rc = chunks.get(i);
                 VertexBuffer vb = rc.getVertexBufferByLayer(layerOrd);
                 if (vb == null) {
+                    continue;
+                }
+                int vCount = ((dev.purefps.core.FastVertexBuffer) vb).purefps$getVertexCount();
+                if (vCount <= 0) {
                     continue;
                 }
                 BlockPos pos = rc.getPosition();
@@ -64,8 +77,27 @@ public abstract class MixinVboRenderList extends MixinChunkRenderContainer {
                 }
                 vb.bindBuffer();
                 ChunkRegionManager.setupBlockArrayPointers();
-                vb.drawArrays(GL11.GL_QUADS);
+                if (indexSupported && (vCount & 3) == 0) {
+                    int neededEbo = vCount <= dev.purefps.core.QuadIndexBuffer.MAX_USHORT_VERTICES
+                            ? ushortEbo
+                            : dev.purefps.core.QuadIndexBuffer.ensureIndexBufferReady(vCount);
+                    if (neededEbo != boundEbo) {
+                        boundEbo = neededEbo;
+                        org.lwjgl.opengl.GL15.glBindBuffer(org.lwjgl.opengl.GL15.GL_ELEMENT_ARRAY_BUFFER, boundEbo);
+                    }
+                    GL11.glDrawElements(
+                            GL11.GL_TRIANGLES,
+                            dev.purefps.core.QuadIndexBuffer.quadVertexCountToIndexCount(vCount),
+                            dev.purefps.core.QuadIndexBuffer.resolveIndexType(vCount),
+                            0L
+                    );
+                } else {
+                    vb.drawArrays(GL11.GL_QUADS);
+                }
                 GlStateManager.popMatrix();
+            }
+            if (boundEbo >= 0) {
+                org.lwjgl.opengl.GL15.glBindBuffer(org.lwjgl.opengl.GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
             }
         }
 

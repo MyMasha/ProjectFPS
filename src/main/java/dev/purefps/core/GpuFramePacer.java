@@ -72,7 +72,7 @@ public final class GpuFramePacer {
         lastPresentNs = now;
 
         boolean vulkanActive = VulkanBackendHelper.isVulkanActive();
-        if (!vulkanActive && dt < HIGH_FPS_BYPASS_NS) {
+        if (vulkanActive || dt < HIGH_FPS_BYPASS_NS) {
             if (oldestFrameFence != null || previousFrameFence != null) {
                 release();
             }

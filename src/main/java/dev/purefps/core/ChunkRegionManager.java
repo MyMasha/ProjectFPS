@@ -234,15 +234,122 @@ public final class ChunkRegionManager {
     }
 
     /**
+     * Convertit une fois pour toutes les quads (4 sommets) en triangles matériels natifs (6 sommets : v0,v1,v2, v2,v3,v0)
+     * lors de l'upload dans RegionLayerArena. Élimine 100 % de la conversion CPU u_primconvert / Geometry Shader
+     * de Mesa3D Zink sur chaque appel GL14.glMultiDrawArrays(GL11.GL_TRIANGLES) en mode Vulkan !
+     */
+    public static int transformBlockQuadsToTriangles(
+            ByteBuffer srcBytes,
+            int quadVertexCount,
+            float localOffsetX,
+            float localOffsetY,
+            float localOffsetZ,
+            ByteBuffer dstBytes
+    ) {
+        int quadCount = quadVertexCount >> 2;
+        int triVertexCount = quadCount * 6;
+        int requiredSrcBytes = quadCount * (RegionLayerArena.VERTEX_STRIDE_BYTES * 4);
+        int requiredDstBytes = triVertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
+
+        int prevPos = srcBytes.position();
+        int prevLimit = srcBytes.limit();
+        if (prevLimit < requiredSrcBytes) {
+            srcBytes.limit(requiredSrcBytes);
+        }
+        srcBytes.position(0);
+        dstBytes.clear();
+
+        float biasX = 8.0F + localOffsetX - 8.0F * ANTI_SEAM_SCALE;
+        float biasY = 8.0F + localOffsetY - 8.0F * ANTI_SEAM_SCALE;
+        float biasZ = 8.0F + localOffsetZ - 8.0F * ANTI_SEAM_SCALE;
+
+        int srcOff = 0;
+        int dstOff = 0;
+        for (int q = 0; q < quadCount; q++) {
+            float x0 = srcBytes.getFloat(srcOff) * ANTI_SEAM_SCALE + biasX;
+            float y0 = srcBytes.getFloat(srcOff + 4) * ANTI_SEAM_SCALE + biasY;
+            float z0 = srcBytes.getFloat(srcOff + 8) * ANTI_SEAM_SCALE + biasZ;
+            long a0 = srcBytes.getLong(srcOff + 12);
+            long b0 = srcBytes.getLong(srcOff + 20);
+
+            float x1 = srcBytes.getFloat(srcOff + 28) * ANTI_SEAM_SCALE + biasX;
+            float y1 = srcBytes.getFloat(srcOff + 32) * ANTI_SEAM_SCALE + biasY;
+            float z1 = srcBytes.getFloat(srcOff + 36) * ANTI_SEAM_SCALE + biasZ;
+            long a1 = srcBytes.getLong(srcOff + 40);
+            long b1 = srcBytes.getLong(srcOff + 48);
+
+            float x2 = srcBytes.getFloat(srcOff + 56) * ANTI_SEAM_SCALE + biasX;
+            float y2 = srcBytes.getFloat(srcOff + 60) * ANTI_SEAM_SCALE + biasY;
+            float z2 = srcBytes.getFloat(srcOff + 64) * ANTI_SEAM_SCALE + biasZ;
+            long a2 = srcBytes.getLong(srcOff + 68);
+            long b2 = srcBytes.getLong(srcOff + 76);
+
+            float x3 = srcBytes.getFloat(srcOff + 84) * ANTI_SEAM_SCALE + biasX;
+            float y3 = srcBytes.getFloat(srcOff + 88) * ANTI_SEAM_SCALE + biasY;
+            float z3 = srcBytes.getFloat(srcOff + 92) * ANTI_SEAM_SCALE + biasZ;
+            long a3 = srcBytes.getLong(srcOff + 96);
+            long b3 = srcBytes.getLong(srcOff + 104);
+
+            // Triangle 1 : v0, v1, v2
+            dstBytes.putFloat(dstOff, x0);
+            dstBytes.putFloat(dstOff + 4, y0);
+            dstBytes.putFloat(dstOff + 8, z0);
+            dstBytes.putLong(dstOff + 12, a0);
+            dstBytes.putLong(dstOff + 20, b0);
+
+            dstBytes.putFloat(dstOff + 28, x1);
+            dstBytes.putFloat(dstOff + 32, y1);
+            dstBytes.putFloat(dstOff + 36, z1);
+            dstBytes.putLong(dstOff + 40, a1);
+            dstBytes.putLong(dstOff + 48, b1);
+
+            dstBytes.putFloat(dstOff + 56, x2);
+            dstBytes.putFloat(dstOff + 60, y2);
+            dstBytes.putFloat(dstOff + 64, z2);
+            dstBytes.putLong(dstOff + 68, a2);
+            dstBytes.putLong(dstOff + 76, b2);
+
+            // Triangle 2 : v2, v3, v0
+            dstBytes.putFloat(dstOff + 84, x2);
+            dstBytes.putFloat(dstOff + 88, y2);
+            dstBytes.putFloat(dstOff + 92, z2);
+            dstBytes.putLong(dstOff + 96, a2);
+            dstBytes.putLong(dstOff + 104, b2);
+
+            dstBytes.putFloat(dstOff + 112, x3);
+            dstBytes.putFloat(dstOff + 116, y3);
+            dstBytes.putFloat(dstOff + 120, z3);
+            dstBytes.putLong(dstOff + 124, a3);
+            dstBytes.putLong(dstOff + 132, b3);
+
+            dstBytes.putFloat(dstOff + 140, x0);
+            dstBytes.putFloat(dstOff + 144, y0);
+            dstBytes.putFloat(dstOff + 148, z0);
+            dstBytes.putLong(dstOff + 152, a0);
+            dstBytes.putLong(dstOff + 160, b0);
+
+            srcOff += 112;
+            dstOff += 168;
+        }
+
+        srcBytes.limit(prevLimit);
+        srcBytes.position(prevPos);
+        dstBytes.position(0);
+        dstBytes.limit(requiredDstBytes);
+        return triVertexCount;
+    }
+
+    /**
      * Loge la géométrie d'une section de chunk dans l'arène VBO contiguë de sa région 256x256 :
      * alloue d'abord le nouveau créneau AVANT de libérer l'ancien pour garantir zéro attente GPU implicite.
      */
     public static void uploadChunkLayerToArena(FastVertexBuffer fvb, RenderChunk rc, ByteBuffer srcBytes) {
         int byteLimit = srcBytes.limit();
-        int vertexCount = byteLimit / RegionLayerArena.VERTEX_STRIDE_BYTES;
-        fvb.purefps$setVertexCount(vertexCount);
+        int quadVertexCount = byteLimit / RegionLayerArena.VERTEX_STRIDE_BYTES;
+        int triVertexCount = (quadVertexCount >> 2) * 6;
+        fvb.purefps$setVertexCount(triVertexCount);
 
-        if (vertexCount <= 0 || rc == null || rc.getPosition() == null) {
+        if (triVertexCount <= 0 || rc == null || rc.getPosition() == null) {
             fvb.purefps$releaseArenaSlot();
             return;
         }
@@ -266,16 +373,16 @@ public final class ChunkRegionManager {
         float localY = (float) posY;
         float localZ = (float) (posZ - arena.originZ);
 
-        int requiredBytes = vertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
+        int requiredBytes = triVertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
         ensureStagingCapacity(requiredBytes);
-        transformBlockVertices(srcBytes, vertexCount, localX, localY, localZ, stagingBuffer);
+        transformBlockQuadsToTriangles(srcBytes, quadVertexCount, localX, localY, localZ, stagingBuffer);
 
         RegionLayerArena prevArena = fvb.purefps$getArena();
         int prevFirst = fvb.purefps$getArenaFirstVertex();
         int prevAlloc = fvb.purefps$getArenaAllocVertices();
 
         int prevHwm = arena.allocator.getHighWaterMark();
-        int alignedVerts = FreeRangeAllocator.alignVertices(vertexCount);
+        int alignedVerts = FreeRangeAllocator.alignVertices(triVertexCount);
         int newFirst = arena.allocator.allocate(alignedVerts);
         int requiredCap = arena.allocator.getHighWaterMark();
         arena.ensureCapacity(requiredCap, prevHwm, hasGL31Copy, false);
@@ -371,7 +478,7 @@ public final class ChunkRegionManager {
                     setupBlockArrayPointers();
 
                     if (n == 1) {
-                        GL11.glDrawArrays(GL11.GL_QUADS, arena.batchFirst[0], arena.batchCount[0]);
+                        GL11.glDrawArrays(GL11.GL_TRIANGLES, arena.batchFirst[0], arena.batchCount[0]);
                     } else {
                         if (multiFirstBuf.capacity() < n) {
                             int newCap = Math.max(multiFirstBuf.capacity() << 1, n);
@@ -386,7 +493,7 @@ public final class ChunkRegionManager {
                         multiCountBuf.put(arena.batchCount, 0, n);
                         multiCountBuf.flip();
 
-                        GL14.glMultiDrawArrays(GL11.GL_QUADS, multiFirstBuf, multiCountBuf);
+                        GL14.glMultiDrawArrays(GL11.GL_TRIANGLES, multiFirstBuf, multiCountBuf);
                     }
 
                     GlStateManager.popMatrix();
