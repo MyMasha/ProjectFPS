@@ -21,6 +21,11 @@ public final class PureFPSConfig {
 
     public static PureFPSProfile activeProfile = PureFPSProfile.BALANCED;
     public static boolean enabled = true;
+    public static String language = "en";
+
+    public static boolean isEnglish() {
+        return language == null || !language.trim().toLowerCase(java.util.Locale.ROOT).startsWith("fr");
+    }
 
     // CPU, Rendu Chunk & Mathématiques
     public static boolean fastMath = true;
