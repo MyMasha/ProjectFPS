@@ -106,6 +106,7 @@ public class GuiMashClientMenu extends GuiScreen {
     private float panelH;
     private float panelAlpha = 1.0F;
     private int lastHoveredCard = -1;
+    private long openedAtMs = 0L;
 
     private static final float TOP_BAR_H = 46.0F;
     private static final float SUB_HEADER_H = 46.0F;
@@ -130,6 +131,7 @@ public class GuiMashClientMenu extends GuiScreen {
 
     @Override
     public void initGui() {
+        this.openedAtMs = System.currentTimeMillis();
         Keyboard.enableRepeatEvents(true);
         MashModules.ensureRegistered();
         rebuildFilteredList();
