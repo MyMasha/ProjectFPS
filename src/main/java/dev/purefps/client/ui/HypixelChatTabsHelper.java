@@ -6,7 +6,9 @@ import dev.purefps.module.MashFlags;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
+import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.client.renderer.GlStateManager;
 
 import java.util.Locale;
 
@@ -41,6 +43,17 @@ public final class HypixelChatTabsHelper {
         }
     }
 
+    public static void cycleChannel() {
+        Minecraft mc = Minecraft.getMinecraft();
+        int prev = activeChannel;
+        activeChannel = (activeChannel + 1) % CHANNEL_LABELS.length;
+        MashAudioEngine.playClick();
+        notifyServerChannelSwitch(mc, prev, activeChannel);
+        if (mc != null && mc.ingameGUI != null && mc.ingameGUI.getChatGUI() != null) {
+            mc.ingameGUI.getChatGUI().refreshChat();
+        }
+    }
+
     public static boolean isModuleActive() {
         return PureFPSConfig.enabled && MashFlags.hypChatTabs;
     }
@@ -49,6 +62,12 @@ public final class HypixelChatTabsHelper {
         if (!isModuleActive() || font == null) {
             return;
         }
+
+        GlStateManager.pushMatrix();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.enableTexture2D();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 
         int barY = screenHeight - 28;
         int barH = 12;
@@ -66,7 +85,6 @@ public final class HypixelChatTabsHelper {
 
             int accent = CHANNEL_ACCENTS[i];
             if (selected) {
-                // Top and bottom accent borders for the active channel tab
                 Gui.drawRect(curX, barY + barH - 2, curX + tabW, barY + barH, accent);
                 Gui.drawRect(curX, barY, curX + tabW, barY + 1, (accent & 0x00FFFFFF) | 0x88000000);
             } else if (hovered) {
@@ -81,18 +99,20 @@ public final class HypixelChatTabsHelper {
             curX += tabW + 3;
         }
 
-        // Subtle active channel indicator pill on the right of the tabs
         String statusText;
         if (activeChannel == CHANNEL_PARTY) {
             statusText = PureFPSConfig.isEnglish() ? "\u00a7dParty Chat (/pc)" : "\u00a7dCanal Groupe (/pc)";
         } else if (activeChannel == CHANNEL_TEAM) {
-            statusText = PureFPSConfig.isEnglish() ? "\u00a7aTeam Chat (/ac)" : "\u00a7aCanal Équipe (/ac)";
+            statusText = PureFPSConfig.isEnglish() ? "\u00a7aTeam Chat (/tc)" : "\u00a7aCanal Équipe (/tc)";
         } else {
             statusText = PureFPSConfig.isEnglish() ? "\u00a7bAll Chat" : "\u00a7bCanal Global";
         }
         int statusW = font.getStringWidth(statusText) + 8;
         Gui.drawRect(curX + 2, barY, curX + 2 + statusW, barY + barH, 0x800B0F17);
         font.drawStringWithShadow(statusText, curX + 6, barY + 2, 0xFFCBD5E1);
+
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
     }
 
     public static boolean onMouseClicked(int mouseX, int mouseY, int mouseButton, int screenWidth, int screenHeight) {
@@ -120,7 +140,7 @@ public final class HypixelChatTabsHelper {
                     activeChannel = i;
                     MashAudioEngine.playClick();
                     notifyServerChannelSwitch(mc, prev, activeChannel);
-                    if (MashFlags.hypChatTabsFilter && mc.ingameGUI != null && mc.ingameGUI.getChatGUI() != null) {
+                    if (mc.ingameGUI != null && mc.ingameGUI.getChatGUI() != null) {
                         mc.ingameGUI.getChatGUI().refreshChat();
                     }
                 }
@@ -145,6 +165,26 @@ public final class HypixelChatTabsHelper {
         }
     }
 
+    public static void sendRoutedChatMessage(GuiScreen chatScreen, String rawMessage) {
+        if (chatScreen == null || rawMessage == null) {
+            return;
+        }
+        String transformed = transformOutgoingChatMessage(rawMessage);
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc != null && mc.ingameGUI != null && mc.ingameGUI.getChatGUI() != null) {
+            mc.ingameGUI.getChatGUI().addToSentMessages(rawMessage);
+        }
+        if (mc != null && mc.thePlayer != null && transformed != null && !transformed.trim().isEmpty()) {
+            try {
+                if (net.minecraftforge.client.ClientCommandHandler.instance.executeCommand(mc.thePlayer, transformed) != 0) {
+                    return;
+                }
+            } catch (Throwable ignored) {
+            }
+            mc.thePlayer.sendChatMessage(transformed);
+        }
+    }
+
     public static String transformOutgoingChatMessage(String rawMessage) {
         if (rawMessage == null || rawMessage.isEmpty() || !isModuleActive() || !MashFlags.hypChatTabsAutoPrefix) {
             return rawMessage;
@@ -153,11 +193,16 @@ public final class HypixelChatTabsHelper {
         if (trimmed.isEmpty() || trimmed.startsWith("/")) {
             return rawMessage;
         }
+        Minecraft mc = Minecraft.getMinecraft();
+        boolean singleplayer = mc != null && mc.isSingleplayer();
         if (activeChannel == CHANNEL_PARTY) {
-            return "/pc " + rawMessage;
+            return singleplayer ? ("[Party] " + rawMessage) : ("/pc " + rawMessage);
         }
         if (activeChannel == CHANNEL_TEAM) {
-            return "/ac " + rawMessage;
+            if (singleplayer) {
+                return "[Team] " + rawMessage;
+            }
+            return isHypixelServer(mc) ? rawMessage : ("/tc " + rawMessage);
         }
         return rawMessage;
     }
@@ -169,19 +214,33 @@ public final class HypixelChatTabsHelper {
         if (unformattedText == null || unformattedText.isEmpty()) {
             return true;
         }
-        String low = unformattedText.toLowerCase(Locale.ROOT);
+        String low = unformattedText.toLowerCase(Locale.ROOT).trim();
         if (activeChannel == CHANNEL_PARTY) {
             return low.startsWith("party >")
                     || low.startsWith("[party]")
                     || low.startsWith("groupe >")
-                    || low.contains("party >");
+                    || low.startsWith("p >")
+                    || low.contains("party >")
+                    || low.contains("[party]")
+                    || low.contains("joined the party")
+                    || low.contains("left the party")
+                    || low.contains("you are not in a party")
+                    || low.contains("party chat")
+                    || low.contains("party leader")
+                    || low.contains("party members");
         }
         if (activeChannel == CHANNEL_TEAM) {
             return low.startsWith("[team]")
                     || low.startsWith("team >")
                     || low.startsWith("[équipe]")
                     || low.startsWith("[equipe]")
-                    || (!low.startsWith("[shout]") && !low.startsWith("party >") && !low.startsWith("guild >"));
+                    || low.contains("[team]")
+                    || low.contains("team >")
+                    || (!low.startsWith("[shout]")
+                    && !low.startsWith("party >")
+                    && !low.startsWith("[party]")
+                    && !low.startsWith("guild >")
+                    && !low.startsWith("[guild]"));
         }
         return true;
     }

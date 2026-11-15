@@ -136,7 +136,7 @@ public final class MashFlags {
     public static boolean nametagShowOwnInF5 = true;
     public static boolean hypChatTabs = true;
     public static boolean hypChatTabsAutoPrefix = true;
-    public static boolean hypChatTabsFilter = false;
+    public static boolean hypChatTabsFilter = true;
 
     private MashFlags() {
     }

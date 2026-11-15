@@ -16,6 +16,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
@@ -27,6 +28,7 @@ import java.util.Locale;
  * 2. @Redirect sur renderDefaultChar liant directement l'ID OpenGL de la police ASCII via GlStateManager.bindTexture(int)
  *    (élimine 1000+ HashMap.get(locationFontTexture) par frame sur Hypixel).
  * 3. Supprime l'allocation String.toLowerCase(Locale.ENGLISH) exécutée à chaque code couleur '§'.
+ * 4. Applique le module Nick Hider (hyp_nick_hider) globalement sur tous les textes rendus.
  */
 @Mixin(FontRenderer.class)
 public abstract class MixinFontRenderer {
@@ -63,6 +65,11 @@ public abstract class MixinFontRenderer {
         this.purefps$widthCache.clear();
     }
 
+    @ModifyVariable(method = "renderStringAtPos", at = @At("HEAD"), argsOnly = true, ordinal = 0)
+    private String purefps$applyNickHiderInRender(String text) {
+        return FastFontCaches.applyNickHider(text);
+    }
+
     /**
      * @author PureFPS
      * @reason Cache O(1) zéro-allocation (supprime les 2 CallbackInfoReturnable + Integer.valueOf par appel)
@@ -72,6 +79,7 @@ public abstract class MixinFontRenderer {
         if (text == null) {
             return 0;
         }
+        text = FastFontCaches.applyNickHider(text);
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
         final boolean useCache = PureFPSConfig.enabled
                 && PureFPSConfig.fastFontRenderer

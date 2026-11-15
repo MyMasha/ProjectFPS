@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.5.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.6.jar";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -226,7 +226,7 @@ fn build_download_agent() -> Result<ureq::Agent, String> {
 fn download_file_to_path(agent: &ureq::Agent, url: &str, dst: &Path) -> Result<(), String> {
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.5")
+        .set("User-Agent", "MashClient/4.5.6")
         .call()
         .map_err(|e| format!("Échec téléchargement {url}: {e}"))?;
     if let Some(parent) = dst.parent() {
@@ -1143,7 +1143,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.5 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.6 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\
@@ -1295,8 +1295,12 @@ pub fn run_direct_jvm_blocking(
             .env("MESA_GL_VERSION_OVERRIDE", "4.6COMPAT")
             .env("MESA_GLSL_VERSION_OVERRIDE", "460")
             .env("ZINK_DESCRIPTORS", "lazy")
-            .env("vblank_mode", "0")
-            .env("MESA_NO_ERROR", "1");
+            .env("ZINK_INLINE_UNIFORMS", "0")
+            .env("zink_shader_object_enable", "true")
+            .env("mesa_no_error", "true")
+            .env("MESA_NO_ERROR", "1")
+            .env("mesa_glthread", "false")
+            .env("vblank_mode", "0");
     }
     if let Some(ref ini_path) = alsoft_ini {
         cmd.env("ALSOFT_CONF", ini_path);

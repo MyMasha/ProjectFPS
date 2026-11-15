@@ -6,6 +6,7 @@ import net.minecraft.client.gui.GuiScreen;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(GuiChat.class)
@@ -23,17 +24,11 @@ public abstract class MixinGuiChat extends GuiScreen {
         }
     }
 
-    @Override
-    public void sendChatMessage(String msg, boolean addToChat) {
-        String transformed = HypixelChatTabsHelper.transformOutgoingChatMessage(msg);
-        if (addToChat && this.mc != null && this.mc.ingameGUI != null && this.mc.ingameGUI.getChatGUI() != null) {
-            this.mc.ingameGUI.getChatGUI().addToSentMessages(msg);
-        }
-        if (this.mc != null && this.mc.thePlayer != null && transformed != null && !transformed.trim().isEmpty()) {
-            if (net.minecraftforge.client.ClientCommandHandler.instance.executeCommand(this.mc.thePlayer, transformed) != 0) {
-                return;
-            }
-            this.mc.thePlayer.sendChatMessage(transformed);
-        }
+    @Redirect(
+            method = "keyTyped",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiChat;sendChatMessage(Ljava/lang/String;)V")
+    )
+    private void purefps$routeOutgoingChatMessage(GuiChat self, String msg) {
+        HypixelChatTabsHelper.sendRoutedChatMessage(self, msg);
     }
 }

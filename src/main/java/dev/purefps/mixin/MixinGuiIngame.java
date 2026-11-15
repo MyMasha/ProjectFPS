@@ -76,4 +76,13 @@ public abstract class MixinGuiIngame {
             ci.cancel();
         }
     }
+
+    @Inject(method = "renderPumpkinOverlay", at = @At("HEAD"), cancellable = true)
+    private void purefps$cleanPumpkinOverlay(ScaledResolution scaledRes, CallbackInfo ci) {
+        if (PureFPSConfig.enabled && dev.purefps.module.MashModules.isOn("pvp_clean_pumpkin")) {
+            if (dev.purefps.module.MashModules.num("pvp_clean_pumpkin", "opacity", 0.0F) <= 1.0F) {
+                ci.cancel();
+            }
+        }
+    }
 }

@@ -93,6 +93,7 @@ public final class MashModule {
         MashEnglishCatalog.Entry catEntry = MashEnglishCatalog.lookup(id);
         String resolvedEn = catEntry != null ? catEntry.englishName : humanizeIdFallback(id);
         String extraEn = catEntry != null ? catEntry.englishAliases : "";
+        String descEn = catEntry != null ? catEntry.englishDesc : "";
         this.englishName = resolvedEn;
 
         String strippedId = stripCategoryPrefix(id);
@@ -119,7 +120,7 @@ public final class MashModule {
                 : "fps engine gpu cpu boost performance"))));
 
         this.normFull = normalizeSearch(
-                resolvedEn + " " + extraEn + " " + name + " "
+                resolvedEn + " " + extraEn + " " + descEn + " " + name + " "
                         + (keywords != null ? keywords : "") + " "
                         + strippedId + " " + id + " " + description + " " + catKeywords
         );
@@ -169,7 +170,9 @@ public final class MashModule {
     }
 
     public String getDescription() {
-        return description;
+        return dev.purefps.config.PureFPSConfig.isEnglish()
+                ? MashEnglishCatalog.translateDescription(id, description)
+                : description;
     }
 
     public MashCategory getCategory() {

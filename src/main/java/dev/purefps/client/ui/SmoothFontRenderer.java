@@ -249,6 +249,7 @@ public final class SmoothFontRenderer {
         if (text == null || text.isEmpty()) {
             return 0.0F;
         }
+        text = dev.purefps.core.FastFontCaches.applyNickHider(text);
         if (!this.metricsBaked) {
             bakeAtlasImage();
         }
@@ -402,6 +403,7 @@ public final class SmoothFontRenderer {
     }
 
     private void emitVertices(WorldRenderer wr, String text, float x, float y, int argb, boolean ignoreColorCodes) {
+        text = dev.purefps.core.FastFontCaches.applyNickHider(text);
         int alphaInt = (argb >>> 24) & 0xFF;
         if (alphaInt == 0) {
             alphaInt = 255;

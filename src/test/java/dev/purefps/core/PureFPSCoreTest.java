@@ -701,7 +701,7 @@ public class PureFPSCoreTest {
             java.util.List<dev.purefps.module.MashModule> all = dev.purefps.module.MashModules.getAll();
             java.util.List<dev.purefps.module.MashModule> huds = dev.purefps.module.MashModules.getHudModules();
 
-            assertEquals("MashClient 4.5.5 must expose exactly 205 modules", 205, all.size());
+            assertEquals("MashClient 4.5.6 must expose exactly 205 modules", 205, all.size());
             assertEquals("MashClient 4.0 must expose 65 draggable HUD widgets", 65, huds.size());
 
             for (dev.purefps.module.MashModule mod : all) {
@@ -1525,9 +1525,9 @@ public class PureFPSCoreTest {
                 System.setProperty(VulkanBackendHelper.BACKEND_PROP, "vulkan");
                 assertTrue(VulkanBackendHelper.isVulkanFlagSet());
                 PureFPSConfig.language = "en";
-                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.5").contains("[Vulkan Beta]"));
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.6").contains("[Vulkan Beta]"));
                 PureFPSConfig.language = "fr";
-                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.5").contains("[Vulkan Bêta]"));
+                assertTrue(VulkanBackendHelper.getWindowTitle("4.5.6").contains("[Vulkan Bêta]"));
             } finally {
                 PureFPSConfig.language = prevLang;
                 if (prev == null) {
@@ -1638,6 +1638,42 @@ public class PureFPSCoreTest {
         } finally {
             dev.purefps.client.ui.HypixelChatTabsHelper.setActiveChannel(dev.purefps.client.ui.HypixelChatTabsHelper.CHANNEL_ALL);
             dev.purefps.module.MashFlags.hypChatTabsFilter = false;
+        }
+    }
+
+    @Test
+    public void testEnglishCatalogAndModules456() {
+        String prevLang = PureFPSConfig.language;
+        boolean prevEnabled = PureFPSConfig.enabled;
+        boolean prevNick = dev.purefps.module.MashFlags.nickHiderEnabled;
+        String prevRep = dev.purefps.module.MashFlags.nickReplacement;
+        try {
+            PureFPSConfig.enabled = true;
+            PureFPSConfig.language = "en";
+            dev.purefps.module.MashModules.ensureRegistered();
+            for (dev.purefps.module.MashModule mod : dev.purefps.module.MashModules.getAll()) {
+                assertNotNull(mod.getDisplayName());
+                assertFalse("Module display name must not be empty: " + mod.getId(), mod.getDisplayName().isEmpty());
+                assertNotNull(mod.getDescription());
+                assertFalse("Module description must not be empty: " + mod.getId(), mod.getDescription().isEmpty());
+                dev.purefps.module.MashEnglishCatalog.Entry entry = dev.purefps.module.MashEnglishCatalog.lookup(mod.getId());
+                assertNotNull("Every module must have an English catalog entry: " + mod.getId(), entry);
+                assertEquals(entry.englishDesc, mod.getDescription());
+                for (dev.purefps.module.MashSetting s : mod.getSettings()) {
+                    assertNotNull(s.getName());
+                    assertFalse(s.getName().isEmpty());
+                    assertNotNull(s.getDescription());
+                }
+            }
+
+            // Test FastFontCaches.applyNickHider fast path
+            dev.purefps.module.MashFlags.nickHiderEnabled = false;
+            assertEquals("Hello World", FastFontCaches.applyNickHider("Hello World"));
+        } finally {
+            PureFPSConfig.language = prevLang;
+            PureFPSConfig.enabled = prevEnabled;
+            dev.purefps.module.MashFlags.nickHiderEnabled = prevNick;
+            dev.purefps.module.MashFlags.nickReplacement = prevRep;
         }
     }
 }

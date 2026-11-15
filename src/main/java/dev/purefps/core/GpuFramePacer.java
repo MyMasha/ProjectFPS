@@ -18,14 +18,15 @@ import java.util.concurrent.locks.LockSupport;
  */
 public final class GpuFramePacer {
 
-    private static final long MAX_PARK_BUDGET_NS = 6_000_000L;
-    private static final long VULKAN_MAX_PARK_BUDGET_NS = 33_000_000L;
-    private static final long PARK_SLICE_NS = 350_000L;
-    private static final long HIGH_FPS_BYPASS_NS = 4_000_000L; // > 250 FPS : zéro appel JNI/fence, pipeline libre 2000+ FPS
+    private static final long MAX_PARK_BUDGET_NS = 4_000_000L;
+    private static final long SPIN_YIELD_BUDGET_NS = 120_000L;
+    private static final long PARK_SLICE_NS = 150_000L;
+    private static final long HIGH_FPS_BYPASS_NS = 3_500_000L; // > 285 FPS : pipeline libre
 
     // 0 = non testé, 1 = OpenGL 3.2 natif, 2 = GL_ARB_sync, -1 = indisponible
     private static int syncBackend = 0;
-    private static GLSync previousFrameFence = null;
+    private static GLSync oldestFrameFence = null;   // Frame N-2
+    private static GLSync previousFrameFence = null; // Frame N-1
     private static long lastPresentNs = 0L;
 
     private GpuFramePacer() {
@@ -55,11 +56,13 @@ public final class GpuFramePacer {
 
     /**
      * Appelé juste après Display.update() à la fin de chaque frame :
-     * - En mode Vulkan (Zink), maintient strictement 1 frame en vol pour éliminer tout retard d'input clavier/souris.
-     * - En mode OpenGL au-delà de 250 FPS (< 4 ms/frame), court-circuite glFenceSync pour libérer 2000+ FPS.
+     * - Anneau 2-Frames-In-Flight (attend la clôture de N-2 pendant que N-1 s'exécute en parallèle sur le GPU)
+     *   afin d'assurer 100 % de parallélisme CPU/GPU sous Vulkan (Zink) et OpenGL tout en empêchant l'accumulation
+     *   de frames d'avance (zéro délai clavier/souris).
      */
     public static void onFramePresented() {
         if (!Display.isCreated()) {
+            oldestFrameFence = null;
             previousFrameFence = null;
             lastPresentNs = 0L;
             return;
@@ -70,7 +73,7 @@ public final class GpuFramePacer {
 
         boolean vulkanActive = VulkanBackendHelper.isVulkanActive();
         if (!vulkanActive && dt < HIGH_FPS_BYPASS_NS) {
-            if (previousFrameFence != null) {
+            if (oldestFrameFence != null || previousFrameFence != null) {
                 release();
             }
             return;
@@ -80,56 +83,84 @@ public final class GpuFramePacer {
         if (backend <= 0) {
             return;
         }
-        long parkBudgetNs = vulkanActive ? VULKAN_MAX_PARK_BUDGET_NS : MAX_PARK_BUDGET_NS;
         try {
-            if (previousFrameFence != null) {
+            if (oldestFrameFence != null) {
                 if (backend == 1) {
-                    int status = GL32.glClientWaitSync(previousFrameFence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
+                    int status = GL32.glClientWaitSync(oldestFrameFence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
                     if (status == GL32.GL_TIMEOUT_EXPIRED) {
-                        long deadline = System.nanoTime() + parkBudgetNs;
-                        while (status == GL32.GL_TIMEOUT_EXPIRED && System.nanoTime() < deadline) {
-                            LockSupport.parkNanos(PARK_SLICE_NS);
-                            status = GL32.glClientWaitSync(previousFrameFence, 0, 0L);
+                        long startWait = System.nanoTime();
+                        long spinDeadline = startWait + SPIN_YIELD_BUDGET_NS;
+                        long deadline = startWait + MAX_PARK_BUDGET_NS;
+                        while (status == GL32.GL_TIMEOUT_EXPIRED) {
+                            long t = System.nanoTime();
+                            if (t >= deadline) {
+                                break;
+                            }
+                            if (t < spinDeadline) {
+                                Thread.yield();
+                            } else {
+                                LockSupport.parkNanos(PARK_SLICE_NS);
+                            }
+                            status = GL32.glClientWaitSync(oldestFrameFence, 0, 0L);
                         }
                     }
-                    GL32.glDeleteSync(previousFrameFence);
+                    GL32.glDeleteSync(oldestFrameFence);
                 } else {
-                    int status = ARBSync.glClientWaitSync(previousFrameFence, ARBSync.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
+                    int status = ARBSync.glClientWaitSync(oldestFrameFence, ARBSync.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
                     if (status == ARBSync.GL_TIMEOUT_EXPIRED) {
-                        long deadline = System.nanoTime() + parkBudgetNs;
-                        while (status == ARBSync.GL_TIMEOUT_EXPIRED && System.nanoTime() < deadline) {
-                            LockSupport.parkNanos(PARK_SLICE_NS);
-                            status = ARBSync.glClientWaitSync(previousFrameFence, 0, 0L);
+                        long startWait = System.nanoTime();
+                        long spinDeadline = startWait + SPIN_YIELD_BUDGET_NS;
+                        long deadline = startWait + MAX_PARK_BUDGET_NS;
+                        while (status == ARBSync.GL_TIMEOUT_EXPIRED) {
+                            long t = System.nanoTime();
+                            if (t >= deadline) {
+                                break;
+                            }
+                            if (t < spinDeadline) {
+                                Thread.yield();
+                            } else {
+                                LockSupport.parkNanos(PARK_SLICE_NS);
+                            }
+                            status = ARBSync.glClientWaitSync(oldestFrameFence, 0, 0L);
                         }
                     }
-                    ARBSync.glDeleteSync(previousFrameFence);
+                    ARBSync.glDeleteSync(oldestFrameFence);
                 }
-                previousFrameFence = null;
+                oldestFrameFence = null;
             }
 
+            oldestFrameFence = previousFrameFence;
             if (backend == 1) {
                 previousFrameFence = GL32.glFenceSync(GL32.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
             } else {
                 previousFrameFence = ARBSync.glFenceSync(ARBSync.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
             }
         } catch (Throwable t) {
+            oldestFrameFence = null;
             previousFrameFence = null;
             syncBackend = -1;
         }
     }
 
     public static void release() {
-        if (previousFrameFence == null) {
-            return;
-        }
         try {
-            if (syncBackend == 1) {
-                GL32.glDeleteSync(previousFrameFence);
-            } else if (syncBackend == 2) {
-                ARBSync.glDeleteSync(previousFrameFence);
+            if (oldestFrameFence != null) {
+                if (syncBackend == 1) {
+                    GL32.glDeleteSync(oldestFrameFence);
+                } else if (syncBackend == 2) {
+                    ARBSync.glDeleteSync(oldestFrameFence);
+                }
+            }
+            if (previousFrameFence != null) {
+                if (syncBackend == 1) {
+                    GL32.glDeleteSync(previousFrameFence);
+                } else if (syncBackend == 2) {
+                    ARBSync.glDeleteSync(previousFrameFence);
+                }
             }
         } catch (Throwable ignored) {
         } finally {
+            oldestFrameFence = null;
             previousFrameFence = null;
         }
     }

@@ -930,9 +930,11 @@ public class GuiMashClientMenu extends GuiScreen {
                 cardTitleF.trimToWidth(mod.getDisplayName(), iw - 84.0F),
                 ix + 12.0F, iy + 9.5F, mulAlpha(0xFFFFDF9E, alpha)
         );
-        String altName = PureFPSConfig.isEnglish() ? mod.getName() : mod.getEnglishName();
+        String subLine = PureFPSConfig.isEnglish()
+                ? (mod.getCategory().getDisplayName() + (mod.isHudWidget() ? "  \u00B7  HUD Widget" : "  \u00B7  Module"))
+                : (mod.getEnglishName() + "  \u00B7  " + mod.getCategory().getDisplayName());
         smallF.drawString(
-                smallF.trimToWidth(altName + "  \u00B7  " + mod.getCategory().getDisplayName(), iw - 84.0F),
+                smallF.trimToWidth(subLine, iw - 84.0F),
                 ix + 12.0F, iy + 27.5F, mulAlpha(0xFFC89B54, alpha)
         );
         smallF.drawString(
@@ -1246,6 +1248,7 @@ public class GuiMashClientMenu extends GuiScreen {
         float langPillX = snapPillX + 132.0F;
         if (mouseButton == 0 && inside(dmx, dmy, langPillX, footY + 5.0F, 72.0F, 26.0F)) {
             PureFPSConfig.language = PureFPSConfig.isEnglish() ? "fr" : "en";
+            MashModules.syncRuntimeFlags();
             PureFPSConfig.markDirty();
             PureFPSConfig.saveIfDirty();
             MashAudioEngine.playToggle(PureFPSConfig.isEnglish());

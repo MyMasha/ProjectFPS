@@ -187,7 +187,7 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.5"));
+            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.6"));
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
     }

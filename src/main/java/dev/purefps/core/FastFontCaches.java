@@ -90,6 +90,72 @@ public final class FastFontCaches {
     }
 
     /**
+     * Remplace le pseudo du joueur par l'alias configuré dans le module Nick Hider (hyp_nick_hider)
+     * avec un chemin rapide sans allocation lorsque le pseudo n'est pas présent dans la chaîne.
+     */
+    public static String applyNickHider(String text) {
+        if (text == null || !dev.purefps.config.PureFPSConfig.enabled || !dev.purefps.module.MashFlags.nickHiderEnabled) {
+            return text;
+        }
+        int len = text.length();
+        if (len < 2) {
+            return text;
+        }
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        if (mc == null || mc.getSession() == null) {
+            return text;
+        }
+        String username = mc.getSession().getUsername();
+        if (username == null) {
+            return text;
+        }
+        int uLen = username.length();
+        if (uLen < 2 || len < uLen) {
+            return text;
+        }
+        int idx = indexOfIgnoreCase(text, username, 0);
+        if (idx < 0) {
+            return text;
+        }
+        String replacement = dev.purefps.module.MashFlags.nickReplacement;
+        if (replacement == null || replacement.isEmpty()) {
+            replacement = "MashPlayer";
+        }
+        StringBuilder sb = new StringBuilder(len + 16);
+        int pos = 0;
+        while (idx >= 0) {
+            sb.append(text, pos, idx);
+            sb.append(replacement);
+            pos = idx + uLen;
+            idx = indexOfIgnoreCase(text, username, pos);
+        }
+        sb.append(text, pos, len);
+        return sb.toString();
+    }
+
+    private static int indexOfIgnoreCase(String str, String target, int fromIndex) {
+        int strLen = str.length();
+        int targetLen = target.length();
+        int max = strLen - targetLen;
+        if (fromIndex > max) {
+            return -1;
+        }
+        char first = target.charAt(0);
+        char firstUp = Character.toUpperCase(first);
+        char firstLow = Character.toLowerCase(first);
+        for (int i = Math.max(0, fromIndex); i <= max; i++) {
+            char c = str.charAt(i);
+            if (c != first && c != firstUp && c != firstLow) {
+                continue;
+            }
+            if (str.regionMatches(true, i, target, 0, targetLen)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
      * Cache 2-way de 2048 entrées pour FontRenderer.getStringWidth(String).
      */
     public static final class WidthCache {

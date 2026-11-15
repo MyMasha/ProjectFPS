@@ -101,11 +101,11 @@ public final class MashHudRenderer {
     private static long lastSlowCacheMs = 0L;
     private static int cachedPingMs = -1;
     private static int cachedRamPct = 25;
-    private static String cachedRamMbText = "512 / 2048 Mo";
+    private static String cachedRamMbText = "512 / 2048 MB";
     private static String cachedClock24 = "12:00";
     private static String cachedClock24Sec = "12:00:00";
     private static String cachedClock12 = "12:00 PM";
-    private static String cachedBiomeName = "Plaines";
+    private static String cachedBiomeName = "Plains";
     private static String cachedPackName = "Default";
     private static int cachedLightLevel = 15;
 
@@ -298,7 +298,7 @@ public final class MashHudRenderer {
         long maxB = Math.max(1L, rt.maxMemory());
         long usedB = Math.max(0L, rt.totalMemory() - rt.freeMemory());
         cachedRamPct = (int) Math.min(100L, (usedB * 100L) / maxB);
-        cachedRamMbText = (usedB >> 20) + " / " + (maxB >> 20) + " Mo";
+        cachedRamMbText = (usedB >> 20) + " / " + (maxB >> 20) + (PureFPSConfig.isEnglish() ? " MB" : " Mo");
 
         Date d = new Date(now);
         cachedClock24 = FMT_24.format(d);
@@ -597,6 +597,8 @@ public final class MashHudRenderer {
         int accentCol = mulAlpha(mod.hudAccentColor.resolveArgb(nowMs, 180), alphaMul);
         boolean shadow = mod.hudTextShadow.get();
 
+        boolean en = PureFPSConfig.isEnglish();
+
         switch (id) {
             case "hud_watermark": {
                 int style = mode(mod, "style", 0);
@@ -643,11 +645,11 @@ public final class MashHudRenderer {
                 int fmt = mode(mod, "format", 0);
                 String txt;
                 if (sneaking) {
-                    txt = fmt == 1 ? "[Sneaking (Toggled)]" : "Accroupi \u2022 Actif";
+                    txt = fmt == 1 ? "[Sneaking (Toggled)]" : (en ? "Sneak \u2022 Active" : "Accroupi \u2022 Actif");
                 } else if (sprinting) {
-                    txt = fmt == 1 ? "[Sprinting (Toggled)]" : (fmt == 2 ? "SPRINT" : "Sprint \u2022 Actif");
+                    txt = fmt == 1 ? "[Sprinting (Toggled)]" : (fmt == 2 ? "SPRINT" : (en ? "Sprint \u2022 Active" : "Sprint \u2022 Actif"));
                 } else {
-                    txt = fmt == 1 ? "[Walking]" : (fmt == 2 ? "MANUEL" : "Sprint \u2022 Manuel");
+                    txt = fmt == 1 ? "[Walking]" : (fmt == 2 ? (en ? "MANUAL" : "MANUEL") : (en ? "Sprint \u2022 Manual" : "Sprint \u2022 Manuel"));
                 }
                 int dot = (sprinting || sneaking) ? accentCol : mulAlpha(0xFF64748B, alphaMul);
                 drawStandardBadge(mod, x, y, s, txt, dot, textCol, shadow, true, alphaMul);
@@ -676,12 +678,12 @@ public final class MashHudRenderer {
             case "hud_reach": {
                 float decayMs = num(mod, "decay_sec", 3.5F) * 1000.0F;
                 float r = (nowMs - lastHitTimeMs <= (long) decayMs) ? lastReachBlocks : 0.0F;
-                String val = String.format(Locale.US, "%.2f blocs", r);
+                String val = String.format(Locale.US, en ? "%.2f blocks" : "%.2f blocs", r);
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Reach", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_combo": {
-                String val = currentCombo > 0 ? (currentCombo + " Combo") : "Aucun combo";
+                String val = currentCombo > 0 ? (currentCombo + " Combo") : (en ? "No combo" : "Aucun combo");
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Combo", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
@@ -711,7 +713,7 @@ public final class MashHudRenderer {
                 long wt = mc.theWorld != null ? (mc.theWorld.getWorldTime() % 24000L) : 6000L;
                 int totalMin = (int) (((wt + 6000L) % 24000L) * 60L / 1000L);
                 String val = String.format(Locale.ROOT, "%02d:%02d", totalMin / 60, totalMin % 60);
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Monde", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "World" : "Monde", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_memory": {
@@ -740,13 +742,13 @@ public final class MashHudRenderer {
             case "hud_server_ip": {
                 String ip = (mc.getCurrentServerData() != null && mc.getCurrentServerData().serverIP != null)
                         ? mc.getCurrentServerData().serverIP
-                        : "Mode Solo";
+                        : (en ? "Singleplayer" : "Mode Solo");
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "IP", ip, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_tps": {
                 String val = String.format(Locale.US, "%.1f TPS", estimatedServerTps);
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Serveur", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Server" : "Serveur", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_pack_display": {
@@ -780,7 +782,7 @@ public final class MashHudRenderer {
                 return;
             }
             case "hud_arrow_count":
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Flèches", String.valueOf(invArrows), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Arrows" : "Flèches", String.valueOf(invArrows), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             case "hud_pot_count":
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Pots", String.valueOf(invHealPots), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
@@ -789,19 +791,19 @@ public final class MashHudRenderer {
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Gapples", String.valueOf(invGapples), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             case "hud_pearl_count":
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Perles", String.valueOf(invPearls), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Pearls" : "Perles", String.valueOf(invPearls), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             case "hud_soup_count":
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Soupes", String.valueOf(invSoups), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Soups" : "Soupes", String.valueOf(invSoups), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             case "hud_totem_block":
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Blocs", String.valueOf(invBlocks), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Blocks" : "Blocs", String.valueOf(invBlocks), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             case "hud_fireball_count":
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Explosifs", String.valueOf(invFireballs), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Explosives" : "Explosifs", String.valueOf(invFireballs), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             case "hud_bw_resources": {
-                String txt = "Fe " + invIron + "  \u2022  Or " + invGold + "  \u2022  Di " + invDiamond + "  \u2022  Em " + invEmerald;
+                String txt = "Fe " + invIron + (en ? "  \u2022  Au " : "  \u2022  Or ") + invGold + "  \u2022  Di " + invDiamond + "  \u2022  Em " + invEmerald;
                 drawStandardBadge(mod, x, y, s, txt, accentCol, textCol, shadow, true, alphaMul);
                 return;
             }
@@ -816,7 +818,7 @@ public final class MashHudRenderer {
                 long sec = totalMs / 1000L;
                 int tenth = (int) ((totalMs % 1000L) / 100L);
                 String val = String.format(Locale.ROOT, "%02d:%02d.%d", sec / 60L, sec % 60L, tenth);
-                drawStandardBadge(mod, x, y, s, "Chrono: " + val, stopwatchRunning ? accentCol : mulAlpha(0xFF64748B, alphaMul), textCol, shadow, true, alphaMul);
+                drawStandardBadge(mod, x, y, s, (en ? "Timer: " : "Chrono: ") + val, stopwatchRunning ? accentCol : mulAlpha(0xFF64748B, alphaMul), textCol, shadow, true, alphaMul);
                 return;
             }
             case "hud_pitch_yaw": {
@@ -827,7 +829,7 @@ public final class MashHudRenderer {
                 return;
             }
             case "hud_light_level": {
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Lumière", String.valueOf(cachedLightLevel), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Light" : "Lumière", String.valueOf(cachedLightLevel), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_saturation": {
@@ -843,12 +845,12 @@ public final class MashHudRenderer {
             case "hud_xp_info": {
                 int lvl = mc.thePlayer != null ? mc.thePlayer.experienceLevel : 0;
                 int pct = mc.thePlayer != null ? Math.round(mc.thePlayer.experience * 100.0F) : 0;
-                drawStandardBadge(mod, x, y, s, "XP Niv." + lvl + " (" + pct + "%)", accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, (en ? "XP Lv." : "XP Niv.") + lvl + " (" + pct + "%)", accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_day_counter": {
                 long day = mc.theWorld != null ? (mc.theWorld.getWorldTime() / 24000L) : 0L;
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Jour", String.valueOf(day), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Day" : "Jour", String.valueOf(day), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_chunk_coords": {
@@ -861,11 +863,11 @@ public final class MashHudRenderer {
             case "hud_entity_count": {
                 int total = mc.theWorld != null ? mc.theWorld.loadedEntityList.size() : 0;
                 int culled = PureFPSConfig.culledEntitiesLastFrame;
-                drawStandardBadge(mod, x, y, s, "Entités: " + total + " (-" + culled + ")", accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, (en ? "Entities: " : "Entités: ") + total + " (-" + culled + ")", accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_vbo_stats": {
-                String val = PureFPSConfig.chunksBatchedLastFrame + "c -> " + PureFPSConfig.multiDrawsLastFrame + " lots";
+                String val = PureFPSConfig.chunksBatchedLastFrame + "c -> " + PureFPSConfig.multiDrawsLastFrame + (en ? " batches" : " lots");
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "GPU", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
@@ -875,11 +877,11 @@ public final class MashHudRenderer {
                 return;
             }
             case "hud_hit_counter": {
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Coups", String.valueOf(sessionHitCount), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Hits" : "Coups", String.valueOf(sessionHitCount), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_damage_taken": {
-                String val = String.format(Locale.US, "-%.1f cœurs", lastDamageHearts);
+                String val = String.format(Locale.US, en ? "-%.1f hearts" : "-%.1f cœurs", lastDamageHearts);
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Impact", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
@@ -920,12 +922,12 @@ public final class MashHudRenderer {
             }
             case "hud_sneak_badge": {
                 boolean snk = (mc.thePlayer != null && mc.thePlayer.isSneaking()) || (MashFlags.toggleSneakEnabled && MashFlags.sneakerActive);
-                drawStandardBadge(mod, x, y, s, snk ? "Accroupi \u2022 Pont" : "Debout", snk ? accentCol : mulAlpha(0xFF64748B, alphaMul), textCol, shadow, true, alphaMul);
+                drawStandardBadge(mod, x, y, s, snk ? (en ? "Sneaking \u2022 Bridge" : "Accroupi \u2022 Pont") : (en ? "Standing" : "Debout"), snk ? accentCol : mulAlpha(0xFF64748B, alphaMul), textCol, shadow, true, alphaMul);
                 return;
             }
             case "hud_fly_speed": {
                 float fs = mc.thePlayer != null ? mc.thePlayer.capabilities.getFlySpeed() * 20.0F : 1.0F;
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Vol", String.format(Locale.US, "%.1fx", fs), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Fly" : "Vol", String.format(Locale.US, "%.1fx", fs), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_packet_rate": {
@@ -933,41 +935,43 @@ public final class MashHudRenderer {
                 return;
             }
             case "hud_weather_badge": {
-                String w = "Clair";
+                String w = en ? "Clear" : "Clair";
                 if (mc.theWorld != null) {
-                    if (mc.theWorld.isThundering()) w = "Orage";
-                    else if (mc.theWorld.isRaining()) w = "Pluie";
+                    if (mc.theWorld.isThundering()) w = en ? "Storm" : "Orage";
+                    else if (mc.theWorld.isRaining()) w = en ? "Rain" : "Pluie";
                 }
                 if (MashFlags.weatherChangerEnabled) {
-                    w = MashFlags.weatherMode == 0 ? "Clair" : (MashFlags.weatherMode == 1 ? "Pluie" : "Orage");
+                    w = MashFlags.weatherMode == 0 ? (en ? "Clear" : "Clair") : (MashFlags.weatherMode == 1 ? (en ? "Rain" : "Pluie") : (en ? "Storm" : "Orage"));
                 }
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Météo", w, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Weather" : "Météo", w, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_moon_phase": {
                 int phase = mc.theWorld != null ? mc.theWorld.getMoonPhase() : 0;
-                String[] names = {"Pleine Lune", "Gibbeuse D.", "Dernier Q.", "Croissant D.", "Nouvelle Lune", "Premier C.", "Premier Q.", "Gibbeuse C."};
+                String[] names = en
+                        ? new String[]{"Full Moon", "Waning Gib.", "Last Quarter", "Waning Cres.", "New Moon", "Waxing Cres.", "First Quarter", "Waxing Gib."}
+                        : new String[]{"Pleine Lune", "Gibbeuse D.", "Dernier Q.", "Croissant D.", "Nouvelle Lune", "Premier C.", "Premier Q.", "Gibbeuse C."};
                 drawStandardBadge(mod, x, y, s, names[phase & 7], accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_durability_helmet":
-                drawArmorSlotDuraBadge(mc, mod, 3, "Casque", x, y, s, accentCol, textCol, shadow, alphaMul);
+                drawArmorSlotDuraBadge(mc, mod, 3, en ? "Helmet" : "Casque", x, y, s, accentCol, textCol, shadow, alphaMul);
                 return;
             case "hud_durability_chest":
-                drawArmorSlotDuraBadge(mc, mod, 2, "Plastron", x, y, s, accentCol, textCol, shadow, alphaMul);
+                drawArmorSlotDuraBadge(mc, mod, 2, en ? "Chestplate" : "Plastron", x, y, s, accentCol, textCol, shadow, alphaMul);
                 return;
             case "hud_durability_legs":
-                drawArmorSlotDuraBadge(mc, mod, 1, "Jambières", x, y, s, accentCol, textCol, shadow, alphaMul);
+                drawArmorSlotDuraBadge(mc, mod, 1, en ? "Leggings" : "Jambières", x, y, s, accentCol, textCol, shadow, alphaMul);
                 return;
             case "hud_durability_boots":
-                drawArmorSlotDuraBadge(mc, mod, 0, "Bottes", x, y, s, accentCol, textCol, shadow, alphaMul);
+                drawArmorSlotDuraBadge(mc, mod, 0, en ? "Boots" : "Bottes", x, y, s, accentCol, textCol, shadow, alphaMul);
                 return;
             case "hud_weapon_dura": {
                 ItemStack held = mc.thePlayer != null ? mc.thePlayer.getHeldItem() : null;
                 String val = (held != null && held.isItemStackDamageable())
                         ? String.valueOf(held.getMaxDamage() - held.getItemDamage())
                         : "--";
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Arme", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Weapon" : "Arme", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_hotbar_mirror": {
@@ -1013,7 +1017,9 @@ public final class MashHudRenderer {
                 if (!preview && rem <= 0.05F) {
                     return;
                 }
-                String val = rem > 0.05F ? String.format(Locale.US, "Perle: %.1fs", rem) : "Perle: Prête";
+                String val = rem > 0.05F
+                        ? String.format(Locale.US, en ? "Pearl: %.1fs" : "Perle: %.1fs", rem)
+                        : (en ? "Pearl: Ready" : "Perle: Prête");
                 drawStandardBadge(mod, x, y, s, val, accentCol, textCol, shadow, true, alphaMul);
                 return;
             }
@@ -1023,7 +1029,9 @@ public final class MashHudRenderer {
                 if (!preview && rem <= 0.05F) {
                     return;
                 }
-                String val = rem > 0.05F ? String.format(Locale.US, "Régén: %.1fs", rem) : "Régén: Prête";
+                String val = rem > 0.05F
+                        ? String.format(Locale.US, en ? "Regen: %.1fs" : "Régén: %.1fs", rem)
+                        : (en ? "Regen: Ready" : "Régén: Prête");
                 drawStandardBadge(mod, x, y, s, val, accentCol, textCol, shadow, true, alphaMul);
                 return;
             }
@@ -1262,8 +1270,9 @@ public final class MashHudRenderer {
             float bh = rowH * 2.0F + 8.0F;
             mod.setBaseHudSize(bw, bh);
             drawHudCard(mod, x, y, bw, bh, s, alphaMul);
-            queueText("Rapidité II  \u2022  01:24", x + 7.0F * s, y + 5.0F * s, s, accentCol, shadow, false);
-            queueText("Résistance Feu  \u2022  03:10", x + 7.0F * s, y + (5.0F + rowH) * s, s, textCol, shadow, false);
+            boolean en = PureFPSConfig.isEnglish();
+            queueText(en ? "Speed II  \u2022  01:24" : "Rapidité II  \u2022  01:24", x + 7.0F * s, y + 5.0F * s, s, accentCol, shadow, false);
+            queueText(en ? "Fire Resistance  \u2022  03:10" : "Résistance Feu  \u2022  03:10", x + 7.0F * s, y + (5.0F + rowH) * s, s, textCol, shadow, false);
             return;
         }
 
@@ -1347,8 +1356,10 @@ public final class MashHudRenderer {
             float alphaMul
     ) {
         float yaw = mc.thePlayer != null ? MathHelper.wrapAngleTo180_float(mc.thePlayer.rotationYaw) : 0.0F;
-        float deg360 = (yaw + 180.0F + 360.0F) % 360.0F; // 0 = Nord, 90 = Est, 180 = Sud, 270 = Ouest
-        String[] dirs = {"N", "NE", "E", "SE", "S", "SO", "O", "NO"};
+        float deg360 = (yaw + 180.0F + 360.0F) % 360.0F;
+        String[] dirs = PureFPSConfig.isEnglish()
+                ? new String[]{"N", "NE", "E", "SE", "S", "SW", "W", "NW"}
+                : new String[]{"N", "NE", "E", "SE", "S", "SO", "O", "NO"};
         int idx = Math.round(deg360 / 45.0F) & 7;
         boolean showDeg = bool(mod, "show_deg", true);
 
@@ -1429,7 +1440,8 @@ public final class MashHudRenderer {
             return;
         }
 
-        String name = target != null ? stripFormatting(target.getDisplayName().getFormattedText()) : "Adversaire PvP";
+        boolean en = PureFPSConfig.isEnglish();
+        String name = target != null ? stripFormatting(target.getDisplayName().getFormattedText()) : (en ? "PvP Opponent" : "Adversaire PvP");
         if (MashFlags.nickHiderEnabled && mc.thePlayer != null && name.contains(mc.thePlayer.getName())) {
             name = name.replace(mc.thePlayer.getName(), MashFlags.nickReplacement);
         }
@@ -1443,7 +1455,7 @@ public final class MashHudRenderer {
         drawHudCard(mod, x, y, bw, bh, s, alphaMul);
 
         queueText(name, x + 8.0F * s, y + 5.0F * s, s, textCol, shadow, false);
-        String sub = String.format(Locale.US, "%.1f PV", hp)
+        String sub = String.format(Locale.US, en ? "%.1f HP" : "%.1f PV", hp)
                 + (bool(mod, "show_dist", true) ? String.format(Locale.US, "  \u2022  %.1fm", dist) : "");
         queueText(sub, x + 8.0F * s, y + 15.0F * s, s, mulAlpha(0xFF949CB0, alphaMul), shadow, false);
 

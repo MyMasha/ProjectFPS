@@ -32,11 +32,15 @@ public abstract class MashSetting {
     }
 
     public String getName() {
-        return name;
+        return dev.purefps.config.PureFPSConfig.isEnglish()
+                ? MashEnglishCatalog.translateSettingName(id, name)
+                : name;
     }
 
     public String getDescription() {
-        return description;
+        return dev.purefps.config.PureFPSConfig.isEnglish()
+                ? MashEnglishCatalog.translateSettingDesc(id, description)
+                : description;
     }
 
     public abstract void resetToDefault();
@@ -163,13 +167,17 @@ public abstract class MashSetting {
         }
 
         public String formatValue() {
+            String sfx = suffix;
+            if (" cœurs".equals(sfx) && dev.purefps.config.PureFPSConfig.isEnglish()) {
+                sfx = " hearts";
+            }
             if (step >= 0.99F) {
-                return Math.round(value) + suffix;
+                return Math.round(value) + sfx;
             }
             if (step >= 0.09F) {
-                return String.format(Locale.US, "%.1f", value) + suffix;
+                return String.format(Locale.US, "%.1f", value) + sfx;
             }
-            return String.format(Locale.US, "%.2f", value) + suffix;
+            return String.format(Locale.US, "%.2f", value) + sfx;
         }
 
         @Override
@@ -211,7 +219,10 @@ public abstract class MashSetting {
         }
 
         public String getMode() {
-            return options[index];
+            String raw = options[index];
+            return dev.purefps.config.PureFPSConfig.isEnglish()
+                    ? MashEnglishCatalog.translateModeOption(raw)
+                    : raw;
         }
 
         public String[] getOptions() {
@@ -408,12 +419,13 @@ public abstract class MashSetting {
         }
 
         public String getDisplayString() {
+            boolean en = dev.purefps.config.PureFPSConfig.isEnglish();
             if (keyCode == 0) {
-                return "AUCUNE";
+                return en ? "NONE" : "AUCUNE";
             }
             if (keyCode <= -85) {
                 int mouseBtn = keyCode + 100;
-                return "SOURIS " + (mouseBtn + 1);
+                return (en ? "MOUSE " : "SOURIS ") + (mouseBtn + 1);
             }
             try {
                 String name = Keyboard.getKeyName(keyCode);

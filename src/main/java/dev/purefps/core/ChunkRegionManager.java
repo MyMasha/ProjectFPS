@@ -90,9 +90,6 @@ public final class ChunkRegionManager {
     }
 
     public static boolean isMultiDrawSupported() {
-        if (VulkanBackendHelper.isVulkanActive()) {
-            return false;
-        }
         if (multiDrawState == 0) {
             try {
                 ContextCapabilities caps = GLContext.getCapabilities();

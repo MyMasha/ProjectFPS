@@ -189,6 +189,9 @@ fn find_windows_rc_exe() -> Option<PathBuf> {
     if Command::new("rc.exe").arg("/?").output().is_ok() {
         return Some(PathBuf::from("rc.exe"));
     }
+    if Command::new("llvm-rc").arg("/?").output().is_ok() {
+        return Some(PathBuf::from("llvm-rc"));
+    }
 
     let kits_roots = [
         r"C:\Program Files (x86)\Windows Kits\10\bin",

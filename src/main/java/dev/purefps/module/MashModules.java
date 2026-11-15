@@ -283,6 +283,11 @@ public final class MashModules {
             }
             dirty = true;
         }
+        if (loadedVersion == null || !"4.5.6".equals(loadedVersion)) {
+            setSilent("hyp_chat_tabs", true);
+            setBoolSilent("hyp_chat_tabs", "filter_chat", true);
+            dirty = true;
+        }
 
         long pureLoadedMtime = PureFPSConfig.getLoadedFileLastModified();
         boolean launcherSyncedNewer = pureLoadedMtime > 0L
@@ -304,7 +309,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.5.5");
+        root.addProperty("version", "4.5.6");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
@@ -644,7 +649,9 @@ public final class MashModules {
 
         MashFlags.nickHiderEnabled = isOn("hyp_nick_hider");
         int nickIdx = modeIdx("hyp_nick_hider", "alias", 0);
-        String[] aliases = {"MashPlayer", "Vous", "Mash", "Joueur"};
+        String[] aliases = PureFPSConfig.isEnglish()
+                ? new String[]{"MashPlayer", "You", "Mash", "Player"}
+                : new String[]{"MashPlayer", "Vous", "Mash", "Joueur"};
         MashFlags.nickReplacement = aliases[Math.max(0, Math.min(aliases.length - 1, nickIdx))];
 
         MashFlags.uhcGoldScale = isOn("hyp_uhc_overlay");
@@ -686,7 +693,7 @@ public final class MashModules {
 
         MashFlags.hypChatTabs = isOn("hyp_chat_tabs");
         MashFlags.hypChatTabsAutoPrefix = bool("hyp_chat_tabs", "auto_prefix", true);
-        MashFlags.hypChatTabsFilter = bool("hyp_chat_tabs", "filter_chat", false);
+        MashFlags.hypChatTabsFilter = bool("hyp_chat_tabs", "filter_chat", true);
     }
 
     public static boolean isOn(String modId) {
@@ -1281,7 +1288,7 @@ public final class MashModules {
 
         m = regMod("hyp_chat_tabs", "Onglets Chat (All/Team/Party)", "Affiche les onglets ALL, TEAM et PARTY au-dessus de la barre du chat", "chat tabs all team party canal groupe equipe hypixel", MashCategory.HYPIXEL, true);
         m.addSetting(new MashSetting.BooleanSetting("auto_prefix", "Routage auto (/ac, /pc)", "Envoie automatiquement dans le canal sélectionné", true));
-        m.addSetting(new MashSetting.BooleanSetting("filter_chat", "Filtrer par canal", "Affiche uniquement les messages du canal actif", false));
+        m.addSetting(new MashSetting.BooleanSetting("filter_chat", "Filtrer par canal", "Affiche uniquement les messages du canal actif", true));
 
         m = regMod("hyp_autogg", "Auto GG", "Rappel discret de fin de partie", "autogg gg fin partie hypixel", MashCategory.HYPIXEL, false);
         m.addSetting(new MashSetting.ModeSetting("phrase", "Message", "Formule affichée", 0, "gg", "gf", "Bien joué"));
