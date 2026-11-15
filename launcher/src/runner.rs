@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.2.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.3.jar";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -210,9 +210,23 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
     ))
 }
 
-fn download_file_to_path(url: &str, dst: &Path) -> Result<(), String> {
-    let resp = ureq::get(url)
-        .set("User-Agent", "MashClient/4.5.1")
+fn build_download_agent() -> Result<ureq::Agent, String> {
+    let tls = Arc::new(
+        native_tls::TlsConnector::new()
+            .map_err(|e| format!("Initialisation TLS impossible: {e}"))?,
+    );
+    Ok(ureq::AgentBuilder::new()
+        .tls_connector(tls)
+        .timeout_connect(Duration::from_secs(12))
+        .timeout_read(Duration::from_secs(90))
+        .timeout_write(Duration::from_secs(10))
+        .build())
+}
+
+fn download_file_to_path(agent: &ureq::Agent, url: &str, dst: &Path) -> Result<(), String> {
+    let resp = agent
+        .get(url)
+        .set("User-Agent", "MashClient/4.5.3")
         .call()
         .map_err(|e| format!("Échec téléchargement {url}: {e}"))?;
     if let Some(parent) = dst.parent() {
@@ -221,11 +235,49 @@ fn download_file_to_path(url: &str, dst: &Path) -> Result<(), String> {
     let tmp = dst.with_extension("part");
     let mut reader = resp.into_reader();
     let mut out = File::create(&tmp).map_err(|e| e.to_string())?;
-    std::io::copy(&mut reader, &mut out).map_err(|e| e.to_string())?;
+    let written = std::io::copy(&mut reader, &mut out).map_err(|e| e.to_string())?;
     out.flush().map_err(|e| e.to_string())?;
     drop(out);
+
+    let is_jar = dst
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("jar"));
+    if written == 0 || (is_jar && written < 64) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("Fichier téléchargé vide ou tronqué depuis {url}"));
+    }
+    if is_jar {
+        let mut magic = [0u8; 4];
+        let valid_zip = File::open(&tmp)
+            .and_then(|mut f| f.read_exact(&mut magic))
+            .map(|_| &magic == b"PK\x03\x04")
+            .unwrap_or(false);
+        if !valid_zip {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!("Archive JAR invalide reçue depuis {url}"));
+        }
+    }
+
+    let _ = std::fs::remove_file(dst);
     std::fs::rename(&tmp, dst).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn copy_dir_tree_missing(src_dir: &Path, dst_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(src_dir) else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(dst_dir);
+    for entry in entries.flatten() {
+        let src_path = entry.path();
+        let dst_path = dst_dir.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_tree_missing(&src_path, &dst_path);
+        } else if src_path.is_file() && !dst_path.exists() {
+            let _ = std::fs::copy(&src_path, &dst_path);
+        }
+    }
 }
 
 /// Vérifie et récupère de manière 100% autonome toutes les bibliothèques 1.8.9 + Forge 11.15.1.2318,
@@ -240,8 +292,13 @@ pub fn ensure_standalone_189_files(
         .map_err(|e| format!("Création dossier libraries: {e}"))?;
 
     let appdata = std::env::var("APPDATA").unwrap_or_else(|_| r"C:\Users\Default\AppData\Roaming".to_owned());
+    let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Default\AppData\Local".to_owned());
     let default_mc_root = PathBuf::from(&appdata).join(".minecraft");
-    let default_mc_libs = default_mc_root.join("libraries");
+    let local_lib_caches = [
+        default_mc_root.join("libraries"),
+        PathBuf::from(&appdata).join("PrismLauncher").join("libraries"),
+        PathBuf::from(&local_appdata).join("Programs").join("PrismLauncher").join("libraries"),
+    ];
 
     let all_required: Vec<&str> = REQUIRED_LIBRARIES_189_FORGE
         .iter()
@@ -249,22 +306,27 @@ pub fn ensure_standalone_189_files(
         .copied()
         .collect();
 
+    let mut http_agent: Option<ureq::Agent> = None;
+
     for rel in all_required {
         let rel_os = rel.replace('\\', std::path::MAIN_SEPARATOR_STR);
         let dst = lib_root.join(&rel_os);
-        if dst.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+        if dst.metadata().map(|m| m.len() > 64).unwrap_or(false) {
             continue;
         }
 
-        // 1. Recherche dans le cache local .minecraft s'il existe déjà sur le disque
+        // 1. Recherche dans les caches locaux existants sur le disque
         let mut copied_locally = false;
-        let local_candidate = default_mc_libs.join(&rel_os);
-        if local_candidate != dst && local_candidate.is_file() {
-            if let Some(parent) = dst.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if std::fs::copy(&local_candidate, &dst).is_ok() {
-                copied_locally = true;
+        for cache_root in &local_lib_caches {
+            let local_candidate = cache_root.join(&rel_os);
+            if local_candidate != dst && local_candidate.metadata().map(|m| m.len() > 64).unwrap_or(false) {
+                if let Some(parent) = dst.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if std::fs::copy(&local_candidate, &dst).is_ok() {
+                    copied_locally = true;
+                    break;
+                }
             }
         }
         if !copied_locally && rel.ends_with("minecraft-1.8.9-client.jar") {
@@ -272,7 +334,7 @@ pub fn ensure_standalone_189_files(
                 .join("versions")
                 .join("1.8.9")
                 .join("1.8.9.jar");
-            if vanilla_jar.is_file() {
+            if vanilla_jar.metadata().map(|m| m.len() > 64).unwrap_or(false) {
                 if let Some(parent) = dst.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -285,7 +347,15 @@ pub fn ensure_standalone_189_files(
             continue;
         }
 
-        // 2. Téléchargement direct depuis les serveurs officiels Mojang / Forge / Maven Central
+        // 2. Téléchargement direct HTTPS (avec connecteur TLS natif Windows SChannel)
+        let agent = match &http_agent {
+            Some(a) => a,
+            None => {
+                http_agent = Some(build_download_agent()?);
+                http_agent.as_ref().unwrap()
+            }
+        };
+
         let rel_url = rel.replace('\\', "/");
         let file_label = Path::new(&rel_os)
             .file_name()
@@ -298,13 +368,19 @@ pub fn ensure_standalone_189_files(
         let mut candidate_urls: Vec<String> = Vec::new();
         if rel_url.ends_with("minecraft-1.8.9-client.jar") {
             candidate_urls.push(
+                "https://piston-data.mojang.com/v1/objects/3870888a6c3d349d37e1a1e9d16c9bf5c076b9c8/client.jar"
+                    .to_owned(),
+            );
+            candidate_urls.push(
                 "https://launcher.mojang.com/v1/objects/3870888a6c3d349d37e1a1e9d16c9bf5c076b9c8/client.jar"
                     .to_owned(),
             );
         } else {
             candidate_urls.push(format!("https://libraries.minecraft.net/{rel_url}"));
             candidate_urls.push(format!("https://maven.minecraftforge.net/{rel_url}"));
+            candidate_urls.push(format!("https://files.prism-launcher.org/maven/{rel_url}"));
             candidate_urls.push(format!("https://repo1.maven.org/maven2/{rel_url}"));
+            candidate_urls.push(format!("https://bmclapi2.bangbang93.com/maven/{rel_url}"));
             if rel_url.contains("2.0-beta9-fixed") {
                 let unfixed = rel_url.replace("2.0-beta9-fixed", "2.0-beta9");
                 candidate_urls.push(format!("https://libraries.minecraft.net/{unfixed}"));
@@ -315,7 +391,7 @@ pub fn ensure_standalone_189_files(
         let mut downloaded = false;
         let mut last_err = String::new();
         for url in &candidate_urls {
-            match download_file_to_path(url, &dst) {
+            match download_file_to_path(agent, url, &dst) {
                 Ok(()) => {
                     downloaded = true;
                     break;
@@ -331,23 +407,53 @@ pub fn ensure_standalone_189_files(
     }
 
     let assets_root = Path::new(assets_dir);
+    let local_asset_caches = [
+        default_mc_root.join("assets"),
+        PathBuf::from(&appdata).join("PrismLauncher").join("assets"),
+    ];
     let index_dst = assets_root.join("indexes").join("1.8.json");
     if !index_dst.metadata().map(|m| m.len() > 0).unwrap_or(false) {
-        let local_idx = default_mc_root.join("assets").join("indexes").join("1.8.json");
-        if local_idx != index_dst && local_idx.is_file() {
-            if let Some(parent) = index_dst.parent() {
-                let _ = std::fs::create_dir_all(parent);
+        for asset_cache in &local_asset_caches {
+            let local_idx = asset_cache.join("indexes").join("1.8.json");
+            if local_idx != index_dst && local_idx.is_file() {
+                if let Some(parent) = index_dst.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if std::fs::copy(&local_idx, &index_dst).is_ok() {
+                    break;
+                }
             }
-            let _ = std::fs::copy(&local_idx, &index_dst);
         }
         if !index_dst.is_file() {
+            let agent = match &http_agent {
+                Some(a) => a,
+                None => {
+                    http_agent = Some(build_download_agent()?);
+                    http_agent.as_ref().unwrap()
+                }
+            };
             let _ = proxy.send_event(AppEvent::LogLine(
                 "[MashClient] Téléchargement de l'index d'assets 1.8.json...".to_owned(),
             ));
             let _ = download_file_to_path(
+                agent,
                 "https://piston-meta.mojang.com/v1/packages/f6ad102bcaa53b1a58358f16e376d548d44933ec/1.8.json",
                 &index_dst,
             );
+        }
+    }
+
+    let dst_objects = assets_root.join("objects");
+    let objects_empty = std::fs::read_dir(&dst_objects)
+        .map(|mut it| it.next().is_none())
+        .unwrap_or(true);
+    if objects_empty {
+        for asset_cache in &local_asset_caches {
+            let src_objects = asset_cache.join("objects");
+            if src_objects != dst_objects && src_objects.is_dir() {
+                copy_dir_tree_missing(&src_objects, &dst_objects);
+                break;
+            }
         }
     }
 

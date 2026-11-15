@@ -1234,6 +1234,22 @@ pub fn app_storage_dir() -> PathBuf {
     mash_dir
 }
 
+fn copy_dir_recursive_if_missing(src: &Path, dst: &Path) {
+    let Ok(entries) = std::fs::read_dir(src) else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(dst);
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let d = dst.join(entry.file_name());
+        if p.is_dir() {
+            copy_dir_recursive_if_missing(&p, &d);
+        } else if p.is_file() && !d.exists() {
+            let _ = std::fs::copy(&p, &d);
+        }
+    }
+}
+
 fn migrate_legacy_game_dir_contents(src_game_dir: &Path, dst_game_dir: &Path) {
     if !src_game_dir.is_dir() || src_game_dir == dst_game_dir {
         return;
@@ -1250,15 +1266,16 @@ fn migrate_legacy_game_dir_contents(src_game_dir: &Path, dst_game_dir: &Path) {
         }
     }
 
-    for sub in ["resourcepacks", "mods"] {
-        let Ok(entries) = std::fs::read_dir(src_game_dir.join(sub)) else {
-            continue;
-        };
-        let dst_sub = dst_game_dir.join(sub);
+    copy_dir_recursive_if_missing(
+        &src_game_dir.join("resourcepacks"),
+        &dst_game_dir.join("resourcepacks"),
+    );
+
+    if let Ok(entries) = std::fs::read_dir(src_game_dir.join("mods")) {
+        let dst_mods = dst_game_dir.join("mods");
         for entry in entries.flatten() {
             let p = entry.path();
-            let fname = entry.file_name();
-            let dst_p = dst_sub.join(&fname);
+            let dst_p = dst_mods.join(entry.file_name());
             if p.is_file() && !dst_p.exists() {
                 let _ = std::fs::copy(&p, &dst_p);
             }
@@ -1301,6 +1318,22 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
     let _ = std::fs::create_dir_all(game_path.join("config"));
     let _ = std::fs::create_dir_all(game_path.join("mods"));
     let _ = std::fs::create_dir_all(game_path.join("resourcepacks"));
+
+    // Si d'anciens dossiers d'instances 1.8.9 contiennent des resourcepacks non encore rapatriés, les copie
+    let legacy_instances = Path::new(&appdata).join("PrismLauncher").join("instances");
+    if let Ok(entries) = std::fs::read_dir(&legacy_instances) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                for sub in ["minecraft", ".minecraft"] {
+                    let cand = p.join(sub);
+                    if cand.is_dir() {
+                        migrate_legacy_game_dir_contents(&cand, game_path);
+                    }
+                }
+            }
+        }
+    }
 
     let cur_java_file = Path::new(&prefs.java_path);
     let cur_probe = crate::runtimes::probe_java8_executable(cur_java_file);
