@@ -7,58 +7,21 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish (e.g. v4.5.7)"
+        description: "Release tag to publish (e.g. v4.5.9)"
         required: true
-        default: "v4.5.7"
+        default: "v4.5.9"
 
 permissions:
   contents: read
 
 jobs:
-  publish-prebuilt-local:
-    name: Publish Locally Compiled Release Assets (Fast Path)
+  build-mod:
+    name: Build & Test Mod 1.8.9 (.jar)
     if: github.repository == 'MyMasha/ProjectFPS'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
-      published: ${{ steps.pub.outputs.published }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Publish prebuilt local binaries if present in dist/
-        id: pub
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          CLEAN_VER="${RAW_TAG#v}"
-          JAR_FILE="dist/purefps-${CLEAN_VER}.jar"
-          EXE_FILE="dist/MashClient.exe"
-          ZINK_FILE="dist/mashclient-vulkan-zink-win64.zip"
-          if [[ -f "$JAR_FILE" && -f "$EXE_FILE" && -f "$ZINK_FILE" ]]; then
-            if gh release view "$RAW_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-              gh release upload "$RAW_TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" --clobber --repo "${{ github.repository }}"
-            else
-              gh release create "$RAW_TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" \
-                --repo "${{ github.repository }}" \
-                --title "MashClient ${RAW_TAG}" \
-                --generate-notes
-            fi
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "Published locally compiled assets ($JAR_FILE, $EXE_FILE, $ZINK_FILE) in seconds!"
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-          fi
-  publish-mod-release:
-    name: Fallback Build Mod 1.8.9 (.jar)
-    needs: publish-prebuilt-local
-    if: github.repository == 'MyMasha/ProjectFPS' && needs.publish-prebuilt-local.outputs.published != 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -73,9 +36,10 @@ jobs:
             17
 
       - name: Compile & Test MashClient Forge 1.8.9 Mod
-        id: check
+        id: meta
         shell: bash
         run: |
+          set -euo pipefail
           RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
           CLEAN_VER="${RAW_TAG#v}"
           echo "tag=${RAW_TAG}" >> "$GITHUB_OUTPUT"
@@ -85,11 +49,145 @@ jobs:
           ./gradlew test remapJar --no-daemon \
             -Dorg.gradle.java.home="${JAVA_HOME_17_X64}" \
             -Porg.gradle.java.installations.paths="${JAVA_HOME_8_X64},${JAVA_HOME_17_X64}"
+          test -s "build/libs/purefps-${CLEAN_VER}.jar"
 
-      - name: Create or Update GitHub Release with Mod JAR
-        uses: softprops/action-gh-release@v2
+      - name: Upload Mod JAR Artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.check.outputs.tag }}
-          name: MashClient ${{ steps.check.outputs.tag }}
-          generate_release_notes: true
-          files: build/libs/purefps-${{ steps.check.outputs.version }}.jar
+          name: mod-jar
+          path: build/libs/purefps-${{ steps.meta.outputs.version }}.jar
+          if-no-files-found: error
+
+  build-launcher:
+    name: Build & Verify MashClient.exe (Windows OAuth2 + Zink)
+    if: github.repository == 'MyMasha/ProjectFPS'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo Build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+          prefix-key: "v1-release"
+
+      - name: Verify Microsoft OAuth2 Secret & Sync Version
+        shell: pwsh
+        env:
+          MASHCLIENT_MS_CLIENT_ID: ${{ secrets.MASHCLIENT_MS_CLIENT_ID }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:MASHCLIENT_MS_CLIENT_ID)) {
+            throw "CRITICAL: GitHub Actions secret MASHCLIENT_MS_CLIENT_ID is empty or missing! Refusing to build an unauthenticated MashClient.exe."
+          }
+          $rawTag = if ("${{ github.event.inputs.tag }}" -ne "") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
+          $cleanVer = $rawTag.TrimStart('v')
+          $cargoPath = "launcher/Cargo.toml"
+          $content = Get-Content $cargoPath -Raw
+          $updated = [regex]::Replace($content, '(?m)^version\s*=\s*"[^"]+"', "version = `"$cleanVer`"", 1)
+          Set-Content -Path $cargoPath -Value $updated -NoNewline
+
+      - name: Test & Build MashClient.exe (with Embedded Microsoft OAuth2 & Updater Secrets)
+        working-directory: launcher
+        shell: pwsh
+        env:
+          PURECLIENT_GITHUB_TOKEN: ${{ secrets.PURECLIENT_UPDATER_TOKEN }}
+          MASHCLIENT_MS_CLIENT_ID: ${{ secrets.MASHCLIENT_MS_CLIENT_ID }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          cargo test
+          cargo build --release
+          $exePath = "target/release/MashClient.exe"
+          if (-not (Test-Path $exePath)) {
+            throw "MashClient.exe introuvable après compilation !"
+          }
+          $exeBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exePath))
+          $exeAscii = [System.Text.Encoding]::ASCII.GetString($exeBytes)
+          if (-not $exeAscii.Contains($env:MASHCLIENT_MS_CLIENT_ID.Trim())) {
+            throw "CRITICAL: Compiled MashClient.exe does not contain embedded MASHCLIENT_MS_CLIENT_ID!"
+          }
+          Write-Host "Verified: MashClient.exe built and contains embedded Microsoft OAuth2 Client ID."
+
+      - name: Stage Mesa3D Zink x64 Bundle (mashclient-vulkan-zink-win64.zip)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $outZip = "$env:RUNNER_TEMP\mashclient-vulkan-zink-win64.zip"
+          if ((Test-Path "dist/mashclient-vulkan-zink-win64.zip") -and ((Get-Item "dist/mashclient-vulkan-zink-win64.zip").Length -gt 65536)) {
+            Copy-Item "dist/mashclient-vulkan-zink-win64.zip" -Destination $outZip -Force
+            Write-Host "Staged tracked dist/mashclient-vulkan-zink-win64.zip."
+          } else {
+            New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\mesa-zink\extracted" | Out-Null
+            $relJson = gh api repos/mmozeiko/build-mesa/releases/latest | ConvertFrom-Json
+            $asset = $relJson.assets | Where-Object { $_.name -like "mesa-zink-x64-*.7z" } | Select-Object -First 1
+            if (-not $asset) {
+              throw "Asset mesa-zink-x64-*.7z introuvable sur mmozeiko/build-mesa."
+            }
+            $archivePath = "$env:RUNNER_TEMP\mesa-zink\$($asset.name)"
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath
+            7z x -y $archivePath "opengl32.dll" "-o$env:RUNNER_TEMP\mesa-zink\extracted" | Out-Null
+            if (-not (Test-Path "$env:RUNNER_TEMP\mesa-zink\extracted\opengl32.dll")) {
+              throw "opengl32.dll absent après extraction de $($asset.name)."
+            }
+            Compress-Archive -Path "$env:RUNNER_TEMP\mesa-zink\extracted\opengl32.dll" -DestinationPath $outZip -Force
+          }
+
+      - name: Upload Windows Launcher & Zink Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-win64
+          path: |
+            launcher/target/release/MashClient.exe
+            ${{ runner.temp }}/mashclient-vulkan-zink-win64.zip
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish Atomic GitHub Release
+    if: github.repository == 'MyMasha/ProjectFPS'
+    needs: [build-mod, build-launcher]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Mod JAR Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mod-jar
+          path: release-assets
+
+      - name: Download Windows Launcher & Zink Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: launcher-win64
+          path: release-assets
+
+      - name: Publish All Release Assets Atomically
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.build-mod.outputs.tag }}"
+          VER="${{ needs.build-mod.outputs.version }}"
+          JAR_FILE="release-assets/purefps-${VER}.jar"
+          EXE_FILE="release-assets/MashClient.exe"
+          ZINK_FILE="release-assets/mashclient-vulkan-zink-win64.zip"
+
+          test -s "$JAR_FILE"
+          test -s "$EXE_FILE"
+          test -s "$ZINK_FILE"
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" --clobber --repo "${{ github.repository }}"
+          else
+            gh release create "$TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" \
+              --repo "${{ github.repository }}" \
+              --title "MashClient ${TAG}" \
+              --generate-notes
+          fi

@@ -10,6 +10,13 @@ $Tag = "v$CleanVer"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
+$LocalMsIdFile = Join-Path $RepoRoot "launcher\.ms_client_id"
+$HasEnvMsId = -not [string]::IsNullOrWhiteSpace($env:MASHCLIENT_MS_CLIENT_ID)
+$HasFileMsId = (Test-Path $LocalMsIdFile) -and (-not [string]::IsNullOrWhiteSpace((Get-Content $LocalMsIdFile -Raw)))
+if (-not $HasEnvMsId -and -not $HasFileMsId) {
+    throw "ERREUR CRITIQUE : MASHCLIENT_MS_CLIENT_ID (ou launcher/.ms_client_id) absent ! Publiez via un tag Git (git tag $Tag && git push origin $Tag) pour compiler sur GitHub Actions avec les secrets OAuth2 officiels."
+}
+
 Write-Host "[1/4] Compilation locale du mod Forge 1.8.9 (purefps-$CleanVer.jar)..." -ForegroundColor Cyan
 (Get-Content "gradle.properties" -Raw) -replace '(?m)^version=.*$', "version=$CleanVer" | Set-Content "gradle.properties" -NoNewline
 .\gradlew.bat test remapJar --no-daemon

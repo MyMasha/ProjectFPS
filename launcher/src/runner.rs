@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.8.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.9.jar";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -226,7 +226,7 @@ fn build_download_agent() -> Result<ureq::Agent, String> {
 fn download_file_to_path(agent: &ureq::Agent, url: &str, dst: &Path) -> Result<(), String> {
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.8")
+        .set("User-Agent", "MashClient/4.5.9")
         .call()
         .map_err(|e| format!("Échec téléchargement {url}: {e}"))?;
     if let Some(parent) = dst.parent() {
@@ -1145,7 +1145,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.8 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.9 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\
@@ -1201,14 +1201,39 @@ pub fn run_direct_jvm_blocking(
     screen_h: u32,
     proxy: EventLoopProxy<AppEvent>,
 ) -> Result<(), String> {
-    if !Path::new(&prefs.java_path).is_file() {
+    let java_exists = Path::new(&prefs.java_path).is_file();
+    let cur_probe = crate::runtimes::probe_java8_executable(Path::new(&prefs.java_path));
+    let outdated_tls_java = java_exists
+        && ((cur_probe.is_java8 && cur_probe.update_version > 0 && cur_probe.update_version < 161)
+            || !cur_probe.is_64bit);
+
+    if !java_exists || outdated_tls_java {
         let _ = proxy.send_event(AppEvent::LogLine(
-            "[MashClient] Java 8 not found on this PC — automatically installing Eclipse Temurin Java 8 x64...".to_owned(),
+            if !java_exists {
+                "[MashClient] Java 8 not found on this PC — automatically installing Eclipse Temurin Java 8 x64...".to_owned()
+            } else {
+                format!(
+                    "[MashClient] Legacy {} detected (missing modern TLS 1.2/1.3 & Mojang Root CAs) — upgrading automatically to Eclipse Temurin Java 8 x64...",
+                    cur_probe.label
+                )
+            },
         ));
-        let (installed_javaw, label) = crate::runtimes::install_temurin_jre8(&proxy)?;
-        prefs.java_path = installed_javaw.clone();
-        let _ = crate::config::save_launcher_prefs(&prefs);
-        let _ = proxy.send_event(AppEvent::TemurinInstalled(Ok((installed_javaw, label))));
+        match crate::runtimes::install_temurin_jre8(&proxy) {
+            Ok((installed_javaw, label)) => {
+                prefs.java_path = installed_javaw.clone();
+                let _ = crate::config::save_launcher_prefs(&prefs);
+                let _ = proxy.send_event(AppEvent::TemurinInstalled(Ok((installed_javaw, label))));
+            }
+            Err(e) => {
+                if java_exists {
+                    let _ = proxy.send_event(AppEvent::LogLine(format!(
+                        "[MashClient] Temurin JRE 8 download unavailable ({e}); continuing with existing Java + embedded ModernTlsTrustHelper."
+                    )));
+                } else {
+                    return Err(e);
+                }
+            }
+        }
     }
 
     let is_vulkan = prefs.instance_flavor == InstanceFlavor::VulkanBeta;
@@ -1341,6 +1366,7 @@ pub fn run_direct_jvm_blocking(
             cmd.arg(format!("-Dpurefps.vulkanDllPath={}", vk_dll.display()));
         }
     }
+    let clean_uuid = crate::auth::normalize_mc_uuid(&uuid);
     cmd.arg(format!("-Djava.library.path={}", natives_dir.display()))
         .arg(format!("-Dorg.lwjgl.librarypath={}", natives_dir.display()))
         .arg("-cp")
@@ -1357,7 +1383,7 @@ pub fn run_direct_jvm_blocking(
         .arg("--assetIndex")
         .arg("1.8")
         .arg("--uuid")
-        .arg(&uuid)
+        .arg(&clean_uuid)
         .arg("--accessToken")
         .arg(&access_token)
         .arg("--userType")

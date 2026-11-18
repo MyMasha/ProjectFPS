@@ -169,7 +169,7 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
         }
     }
 
-    // 3. Standard 64-bit Java 8 distribution folders
+    // 3. Standard 64-bit Java 8 distribution folders (+ PrismLauncher managed Java)
     let search_roots = [
         PathBuf::from(r"C:\Program Files\Eclipse Adoptium"),
         PathBuf::from(r"C:\Program Files\AdoptOpenJDK"),
@@ -178,6 +178,8 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
         PathBuf::from(r"C:\Program Files\Java"),
         PathBuf::from(r"C:\Program Files\Amazon Corretto"),
         PathBuf::from(r"C:\Program Files\Microsoft"),
+        Path::new(appdata).join("PrismLauncher").join("java"),
+        Path::new(local_appdata).join("Programs").join("PrismLauncher").join("java"),
     ];
     for root in &search_roots {
         let Ok(entries) = std::fs::read_dir(root) else {
@@ -220,6 +222,10 @@ pub fn detect_java8_path(appdata: &str, local_appdata: &str) -> String {
         let mut score: i64 = 10_000;
         if probe.is_64bit {
             score += 5_000;
+        }
+        if probe.update_version > 0 && probe.update_version < 161 {
+            // Legacy Java 8 (< 8u161) lacks modern TLS 1.2 default & DigiCert Global Root G2
+            score -= 3_000;
         }
         score += i64::from(probe.update_version) * 10;
         let low = cand.to_string_lossy().to_ascii_lowercase();
@@ -891,7 +897,7 @@ impl PureClientSettings {
 pub fn empty_modules_json() -> serde_json::Value {
     serde_json::json!({
         "client": "MashClient",
-        "version": "4.5.1",
+        "version": "4.5.9",
         "modules": {}
     })
 }
@@ -906,7 +912,7 @@ pub fn load_modules_json(game_dir: &str) -> serde_json::Value {
 
     if let Some(obj) = root.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.5.1".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.9".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -924,7 +930,7 @@ pub fn save_modules_json(game_dir: &str, data: &serde_json::Value) -> Result<(),
     };
     if let Some(obj) = normalized.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.5.1".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.9".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -1377,12 +1383,17 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
 
     let cur_java_file = Path::new(&prefs.java_path);
     let cur_probe = crate::runtimes::probe_java8_executable(cur_java_file);
-    if !cur_java_file.is_file() || (cur_probe.is_java8 && cur_probe.update_version < 100) {
+    let cur_java_legacy = (cur_probe.is_java8 && cur_probe.update_version > 0 && cur_probe.update_version < 161)
+        || !cur_probe.is_64bit;
+    if !cur_java_file.is_file() || cur_java_legacy {
         let detected_java = detect_java8_path(&appdata, &local_appdata);
         let det_path = Path::new(&detected_java);
         if det_path.is_file() {
             let det_probe = crate::runtimes::probe_java8_executable(det_path);
-            if !cur_java_file.is_file() || det_probe.update_version > cur_probe.update_version {
+            if !cur_java_file.is_file()
+                || (det_probe.is_64bit && !cur_probe.is_64bit)
+                || det_probe.update_version > cur_probe.update_version
+            {
                 prefs.java_path = detected_java;
             }
         }
@@ -1678,7 +1689,7 @@ pub fn export_profile_bundle_to_path(
 ) -> Result<(), String> {
     let bundle = ExportedProfileBundle {
         client: "MashClient".to_owned(),
-        version: "4.5.1".to_owned(),
+        version: "4.5.9".to_owned(),
         name: if name.trim().is_empty() {
             "Profil MashClient".to_owned()
         } else {
@@ -1901,7 +1912,7 @@ mod tests {
 
         save_all_client_configs(&dir_str, &cfg, &mods).unwrap();
         let reloaded_mods = load_modules_json(&dir_str);
-        assert_eq!(reloaded_mods["version"], "4.5.1");
+        assert_eq!(reloaded_mods["version"], "4.5.9");
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["enabled"], false);
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["settings"]["max_dist"], 72);
 

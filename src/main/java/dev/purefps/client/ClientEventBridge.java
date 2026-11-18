@@ -97,7 +97,7 @@ public final class ClientEventBridge {
                     baseY,
                     200,
                     20,
-                    "\u00a7eReconnecter \u00a77(" + labelName + ")"
+                    "\u00a7e" + (PureFPSConfig.isEnglish() ? "Reconnect" : "Reconnecter") + " \u00a77(" + labelName + ")"
             ));
         }
     }
@@ -122,6 +122,18 @@ public final class ClientEventBridge {
 
     @SubscribeEvent
     public void onGuiDrawPost(GuiScreenEvent.DrawScreenEvent.Post event) {
+        if (event.gui instanceof GuiDisconnected) {
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc != null && mc.fontRendererObj != null && mc.getSession() != null) {
+                String token = mc.getSession().getToken();
+                if (token == null || token.trim().isEmpty() || "0".equals(token.trim())) {
+                    String hint = PureFPSConfig.isEnglish()
+                            ? "\u00a76[MashClient] \u00a77Offline mode active — switch to \u00a7bMicrosoft\u00a77 mode in MashClient Launcher for premium servers."
+                            : "\u00a76[MashClient] \u00a77Mode Offline actif — passez en mode \u00a7bMicrosoft\u00a77 dans le Launcher MashClient pour les serveurs premium.";
+                    event.gui.drawCenteredString(mc.fontRendererObj, hint, event.gui.width / 2, event.gui.height - 14, 0xFFFFFF);
+                }
+            }
+        }
         SeamlessLaunchTransition.renderEmergenceCurtainIfNeeded(event.gui);
     }
 

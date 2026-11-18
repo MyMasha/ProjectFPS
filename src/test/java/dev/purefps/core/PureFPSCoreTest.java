@@ -1738,4 +1738,36 @@ public class PureFPSCoreTest {
         assertEquals("wglCreateContext", VulkanBackendHelper.mapLwjglImportToZinkExport("OPENGL32.dll", "wglCreateContext"));
         assertEquals("wglMakeCurrent", VulkanBackendHelper.mapLwjglImportToZinkExport("zinkgl32.dll", "wglMakeCurrent"));
     }
+
+    @Test
+    public void testModernTlsTrustHelperBundledRootsAndInstallation459() throws Exception {
+        java.util.List<java.security.cert.X509Certificate> certs = ModernTlsTrustHelper.loadBundledRootCertificates();
+        assertNotNull(certs);
+        assertEquals("Expected 4 modern root CAs in modern_roots.crt", 4, certs.size());
+
+        boolean hasDigiCertG2 = false;
+        boolean hasDigiCertG3 = false;
+        boolean hasIsrgX1 = false;
+        boolean hasMicrosoftRsa2017 = false;
+        for (java.security.cert.X509Certificate cert : certs) {
+            String dn = cert.getSubjectX500Principal().getName();
+            if (dn.contains("DigiCert Global Root G2")) {
+                hasDigiCertG2 = true;
+            } else if (dn.contains("DigiCert Global Root G3")) {
+                hasDigiCertG3 = true;
+            } else if (dn.contains("ISRG Root X1")) {
+                hasIsrgX1 = true;
+            } else if (dn.contains("Microsoft RSA Root Certificate Authority 2017")) {
+                hasMicrosoftRsa2017 = true;
+            }
+        }
+        assertTrue("Missing DigiCert Global Root G2 (Azure / sessionserver.mojang.com)", hasDigiCertG2);
+        assertTrue("Missing DigiCert Global Root G3", hasDigiCertG3);
+        assertTrue("Missing ISRG Root X1 (Let's Encrypt)", hasIsrgX1);
+        assertTrue("Missing Microsoft RSA Root Certificate Authority 2017", hasMicrosoftRsa2017);
+
+        assertTrue("ModernTlsTrustHelper installation must succeed", ModernTlsTrustHelper.installModernRootTrustIfNeeded());
+        assertTrue("ModernTlsTrustHelper must remain active on idempotent calls", ModernTlsTrustHelper.installModernRootTrustIfNeeded());
+        assertTrue(ModernTlsTrustHelper.isActive());
+    }
 }

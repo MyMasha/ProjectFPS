@@ -184,6 +184,10 @@ pub fn poll_device_code_until_complete(
     Err("Délai dépassé : validez le code sur microsoft.com/link puis réessayez.".to_owned())
 }
 
+pub fn normalize_mc_uuid(raw: &str) -> String {
+    raw.trim().chars().filter(|c| *c != '-').collect()
+}
+
 pub fn refresh_microsoft_session(existing: &MicrosoftAccount) -> Result<MicrosoftAccount, String> {
     if existing.refresh_token.trim().is_empty() {
         return Err("Aucun jeton de rafraîchissement enregistré, reconnectez-vous.".to_owned());
@@ -197,14 +201,40 @@ pub fn refresh_microsoft_session(existing: &MicrosoftAccount) -> Result<Microsof
         ("scope", MS_SCOPE),
     ]);
 
-    let resp = agent
+    let resp = match agent
         .post(MS_TOKEN_ENDPOINT)
         .set("Content-Type", "application/x-www-form-urlencoded")
         .set("Accept", "application/json")
         .send_string(&form)
-        .map_err(|_| {
-            "Session Microsoft expirée : cliquez sur 'Reconnecter Microsoft'.".to_owned()
-        })?;
+    {
+        Ok(r) => r,
+        Err(ureq::Error::Status(400 | 401, err_resp)) => {
+            let parsed = err_resp
+                .into_json::<OAuthTokenError>()
+                .unwrap_or(OAuthTokenError {
+                    error: String::new(),
+                    error_description: String::new(),
+                });
+            if parsed.error.is_empty() {
+                return Err(
+                    "Session Microsoft expirée : cliquez sur votre compte en haut à droite pour vous reconnecter."
+                        .to_owned(),
+                );
+            }
+            return Err(format!(
+                "Session Microsoft expirée ({}) : cliquez sur votre compte en haut à droite pour vous reconnecter.",
+                parsed.error
+            ));
+        }
+        Err(ureq::Error::Status(code, _)) => {
+            return Err(format!(
+                "Serveur Microsoft OAuth2 indisponible (HTTP {code})."
+            ));
+        }
+        Err(e) => {
+            return Err(format!("Impossible de joindre Microsoft OAuth2 : {e}"));
+        }
+    };
 
     let tok = resp
         .into_json::<OAuthTokenSuccess>()
@@ -216,6 +246,37 @@ pub fn refresh_microsoft_session(existing: &MicrosoftAccount) -> Result<Microsof
         tok.refresh_token
     };
     complete_xbox_and_mc_chain(&agent, &tok.access_token, next_refresh)
+}
+
+/// Vérifie qu'un jeton `access_token` Minecraft en cache est réellement accepté par Mojang
+/// (`GET https://api.minecraftservices.com/minecraft/profile`) avant d'autoriser un repli hors-rafraîchissement.
+/// Empêche de lancer Minecraft avec un jeton expiré qui provoquerait la fausse erreur Mojang 1.8.9
+/// `"The authentication servers are currently down for maintenance"` (HTTP 401 corps vide sur `sessionserver`).
+pub fn is_cached_mc_token_usable(acc: &MicrosoftAccount) -> bool {
+    let tok = acc.access_token.trim();
+    if tok.is_empty() || tok == "0" {
+        return false;
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let fresh_by_clock = acc.obtained_epoch_secs > 0
+        && now.saturating_sub(acc.obtained_epoch_secs) < 20 * 3600;
+
+    let Ok(agent) = http_agent() else {
+        return fresh_by_clock;
+    };
+    match agent
+        .get("https://api.minecraftservices.com/minecraft/profile")
+        .set("Authorization", &format!("Bearer {tok}"))
+        .set("Accept", "application/json")
+        .call()
+    {
+        Ok(_) => true,
+        Err(ureq::Error::Status(401 | 403, _)) => false,
+        Err(_) => fresh_by_clock,
+    }
 }
 
 fn complete_xbox_and_mc_chain(
@@ -311,7 +372,7 @@ fn complete_xbox_and_mc_chain(
 
     Ok(MicrosoftAccount {
         username: profile.name,
-        uuid: profile.id,
+        uuid: normalize_mc_uuid(&profile.id),
         access_token: mc_login.access_token,
         refresh_token,
         obtained_epoch_secs: now,
@@ -434,5 +495,30 @@ mod tests {
         assert!(!challenge.user_code.is_empty());
         assert!(!challenge.device_code.is_empty());
         assert!(challenge.verification_uri.starts_with("https://"));
+    }
+
+    #[test]
+    fn test_normalize_mc_uuid_and_empty_token_guard() {
+        assert_eq!(
+            normalize_mc_uuid(" 550e8400-e29b-41d4-a716-446655440000 "),
+            "550e8400e29b41d4a716446655440000"
+        );
+        assert_eq!(
+            normalize_mc_uuid("550e8400e29b41d4a716446655440000"),
+            "550e8400e29b41d4a716446655440000"
+        );
+        let offline_acc = MicrosoftAccount {
+            username: "OfflineUser".into(),
+            uuid: "00000000000000000000000000000000".into(),
+            access_token: "0".into(),
+            refresh_token: String::new(),
+            obtained_epoch_secs: 0,
+        };
+        assert!(!is_cached_mc_token_usable(&offline_acc));
+        let empty_acc = MicrosoftAccount {
+            access_token: "   ".into(),
+            ..offline_acc
+        };
+        assert!(!is_cached_mc_token_usable(&empty_acc));
     }
 }

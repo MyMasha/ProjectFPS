@@ -867,12 +867,21 @@ fn begin_singularity_launch_now(
 
     let (screen_w, screen_h) = current_monitor_resolution(window);
 
+    // Recharge toujours `accounts.json` depuis le disque afin de récupérer tout `refresh_token`
+    // tourné lors d'un lancement précédent.
+    ctrl.refresh_accounts_cache();
+
     match ctrl.prefs.launch_mode {
         LaunchMode::DirectMicrosoft => {
+            let is_fr = ctrl.prefs.language == "fr";
             let Some(acc) = ctrl.account.clone() else {
                 Controller::push_toast(
                     webview,
-                    "Connectez d'abord votre compte Microsoft en haut à droite.",
+                    if is_fr {
+                        "Connectez d'abord votre compte Microsoft en haut à droite."
+                    } else {
+                        "Sign in to your Microsoft account in the top-right corner first."
+                    },
                     true,
                 );
                 return;
@@ -895,10 +904,26 @@ fn begin_singularity_launch_now(
                                 fresh2
                             }
                             Err(err_msg) => {
-                                let _ = p.send_event(AppEvent::LogLine(format!(
-                                    "[MashClient] Avertissement session Microsoft (utilisation du jeton en cache) : {err_msg}"
-                                )));
-                                acc
+                                if crate::auth::is_cached_mc_token_usable(&acc) {
+                                    let _ = p.send_event(AppEvent::LogLine(format!(
+                                        "[MashClient] Avertissement session Microsoft (jeton en cache encore valide) : {err_msg}"
+                                    )));
+                                    acc
+                                } else {
+                                    let abort_msg = if is_fr {
+                                        format!(
+                                            "La session Microsoft de '{}' a expiré et n'a pas pu être renouvelée ({err_msg}). Cliquez sur votre compte en haut à droite du Launcher MashClient puis sur « Reconnecter » avant de rejoindre un serveur premium.",
+                                            acc.username
+                                        )
+                                    } else {
+                                        format!(
+                                            "Microsoft session for '{}' has expired and could not be refreshed ({err_msg}). Click your account in the top-right corner of MashClient Launcher to sign in again before joining premium servers.",
+                                            acc.username
+                                        )
+                                    };
+                                    let _ = p.send_event(AppEvent::LaunchAborted(abort_msg));
+                                    return;
+                                }
                             }
                         }
                     }
@@ -2010,6 +2035,7 @@ fn main() -> wry::Result<()> {
                     ctrl.game_running = running;
                     tray.set_game_running_mode(running);
                     if !running {
+                        ctrl.refresh_accounts_cache();
                         ctrl.pull_newer_watched_configs_and_reload();
                         if ctrl.curtain_active
                             || ctrl.hidden_in_tray
@@ -2023,6 +2049,7 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::GameCrashed(report) => {
                     ctrl.game_running = false;
+                    ctrl.refresh_accounts_cache();
                     ctrl.pull_newer_watched_configs_and_reload();
                     ctrl.restore_normal_window(&window, &webview, &tray);
                     ctrl.push_full_state(&webview);
@@ -2066,13 +2093,25 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::LaunchAborted(err_msg) => {
                     ctrl.game_running = false;
+                    ctrl.refresh_accounts_cache();
                     ctrl.restore_normal_window(&window, &webview, &tray);
                     ctrl.push_full_state(&webview);
-                    Controller::push_log(&webview, &format!("[ERREUR] {err_msg}"));
+                    let is_fr = ctrl.prefs.language == "fr";
+                    Controller::push_log(
+                        &webview,
+                        &format!(
+                            "[{}] {err_msg}",
+                            if is_fr { "ERREUR" } else { "ERROR" }
+                        ),
+                    );
                     Controller::push_crash(
                         &webview,
                         &CrashReportInfo {
-                            title: "Échec du lancement de Minecraft".to_owned(),
+                            title: if is_fr {
+                                "Échec du lancement de Minecraft".to_owned()
+                            } else {
+                                "Minecraft Launch Aborted".to_owned()
+                            },
                             summary: err_msg.clone(),
                             details: err_msg,
                             exit_code: None,

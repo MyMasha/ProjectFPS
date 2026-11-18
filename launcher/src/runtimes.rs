@@ -628,8 +628,14 @@ pub fn prepare_isolated_vulkan_jre(
 
     let vk_bin = vk_jre_root.join("bin");
     let vk_javaw = vk_bin.join("javaw.exe");
+    let vk_rt_jar = vk_jre_root.join("lib").join("rt.jar");
+    let vk_cacerts = vk_jre_root.join("lib").join("security").join("cacerts");
 
-    if current_stamp.trim() != expected_stamp.trim() || !vk_javaw.is_file() {
+    if current_stamp.trim() != expected_stamp.trim()
+        || !vk_javaw.is_file()
+        || !vk_rt_jar.is_file()
+        || !vk_cacerts.is_file()
+    {
         let _ = proxy.send_event(AppEvent::LogLine(
             "[Vulkan Bêta] Préparation de l'environnement Java 8 isolé Vulkan...".to_owned(),
         ));

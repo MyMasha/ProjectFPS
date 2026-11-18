@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Détection, contournement de Windows KnownDLLs (\KnownDlls\opengl32.dll) et liaison directe PE64 IAT
- * du backend de rendu MashClient 4.5.8 :
+ * du backend de rendu MashClient 4.5.9 :
  * - Standard : OpenGL natif (1.8.9 PureFPS)
  * - Bêta : Traduction OpenGL 4.6 -> Vulkan 1.3 via Mesa3D Zink (1.8.9 PureFPS Vulkan [Bêta])
  *
@@ -424,38 +424,48 @@ public final class VulkanBackendHelper {
 
                 File effectiveZinkFile = preparePatchedZinkDllFiles(dllFile);
                 File parentDir = effectiveZinkFile.getParentFile();
-                if (parentDir != null && parentDir.isDirectory()) {
-                    kernel32.SetDllDirectoryW(new WString(parentDir.getAbsolutePath()));
-                    String[] companions = new String[]{
-                            "vulkan-1.dll",
-                            "libglapi.dll",
-                            "libgallium_wgl.dll",
-                            "zink_dri.dll"
-                    };
-                    for (int i = 0; i < companions.length; i++) {
-                        File compFile = new File(parentDir, companions[i]);
-                        if (compFile.isFile() && compFile.length() > 1024L) {
-                            try {
-                                kernel32.LoadLibraryW(new WString(compFile.getAbsolutePath()));
-                            } catch (Throwable ignored) {
+                boolean dllDirChanged = false;
+                try {
+                    if (parentDir != null && parentDir.isDirectory()) {
+                        dllDirChanged = kernel32.SetDllDirectoryW(new WString(parentDir.getAbsolutePath()));
+                        String[] companions = new String[]{
+                                "vulkan-1.dll",
+                                "libglapi.dll",
+                                "libgallium_wgl.dll",
+                                "zink_dri.dll"
+                        };
+                        for (int i = 0; i < companions.length; i++) {
+                            File compFile = new File(parentDir, companions[i]);
+                            if (compFile.isFile() && compFile.length() > 1024L) {
+                                try {
+                                    kernel32.LoadLibraryW(new WString(compFile.getAbsolutePath()));
+                                } catch (Throwable ignored) {
+                                }
                             }
                         }
                     }
-                }
 
-                Pointer zinkHandle = kernel32.LoadLibraryW(new WString(effectiveZinkFile.getAbsolutePath()));
-                if (zinkHandle != null && Pointer.nativeValue(zinkHandle) != 0L) {
-                    zinkDllPreloaded = true;
-                    try {
-                        Sys.initialize();
-                    } catch (Throwable ignored) {
+                    Pointer zinkHandle = kernel32.LoadLibraryW(new WString(effectiveZinkFile.getAbsolutePath()));
+                    if (zinkHandle != null && Pointer.nativeValue(zinkHandle) != 0L) {
+                        zinkDllPreloaded = true;
+                        try {
+                            Sys.initialize();
+                        } catch (Throwable ignored) {
+                        }
+                        Pointer lwjglModule = kernel32.GetModuleHandleW(new WString("lwjgl64.dll"));
+                        if (lwjglModule == null || Pointer.nativeValue(lwjglModule) == 0L) {
+                            lwjglModule = kernel32.GetModuleHandleW(new WString("lwjgl.dll"));
+                        }
+                        if (lwjglModule != null && Pointer.nativeValue(lwjglModule) != 0L) {
+                            patchedIatSlotsCount = patchLoadedLwjglModuleInMemory(kernel32, lwjglModule, zinkHandle);
+                        }
                     }
-                    Pointer lwjglModule = kernel32.GetModuleHandleW(new WString("lwjgl64.dll"));
-                    if (lwjglModule == null || Pointer.nativeValue(lwjglModule) == 0L) {
-                        lwjglModule = kernel32.GetModuleHandleW(new WString("lwjgl.dll"));
-                    }
-                    if (lwjglModule != null && Pointer.nativeValue(lwjglModule) != 0L) {
-                        patchedIatSlotsCount = patchLoadedLwjglModuleInMemory(kernel32, lwjglModule, zinkHandle);
+                } finally {
+                    if (dllDirChanged) {
+                        try {
+                            kernel32.SetDllDirectoryW(null);
+                        } catch (Throwable ignored) {
+                        }
                     }
                 }
             }
