@@ -112,13 +112,15 @@ jobs:
           }
           Write-Host "Verified: MashClient.exe built and contains embedded Microsoft OAuth2 Client ID."
 
-      - name: Stage Mesa3D Zink x64 Bundle (mashclient-vulkan-zink-win64.zip)
+      - name: Stage Mesa3D Zink x64 Bundle & Release Artifacts
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = "Stop"
-          $outZip = "$env:RUNNER_TEMP\mashclient-vulkan-zink-win64.zip"
+          New-Item -ItemType Directory -Force -Path "artifact-stage" | Out-Null
+          Copy-Item "launcher/target/release/MashClient.exe" -Destination "artifact-stage/MashClient.exe" -Force
+          $outZip = "artifact-stage/mashclient-vulkan-zink-win64.zip"
           if ((Test-Path "dist/mashclient-vulkan-zink-win64.zip") -and ((Get-Item "dist/mashclient-vulkan-zink-win64.zip").Length -gt 65536)) {
             Copy-Item "dist/mashclient-vulkan-zink-win64.zip" -Destination $outZip -Force
             Write-Host "Staged tracked dist/mashclient-vulkan-zink-win64.zip."
@@ -143,8 +145,8 @@ jobs:
         with:
           name: launcher-win64
           path: |
-            launcher/target/release/MashClient.exe
-            ${{ runner.temp }}/mashclient-vulkan-zink-win64.zip
+            artifact-stage/MashClient.exe
+            artifact-stage/mashclient-vulkan-zink-win64.zip
           if-no-files-found: error
 
   publish-release:
@@ -175,13 +177,13 @@ jobs:
           set -euo pipefail
           TAG="${{ needs.build-mod.outputs.tag }}"
           VER="${{ needs.build-mod.outputs.version }}"
-          JAR_FILE="release-assets/purefps-${VER}.jar"
-          EXE_FILE="release-assets/MashClient.exe"
-          ZINK_FILE="release-assets/mashclient-vulkan-zink-win64.zip"
+          JAR_FILE="$(find release-assets -type f -name "purefps-${VER}.jar" | head -n 1)"
+          EXE_FILE="$(find release-assets -type f -name "MashClient.exe" | head -n 1)"
+          ZINK_FILE="$(find release-assets -type f -name "mashclient-vulkan-zink-win64.zip" | head -n 1)"
 
-          test -s "$JAR_FILE"
-          test -s "$EXE_FILE"
-          test -s "$ZINK_FILE"
+          test -n "$JAR_FILE" && test -s "$JAR_FILE"
+          test -n "$EXE_FILE" && test -s "$EXE_FILE"
+          test -n "$ZINK_FILE" && test -s "$ZINK_FILE"
 
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" --clobber --repo "${{ github.repository }}"
