@@ -138,7 +138,7 @@ public abstract class MixinFontRenderer {
      * @reason Batching zéro-allocation des glyphes ASCII via FastFontBatcher (supprime glBegin/glEnd par caractère et CallbackInfoReturnable)
      */
     @Overwrite
-    private float renderDefaultChar(int ch, boolean italic) {
+    protected float renderDefaultChar(int ch, boolean italic) {
         int col = (ch & 15) * 8;
         int row = (ch >>> 4) * 8;
         float italicOff = italic ? 1.0F : 0.0F;

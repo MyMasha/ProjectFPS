@@ -680,11 +680,31 @@ pub fn parse_in_mod_hang_dump(text: &str) -> ParsedHangDump {
 
 pub fn extract_stack_lines_from_text(text: &str) -> Vec<String> {
     let mut out = Vec::new();
+    let mut take_next_native_frame = false;
     for line in text.lines() {
         let t = line.trim();
+        if take_next_native_frame {
+            take_next_native_frame = false;
+            if !t.is_empty() {
+                out.push(line.to_owned());
+                if out.len() >= 80 {
+                    break;
+                }
+                continue;
+            }
+        }
+        if t.starts_with("# Problematic frame:") {
+            out.push(line.to_owned());
+            if t.trim_start_matches("# Problematic frame:").trim().is_empty() {
+                take_next_native_frame = true;
+            }
+            if out.len() >= 80 {
+                break;
+            }
+            continue;
+        }
         if t.starts_with("at ")
             || t.starts_with("Caused by:")
-            || t.starts_with("# Problematic frame:")
             || t.starts_with("Description:")
             || ((t.contains("Exception") || t.contains("Error")) && t.len() < 260)
         {
@@ -700,13 +720,23 @@ pub fn extract_stack_lines_from_text(text: &str) -> Vec<String> {
 pub fn extract_crash_location_from_text(text: &str) -> Option<String> {
     let mut first_exc: Option<String> = None;
     let mut first_frame: Option<String> = None;
+    let mut expect_next_problematic_frame = false;
     for line in text.lines() {
         let t = line.trim();
+        if expect_next_problematic_frame {
+            expect_next_problematic_frame = false;
+            let cleaned = t.trim_start_matches('#').trim();
+            if !cleaned.is_empty() {
+                return Some(format!("Crash natif JVM/Pilote : {cleaned}"));
+            }
+        }
         if let Some(frame) = t.strip_prefix("# Problematic frame:") {
             let f = frame.trim();
             if !f.is_empty() {
                 return Some(format!("Crash natif JVM/Pilote : {f}"));
             }
+            expect_next_problematic_frame = true;
+            continue;
         }
         if first_exc.is_none()
             && !t.starts_with("at ")
