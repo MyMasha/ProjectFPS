@@ -1,5 +1,5 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.11 (OpenGL & Vulkan Bêta).
-//! - Synchronise automatiquement `purefps-4.5.11.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.12 (OpenGL & Vulkan Bêta).
+//! - Synchronise automatiquement `purefps-4.5.12.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Télécharge ou récupère automatiquement les bibliothèques Forge 1.8.9, `minecraft-1.8.9-client.jar` et l'index d'assets `1.8.json`
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
 //! - Isolat dédié pour le mode Vulkan (Bêta) via Mesa3D Zink (`javaw.exe.local` + `GALLIUM_DRIVER=zink`)
@@ -28,10 +28,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.11.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.12.jar";
 const MAX_LIBRARY_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_NATIVE_DLL_BYTES: u64 = 32 * 1024 * 1024;
-const EXPECTED_MC_189_CLIENT_SHA1: &str = "3870888a6c3d349d37e1a1e9d16c9bf5c076b9c8";
+const EXPECTED_MC_189_CLIENT_SHA1: &str = "3870888a6c3d349d3771a3e9d16c9bf5e076b908";
 const EXPECTED_ASSET_INDEX_18_SHA1: &str = "f6ad102bcaa53b1a58358f16e376d548d44933ec";
 const EXPECTED_LOG4J_API_FIXED_SHA1: &str = "b61eaf2e64d8b0277e188262a8b771bbfa1502b3";
 const EXPECTED_LOG4J_CORE_FIXED_SHA1: &str = "677991ea2d7426f76309a73739cecf609679492c";
@@ -437,7 +437,7 @@ fn download_file_to_path(
     }
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.11")
+        .set("User-Agent", "MashClient/4.5.12")
         .call()
         .map_err(|e| format!("Download failed for {url}: {e}"))?;
     if let Some(cl) = resp
@@ -625,11 +625,11 @@ pub fn ensure_standalone_189_files(
         let mut candidate_urls: Vec<String> = Vec::new();
         if rel_url.ends_with("minecraft-1.8.9-client.jar") {
             candidate_urls.push(
-                "https://piston-data.mojang.com/v1/objects/3870888a6c3d349d37e1a1e9d16c9bf5c076b9c8/client.jar"
+                "https://piston-data.mojang.com/v1/objects/3870888a6c3d349d3771a3e9d16c9bf5e076b908/client.jar"
                     .to_owned(),
             );
             candidate_urls.push(
-                "https://launcher.mojang.com/v1/objects/3870888a6c3d349d37e1a1e9d16c9bf5c076b9c8/client.jar"
+                "https://launcher.mojang.com/v1/objects/3870888a6c3d349d3771a3e9d16c9bf5e076b908/client.jar"
                     .to_owned(),
             );
         } else if rel_url.ends_with("log4j-api-2.0-beta9-fixed.jar") {
@@ -715,12 +715,21 @@ pub fn ensure_standalone_189_files(
             let _ = proxy.send_event(AppEvent::LogLine(
                 "[MashClient] Downloading asset index 1.8.json...".to_owned(),
             ));
-            let _ = download_file_to_path(
+            if download_file_to_path(
                 agent,
                 "https://piston-meta.mojang.com/v1/packages/f6ad102bcaa53b1a58358f16e376d548d44933ec/1.8.json",
                 &index_dst,
                 Some(EXPECTED_ASSET_INDEX_18_SHA1),
-            );
+            )
+            .is_err()
+            {
+                let _ = download_file_to_path(
+                    agent,
+                    "https://launchermeta.mojang.com/v1/packages/f6ad102bcaa53b1a58358f16e376d548d44933ec/1.8.json",
+                    &index_dst,
+                    Some(EXPECTED_ASSET_INDEX_18_SHA1),
+                );
+            }
         }
     }
 
@@ -1453,7 +1462,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.11 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.12 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\

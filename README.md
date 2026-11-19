@@ -18,7 +18,7 @@ Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://
 
 2. **Mod seul (`purefps-*.jar`)**
    - Installez **Minecraft Forge 1.8.9** (`11.15.1.2318`).
-   - Placez `purefps-4.5.11.jar` dans votre dossier `.minecraft/mods/`.
+   - Placez `purefps-4.5.12.jar` dans votre dossier `.minecraft/mods/`.
 
 ---
 
@@ -90,7 +90,7 @@ Si vos JDK ne sont pas dans les emplacements standards détectés automatiquemen
   -Porg.gradle.java.installations.paths=/chemin/vers/jdk8,/chemin/vers/jdk17
 ```
 
-Le fichier final obfusqué est généré dans `build/libs/purefps-4.5.11.jar`.
+Le fichier final obfusqué est généré dans `build/libs/purefps-4.5.12.jar`.
 
 ### 2. Launcher Windows (`MashClient.exe`)
 
