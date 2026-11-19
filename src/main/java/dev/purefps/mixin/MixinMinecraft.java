@@ -32,7 +32,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.5.10) :
+ * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.5.11) :
  * 1. Supprime les 2 appels bloquants GL11.glGetError() par frame dans checkGLError.
  * 2. Régule la file GPU sans spin (1-frame-in-flight GLSync) et maintient la composition DWM fenêtrée (+1 px)
  *    pour éliminer tout freeze des streams Discord, captures Win+Shift+S et pointeurs Windows personnalisés.
@@ -195,7 +195,7 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.10"));
+            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.11"));
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
     }

@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
- * Pont de session éphémère MashClient 4.5.10 :
+ * Pont de session éphémère MashClient 4.5.11 :
  * Lit le jeton d'accès Minecraft depuis un fichier temporaire privé (permissions restreintes)
  * désigné par la variable d'environnement {@code MASHCLIENT_SESSION_TOKEN_FILE}, puis écrase et
  * supprime immédiatement ce fichier afin d'éviter l'exposition du {@code --accessToken} dans la
