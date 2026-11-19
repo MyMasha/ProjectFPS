@@ -156,29 +156,44 @@ public abstract class MixinVertexBuffer implements FastVertexBuffer {
 
         int byteLimit = byteBuffer.limit();
         int quadVertexCount = byteLimit / 28;
-        int triVertexCount = (quadVertexCount >> 2) * 6;
-        this.count = triVertexCount;
-        if (triVertexCount <= 0) {
+        if (quadVertexCount <= 0) {
+            this.count = 0;
             this.purefps$allocatedBytes = 0;
-            this.purefps$antiSeamReady = true;
+            this.purefps$antiSeamReady = false;
             ci.cancel();
             return;
         }
 
-        ByteBuffer uploadBuf = ChunkRegionManager.prepareChunkTrianglesBuffer(byteBuffer, quadVertexCount);
+        boolean useIndexedQuads = dev.purefps.core.QuadIndexBuffer.isSupported() && (quadVertexCount & 3) == 0;
+        ByteBuffer uploadBuf;
+        if (useIndexedQuads) {
+            this.count = quadVertexCount;
+            uploadBuf = ChunkRegionManager.prepareChunkAntiSeamBuffer(byteBuffer, quadVertexCount);
+            this.purefps$antiSeamReady = false;
+        } else {
+            int triVertexCount = (quadVertexCount >> 2) * 6;
+            this.count = triVertexCount;
+            if (triVertexCount <= 0) {
+                this.purefps$allocatedBytes = 0;
+                this.purefps$antiSeamReady = true;
+                ci.cancel();
+                return;
+            }
+            uploadBuf = ChunkRegionManager.prepareChunkTrianglesBuffer(byteBuffer, quadVertexCount);
+            this.purefps$antiSeamReady = true;
+        }
+
         int uploadBytes = uploadBuf.limit();
 
         this.bindBuffer();
         if (this.purefps$allocatedBytes > 0) {
-            // Orphaning explicite : détache l'ancienne page VRAM si le GPU lit encore la frame précédente
-            GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, (long) uploadBytes, GL15.GL_DYNAMIC_DRAW);
-            GL15.glBufferSubData(OpenGlHelper.GL_ARRAY_BUFFER, 0L, uploadBuf);
+            // Orphaning explicite en 1 appel JNI : détache l'ancienne page VRAM si le GPU lit encore la frame précédente
+            OpenGlHelper.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, uploadBuf, GL15.GL_DYNAMIC_DRAW);
         } else {
             OpenGlHelper.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, uploadBuf, GL15.GL_STATIC_DRAW);
         }
         this.purefps$allocatedBytes = uploadBytes;
         this.unbindBuffer();
-        this.purefps$antiSeamReady = true;
         ci.cancel();
     }
 

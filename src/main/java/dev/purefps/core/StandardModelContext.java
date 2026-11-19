@@ -19,6 +19,7 @@ public final class StandardModelContext {
             };
 
     public final BitSet boundsFlags = new BitSet(3);
+    public final BitSet aoBoundsFlags = new BitSet(3);
     public final BlockPos.MutableBlockPos offsetPos = new BlockPos.MutableBlockPos();
 
     private StandardModelContext() {
@@ -28,5 +29,11 @@ public final class StandardModelContext {
         StandardModelContext ctx = LOCAL.get();
         ctx.boundsFlags.clear();
         return ctx;
+    }
+
+    public static BitSet getAoBoundsFlags() {
+        StandardModelContext ctx = LOCAL.get();
+        ctx.aoBoundsFlags.clear();
+        return ctx.aoBoundsFlags;
     }
 }

@@ -97,20 +97,25 @@ public final class FastScoreboardRenderer {
         drawScoreboardBackground(bgLeftX, headerTopY, headerBottomY, rightX, bottomY);
 
         int titleX = leftX + maxWidth / 2 - font.getStringWidth(title) / 2;
-        font.drawString(title, titleX, topRowY - fontHeight, 553648127);
+        FastFontBatcher.beginOuterBatch();
+        try {
+            font.drawString(title, titleX, topRowY - fontHeight, 553648127);
 
-        for (int i = 0; i < count; i++) {
-            int rowY = bottomY - (i + 1) * fontHeight;
-            String name = DISPLAY_NAMES[i];
-            String pts = DISPLAY_POINTS[i];
-            font.drawString(name, leftX, rowY, 553648127);
-            if (!hideNumbers && !pts.isEmpty()) {
-                font.drawString(pts, rightX - font.getStringWidth(pts), rowY, 553648127);
+            for (int i = 0; i < count; i++) {
+                int rowY = bottomY - (i + 1) * fontHeight;
+                String name = DISPLAY_NAMES[i];
+                String pts = DISPLAY_POINTS[i];
+                font.drawString(name, leftX, rowY, 553648127);
+                if (!hideNumbers && !pts.isEmpty()) {
+                    font.drawString(pts, rightX - font.getStringWidth(pts), rowY, 553648127);
+                }
+
+                DISPLAY_SCORES[i] = null;
+                DISPLAY_NAMES[i] = null;
+                DISPLAY_POINTS[i] = null;
             }
-
-            DISPLAY_SCORES[i] = null;
-            DISPLAY_NAMES[i] = null;
-            DISPLAY_POINTS[i] = null;
+        } finally {
+            FastFontBatcher.endOuterBatch();
         }
     }
 

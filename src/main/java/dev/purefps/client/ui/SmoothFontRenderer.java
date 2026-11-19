@@ -336,11 +336,11 @@ public final class SmoothFontRenderer {
             return;
         }
         if (this.batching) {
-            emitVertices(Tessellator.getInstance().getWorldRenderer(), text, x, y, argb, false);
+            emitVertices(Tessellator.getInstance().getWorldRenderer(), text, x, y, 1.0F, argb, false);
             return;
         }
         beginSingleDraw();
-        emitVertices(Tessellator.getInstance().getWorldRenderer(), text, x, y, argb, false);
+        emitVertices(Tessellator.getInstance().getWorldRenderer(), text, x, y, 1.0F, argb, false);
         finishSingleDraw();
     }
 
@@ -359,15 +359,58 @@ public final class SmoothFontRenderer {
 
         if (this.batching) {
             WorldRenderer wr = Tessellator.getInstance().getWorldRenderer();
-            emitVertices(wr, text, x + shOff, y + shOff, shadowArgb, true);
-            emitVertices(wr, text, x, y, argb, false);
+            emitVertices(wr, text, x + shOff, y + shOff, 1.0F, shadowArgb, true);
+            emitVertices(wr, text, x, y, 1.0F, argb, false);
             return;
         }
 
         beginSingleDraw();
         WorldRenderer wr = Tessellator.getInstance().getWorldRenderer();
-        emitVertices(wr, text, x + shOff, y + shOff, shadowArgb, true);
-        emitVertices(wr, text, x, y, argb, false);
+        emitVertices(wr, text, x + shOff, y + shOff, 1.0F, shadowArgb, true);
+        emitVertices(wr, text, x, y, 1.0F, argb, false);
+        finishSingleDraw();
+    }
+
+    /**
+     * Dessine une chaîne mise à l'échelle directement dans le lot actif (0 pushMatrix, 0 changement de draw call).
+     */
+    public void drawBatchedScaled(String text, float x, float y, float scale, int argb, boolean shadow, boolean centered) {
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        float s = scale > 0.01F ? scale : 1.0F;
+        float drawX = centered ? (x - getStringWidth(text) * 0.5F * s) : x;
+        if (!shadow) {
+            if (this.batching) {
+                emitVertices(Tessellator.getInstance().getWorldRenderer(), text, drawX, y, s, argb, false);
+                return;
+            }
+            beginSingleDraw();
+            emitVertices(Tessellator.getInstance().getWorldRenderer(), text, drawX, y, s, argb, false);
+            finishSingleDraw();
+            return;
+        }
+
+        int baseAlpha = ((argb >>> 24) & 0xFF);
+        if (baseAlpha == 0) {
+            baseAlpha = 255;
+            argb |= 0xFF000000;
+        }
+        int shadowAlpha = (baseAlpha * 115) / 255;
+        int shadowArgb = (shadowAlpha << 24) | 0x05070D;
+        float shOff = (1.65F / this.scaleDivisor) * s;
+
+        if (this.batching) {
+            WorldRenderer wr = Tessellator.getInstance().getWorldRenderer();
+            emitVertices(wr, text, drawX + shOff, y + shOff, s, shadowArgb, true);
+            emitVertices(wr, text, drawX, y, s, argb, false);
+            return;
+        }
+
+        beginSingleDraw();
+        WorldRenderer wr = Tessellator.getInstance().getWorldRenderer();
+        emitVertices(wr, text, drawX + shOff, y + shOff, s, shadowArgb, true);
+        emitVertices(wr, text, drawX, y, s, argb, false);
         finishSingleDraw();
     }
 
@@ -402,7 +445,7 @@ public final class SmoothFontRenderer {
         GlStateManager.enableAlpha();
     }
 
-    private void emitVertices(WorldRenderer wr, String text, float x, float y, int argb, boolean ignoreColorCodes) {
+    private void emitVertices(WorldRenderer wr, String text, float x, float y, float scale, int argb, boolean ignoreColorCodes) {
         text = dev.purefps.core.FastFontCaches.applyNickHider(text);
         int alphaInt = (argb >>> 24) & 0xFF;
         if (alphaInt == 0) {
@@ -412,9 +455,9 @@ public final class SmoothFontRenderer {
         int curG = (argb >>> 8) & 0xFF;
         int curB = argb & 0xFF;
 
-        float padOffset = (4.0F * 0.5F) / this.scaleDivisor;
+        float padOffset = ((4.0F * 0.5F) / this.scaleDivisor) * scale;
         float cursorX = x;
-        float cursorY = y - (3.0F / this.scaleDivisor);
+        float cursorY = y - (3.0F / this.scaleDivisor) * scale;
 
         int len = text.length();
         for (int i = 0; i < len; i++) {
@@ -437,15 +480,15 @@ public final class SmoothFontRenderer {
             }
             float gx0 = cursorX - padOffset;
             float gy0 = cursorY;
-            float gx1 = gx0 + g.widthGui;
-            float gy1 = gy0 + g.heightGui;
+            float gx1 = gx0 + g.widthGui * scale;
+            float gy1 = gy0 + g.heightGui * scale;
 
             wr.pos(gx0, gy1, 0.0D).tex(g.u0, g.v1).color(curR, curG, curB, alphaInt).endVertex();
             wr.pos(gx1, gy1, 0.0D).tex(g.u1, g.v1).color(curR, curG, curB, alphaInt).endVertex();
             wr.pos(gx1, gy0, 0.0D).tex(g.u1, g.v0).color(curR, curG, curB, alphaInt).endVertex();
             wr.pos(gx0, gy0, 0.0D).tex(g.u0, g.v0).color(curR, curG, curB, alphaInt).endVertex();
 
-            cursorX += g.advanceGui;
+            cursorX += g.advanceGui * scale;
         }
     }
 

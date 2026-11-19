@@ -13,6 +13,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.ContextCapabilities;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GLContext;
 
@@ -116,6 +117,8 @@ public final class NanoUiRenderer {
     private static int attrBorderCol = -1;
 
     private static ByteBuffer batchBuffer = null;
+    private static int streamingVboId = -1;
+    private static boolean vboFailed = false;
     private static int batchedVertices = 0;
     private static float cachedScaleFactor = 2.0F;
     private static float savedScaleBeforeDesktop = 2.0F;
@@ -289,8 +292,28 @@ public final class NanoUiRenderer {
         GlStateManager.disableCull();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 
+        int uploadBytes = vertCount * VERTEX_STRIDE_BYTES;
+        buf.position(0);
+        buf.limit(uploadBytes);
+
+        boolean useStreamingVbo = false;
+        if (!vboFailed && OpenGlHelper.vboSupported) {
+            try {
+                if (streamingVboId <= 0) {
+                    streamingVboId = OpenGlHelper.glGenBuffers();
+                }
+                if (streamingVboId > 0) {
+                    OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, streamingVboId);
+                    OpenGlHelper.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, buf, GL15.GL_STREAM_DRAW);
+                    useStreamingVbo = true;
+                }
+            } catch (Exception | LinkageError ignored) {
+                vboFailed = true;
+                OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
+            }
+        }
         // Critique avec VBO Minecraft actif : délier GL_ARRAY_BUFFER avant de passer un ByteBuffer client !
-        if (OpenGlHelper.useVbo()) {
+        if (!useStreamingVbo && OpenGlHelper.useVbo()) {
             OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
         }
 
@@ -302,25 +325,32 @@ public final class NanoUiRenderer {
         GL20.glEnableVertexAttribArray(attrFillBot);
         GL20.glEnableVertexAttribArray(attrBorderCol);
 
-        buf.limit(vertCount * VERTEX_STRIDE_BYTES);
+        if (useStreamingVbo) {
+            GL20.glVertexAttribPointer(attrPos, 2, GL11.GL_FLOAT, false, VERTEX_STRIDE_BYTES, 0L);
+            GL20.glVertexAttribPointer(attrLocalHalf, 4, GL11.GL_FLOAT, false, VERTEX_STRIDE_BYTES, 8L);
+            GL20.glVertexAttribPointer(attrParams, 3, GL11.GL_FLOAT, false, VERTEX_STRIDE_BYTES, 24L);
+            GL20.glVertexAttribPointer(attrFillTop, 4, GL11.GL_UNSIGNED_BYTE, true, VERTEX_STRIDE_BYTES, 36L);
+            GL20.glVertexAttribPointer(attrFillBot, 4, GL11.GL_UNSIGNED_BYTE, true, VERTEX_STRIDE_BYTES, 40L);
+            GL20.glVertexAttribPointer(attrBorderCol, 4, GL11.GL_UNSIGNED_BYTE, true, VERTEX_STRIDE_BYTES, 44L);
+        } else {
+            buf.position(0);
+            GL20.glVertexAttribPointer(attrPos, 2, GL11.GL_FLOAT, false, VERTEX_STRIDE_BYTES, buf);
 
-        buf.position(0);
-        GL20.glVertexAttribPointer(attrPos, 2, GL11.GL_FLOAT, false, VERTEX_STRIDE_BYTES, buf);
+            buf.position(8);
+            GL20.glVertexAttribPointer(attrLocalHalf, 4, GL11.GL_FLOAT, false, VERTEX_STRIDE_BYTES, buf);
 
-        buf.position(8);
-        GL20.glVertexAttribPointer(attrLocalHalf, 4, GL11.GL_FLOAT, false, VERTEX_STRIDE_BYTES, buf);
+            buf.position(24);
+            GL20.glVertexAttribPointer(attrParams, 3, GL11.GL_FLOAT, false, VERTEX_STRIDE_BYTES, buf);
 
-        buf.position(24);
-        GL20.glVertexAttribPointer(attrParams, 3, GL11.GL_FLOAT, false, VERTEX_STRIDE_BYTES, buf);
+            buf.position(36);
+            GL20.glVertexAttribPointer(attrFillTop, 4, GL11.GL_UNSIGNED_BYTE, true, VERTEX_STRIDE_BYTES, buf);
 
-        buf.position(36);
-        GL20.glVertexAttribPointer(attrFillTop, 4, GL11.GL_UNSIGNED_BYTE, true, VERTEX_STRIDE_BYTES, buf);
+            buf.position(40);
+            GL20.glVertexAttribPointer(attrFillBot, 4, GL11.GL_UNSIGNED_BYTE, true, VERTEX_STRIDE_BYTES, buf);
 
-        buf.position(40);
-        GL20.glVertexAttribPointer(attrFillBot, 4, GL11.GL_UNSIGNED_BYTE, true, VERTEX_STRIDE_BYTES, buf);
-
-        buf.position(44);
-        GL20.glVertexAttribPointer(attrBorderCol, 4, GL11.GL_UNSIGNED_BYTE, true, VERTEX_STRIDE_BYTES, buf);
+            buf.position(44);
+            GL20.glVertexAttribPointer(attrBorderCol, 4, GL11.GL_UNSIGNED_BYTE, true, VERTEX_STRIDE_BYTES, buf);
+        }
 
         GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, vertCount);
 
@@ -331,6 +361,9 @@ public final class NanoUiRenderer {
         GL20.glDisableVertexAttribArray(attrLocalHalf);
         GL20.glDisableVertexAttribArray(attrPos);
         GL20.glUseProgram(0);
+        if (useStreamingVbo) {
+            OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
+        }
         GlStateManager.enableCull();
         GlStateManager.enableAlpha();
 

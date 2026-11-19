@@ -7,21 +7,16 @@ import org.lwjgl.opengl.GL32;
 import org.lwjgl.opengl.GLContext;
 import org.lwjgl.opengl.GLSync;
 
-import java.util.concurrent.locks.LockSupport;
-
 /**
- * Régulateur matériel de file d'attente GPU sans attente active (1-Frame-In-Flight GLSync non-bloquant) :
- * - Empêche le thread de rendu OpenGL d'empiler 3 à 5 frames d'avance dans l'ordonnanceur Windows WDDM.
- * - N'appelle jamais glClientWaitSync avec un timeout > 0 (qui provoque un busy-spin CPU à 100 % dans
- *   nvoglv64.dll et gèle les streams Discord / DWM) : sonde en 0 ns puis cède proprement le cœur CPU
- *   par tranches LockSupport.parkNanos uniquement lorsque le GPU est réellement saturé.
+ * Régulateur léger de file GPU :
+ * - En jeu normal (>= 62 FPS) ou sous Vulkan, laisse le pipeline 100 % libre sans jamais appeler
+ *   LockSupport.parkNanos (qui dort 1 à 15.6 ms sous Windows et bride les FPS entre 60 et 285 FPS).
+ * - Uniquement si le GPU est sévèrement saturé (< 62 FPS), sonde la fence N-2 sans flush bloquant
+ *   et cède brièvement par Thread.yield() (<= 60 µs max).
  */
 public final class GpuFramePacer {
 
-    private static final long MAX_PARK_BUDGET_NS = 4_000_000L;
-    private static final long SPIN_YIELD_BUDGET_NS = 120_000L;
-    private static final long PARK_SLICE_NS = 150_000L;
-    private static final long HIGH_FPS_BYPASS_NS = 3_500_000L; // > 285 FPS : pipeline libre
+    private static final long HIGH_FPS_BYPASS_NS = 16_000_000L; // >= ~62 FPS : pipeline libre
 
     // 0 = non testé, 1 = OpenGL 3.2 natif, 2 = GL_ARB_sync, -1 = indisponible
     private static int syncBackend = 0;
@@ -54,12 +49,6 @@ public final class GpuFramePacer {
         return syncBackend;
     }
 
-    /**
-     * Appelé juste après Display.update() à la fin de chaque frame :
-     * - Anneau 2-Frames-In-Flight (attend la clôture de N-2 pendant que N-1 s'exécute en parallèle sur le GPU)
-     *   afin d'assurer 100 % de parallélisme CPU/GPU sous Vulkan (Zink) et OpenGL tout en empêchant l'accumulation
-     *   de frames d'avance (zéro délai clavier/souris).
-     */
     public static void onFramePresented() {
         if (!Display.isCreated()) {
             oldestFrameFence = null;
@@ -85,44 +74,19 @@ public final class GpuFramePacer {
         }
         try {
             if (oldestFrameFence != null) {
+                long deadline = System.nanoTime() + 60_000L;
                 if (backend == 1) {
-                    int status = GL32.glClientWaitSync(oldestFrameFence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
-                    if (status == GL32.GL_TIMEOUT_EXPIRED) {
-                        long startWait = System.nanoTime();
-                        long spinDeadline = startWait + SPIN_YIELD_BUDGET_NS;
-                        long deadline = startWait + MAX_PARK_BUDGET_NS;
-                        while (status == GL32.GL_TIMEOUT_EXPIRED) {
-                            long t = System.nanoTime();
-                            if (t >= deadline) {
-                                break;
-                            }
-                            if (t < spinDeadline) {
-                                Thread.yield();
-                            } else {
-                                LockSupport.parkNanos(PARK_SLICE_NS);
-                            }
-                            status = GL32.glClientWaitSync(oldestFrameFence, 0, 0L);
-                        }
+                    int status = GL32.glClientWaitSync(oldestFrameFence, 0, 0L);
+                    while (status == GL32.GL_TIMEOUT_EXPIRED && System.nanoTime() < deadline) {
+                        Thread.yield();
+                        status = GL32.glClientWaitSync(oldestFrameFence, 0, 0L);
                     }
                     GL32.glDeleteSync(oldestFrameFence);
                 } else {
-                    int status = ARBSync.glClientWaitSync(oldestFrameFence, ARBSync.GL_SYNC_FLUSH_COMMANDS_BIT, 0L);
-                    if (status == ARBSync.GL_TIMEOUT_EXPIRED) {
-                        long startWait = System.nanoTime();
-                        long spinDeadline = startWait + SPIN_YIELD_BUDGET_NS;
-                        long deadline = startWait + MAX_PARK_BUDGET_NS;
-                        while (status == ARBSync.GL_TIMEOUT_EXPIRED) {
-                            long t = System.nanoTime();
-                            if (t >= deadline) {
-                                break;
-                            }
-                            if (t < spinDeadline) {
-                                Thread.yield();
-                            } else {
-                                LockSupport.parkNanos(PARK_SLICE_NS);
-                            }
-                            status = ARBSync.glClientWaitSync(oldestFrameFence, 0, 0L);
-                        }
+                    int status = ARBSync.glClientWaitSync(oldestFrameFence, 0, 0L);
+                    while (status == ARBSync.GL_TIMEOUT_EXPIRED && System.nanoTime() < deadline) {
+                        Thread.yield();
+                        status = ARBSync.glClientWaitSync(oldestFrameFence, 0, 0L);
                     }
                     ARBSync.glDeleteSync(oldestFrameFence);
                 }
@@ -133,7 +97,7 @@ public final class GpuFramePacer {
             if (backend == 1) {
                 previousFrameFence = GL32.glFenceSync(GL32.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
             } else {
-                previousFrameFence = ARBSync.glFenceSync(ARBSync.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+                previousFrameFence = ARBSync.glFenceSync(GL32.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
             }
         } catch (Exception | LinkageError t) {
             oldestFrameFence = null;

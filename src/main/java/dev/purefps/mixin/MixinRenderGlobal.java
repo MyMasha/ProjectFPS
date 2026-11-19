@@ -165,13 +165,6 @@ public class MixinRenderGlobal {
         }
     }
 
-    @Inject(method = "renderClouds", at = @At("HEAD"), cancellable = true)
-    private void purefps$skipCloudsWhenMenuOpen(float partialTicks, int pass, CallbackInfo ci) {
-        if (MenuUnloadManager.isWorldDimmedByMenu(this.mc)) {
-            ci.cancel();
-        }
-    }
-
     @Inject(method = "setupTerrain", at = @At("HEAD"))
     private void purefps$captureCameraAndFilterMicroJitter(
             Entity viewEntity,

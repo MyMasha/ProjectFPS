@@ -48,8 +48,10 @@ jobs:
         with:
           workspaces: launcher
 
-      - name: Build & Test Launcher (without secrets)
+      - name: Test Launcher (Rust unit tests)
         working-directory: launcher
-        run: |
-          cargo test
-          cargo build --release
+        run: cargo test
+
+      - name: Build Launcher (release without secrets)
+        working-directory: launcher
+        run: cargo build --release

@@ -47,6 +47,7 @@ public abstract class MixinThreadDownloadImageData extends SimpleTexture {
             }
             TextureUtil.uploadTextureImage(super.getGlTextureId(), this.bufferedImage);
             this.textureUploaded = true;
+            this.bufferedImage = null;
         }
     }
 }

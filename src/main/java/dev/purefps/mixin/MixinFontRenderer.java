@@ -1,6 +1,7 @@
 package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
+import dev.purefps.core.FastFontBatcher;
 import dev.purefps.core.FastFontCaches;
 import dev.purefps.core.FastSkullCache;
 import net.minecraft.client.gui.FontRenderer;
@@ -19,14 +20,15 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Locale;
 
 /**
- * Optimise massivement FontRenderer sans AUCUNE allocation CallbackInfo par chaîne/caractère :
+ * Optimise massivement FontRenderer sans AUCUNE perte visuelle :
  * 1. @Overwrite zéro-allocation sur getStringWidth(String) (cache O(1) ~2 ns sur Scoreboard, Tab, Chat, Nametags).
- * 2. @Redirect sur renderDefaultChar liant directement l'ID OpenGL de la police ASCII via GlStateManager.bindTexture(int)
- *    (élimine 1000+ HashMap.get(locationFontTexture) par frame sur Hypixel).
+ * 2. Batching complet des glyphes ASCII via FastFontBatcher (1 seul glDrawArrays(GL_TRIANGLES) en VBO streaming
+ *    par chaîne ou par lot Scoreboard, au lieu de 400 à 1 500 glBegin(GL_TRIANGLE_STRIP)/glEnd() par frame !).
  * 3. Supprime l'allocation String.toLowerCase(Locale.ENGLISH) exécutée à chaque code couleur '§'.
  * 4. Applique le module Nick Hider (hyp_nick_hider) globalement sur tous les textes rendus.
  */
@@ -41,6 +43,21 @@ public abstract class MixinFontRenderer {
     @Final
     private TextureManager renderEngine;
 
+    @Shadow
+    protected int[] charWidth;
+
+    @Shadow
+    protected float posX;
+
+    @Shadow
+    protected float posY;
+
+    @Shadow
+    private boolean strikethroughStyle;
+
+    @Shadow
+    private boolean underlineStyle;
+
     @Shadow(remap = false)
     protected abstract void bindTexture(ResourceLocation location);
 
@@ -53,16 +70,135 @@ public abstract class MixinFontRenderer {
     @Unique
     private int purefps$asciiGlTextureId = -1;
 
+    @Unique
+    private int purefps$stringBatchDepth = 0;
+
+    @Unique
+    private float purefps$curR = 1.0F;
+    @Unique
+    private float purefps$curG = 1.0F;
+    @Unique
+    private float purefps$curB = 1.0F;
+    @Unique
+    private float purefps$curA = 1.0F;
+
     @Inject(method = "onResourceManagerReload", at = @At("RETURN"))
     private void purefps$clearCacheOnReload(IResourceManager resourceManager, CallbackInfo ci) {
         this.purefps$widthCache.clear();
         this.purefps$asciiGlTextureId = -1;
+        FastFontBatcher.invalidateGlState();
         FastSkullCache.clear();
     }
 
     @Inject(method = "setUnicodeFlag", at = @At("HEAD"))
     private void purefps$clearCacheOnUnicodeChange(boolean flag, CallbackInfo ci) {
         this.purefps$widthCache.clear();
+    }
+
+    @Inject(method = "setColor", at = @At("HEAD"), remap = false)
+    private void purefps$trackCurrentColor(float r, float g, float b, float a, CallbackInfo ci) {
+        this.purefps$curR = r;
+        this.purefps$curG = g;
+        this.purefps$curB = b;
+        this.purefps$curA = a;
+    }
+
+    @Inject(method = "drawString(Ljava/lang/String;FFIZ)I", at = @At("HEAD"))
+    private void purefps$beginDrawStringBatch(String text, float x, float y, int color, boolean dropShadow, CallbackInfoReturnable<Integer> cir) {
+        this.purefps$stringBatchDepth++;
+    }
+
+    @Inject(method = "drawString(Ljava/lang/String;FFIZ)I", at = @At("RETURN"))
+    private void purefps$endDrawStringBatch(String text, float x, float y, int color, boolean dropShadow, CallbackInfoReturnable<Integer> cir) {
+        if (this.purefps$stringBatchDepth > 0) {
+            this.purefps$stringBatchDepth--;
+        }
+        if (this.purefps$stringBatchDepth == 0 && !FastFontBatcher.isOuterBatchActive()) {
+            FastFontBatcher.flushIfPending();
+        }
+    }
+
+    @Inject(method = "renderStringAtPos", at = @At("HEAD"))
+    private void purefps$beginRenderStringAtPos(String text, boolean shadow, CallbackInfo ci) {
+        this.purefps$stringBatchDepth++;
+    }
+
+    @Inject(method = "renderStringAtPos", at = @At("RETURN"))
+    private void purefps$endRenderStringAtPos(String text, boolean shadow, CallbackInfo ci) {
+        if (this.purefps$stringBatchDepth > 0) {
+            this.purefps$stringBatchDepth--;
+        }
+        if (this.purefps$stringBatchDepth == 0 && !FastFontBatcher.isOuterBatchActive()) {
+            FastFontBatcher.flushIfPending();
+        }
+    }
+
+    /**
+     * @author MashClient
+     * @reason Batching zéro-allocation des glyphes ASCII via FastFontBatcher (supprime glBegin/glEnd par caractère et CallbackInfoReturnable)
+     */
+    @Overwrite
+    protected float renderDefaultChar(int ch, boolean italic) {
+        int col = (ch & 15) * 8;
+        int row = (ch >>> 4) * 8;
+        float italicOff = italic ? 1.0F : 0.0F;
+        int w = this.charWidth[ch];
+        float widthMinusEps = (float) w - 0.01F;
+
+        if (PureFPSConfig.enabled && PureFPSConfig.fastFontRenderer && this.purefps$stringBatchDepth > 0) {
+            int texId = this.purefps$resolveAsciiGlTextureId();
+            if (texId > 0) {
+                FastFontBatcher.appendAsciiGlyph(
+                        texId,
+                        this.posX,
+                        this.posY,
+                        col,
+                        row,
+                        widthMinusEps,
+                        italicOff,
+                        this.purefps$curR,
+                        this.purefps$curG,
+                        this.purefps$curB,
+                        this.purefps$curA
+                );
+                return (float) w;
+            }
+        }
+
+        if (PureFPSConfig.enabled && PureFPSConfig.fastFontRenderer) {
+            int texId = this.purefps$resolveAsciiGlTextureId();
+            if (texId > 0) {
+                GlStateManager.bindTexture(texId);
+            } else {
+                this.bindTexture(this.locationFontTexture);
+            }
+        } else {
+            this.bindTexture(this.locationFontTexture);
+        }
+
+        org.lwjgl.opengl.GL11.glBegin(org.lwjgl.opengl.GL11.GL_TRIANGLE_STRIP);
+        org.lwjgl.opengl.GL11.glTexCoord2f((float) col / 128.0F, (float) row / 128.0F);
+        org.lwjgl.opengl.GL11.glVertex3f(this.posX + italicOff, this.posY, 0.0F);
+        org.lwjgl.opengl.GL11.glTexCoord2f((float) col / 128.0F, ((float) row + 7.99F) / 128.0F);
+        org.lwjgl.opengl.GL11.glVertex3f(this.posX - italicOff, this.posY + 7.99F, 0.0F);
+        org.lwjgl.opengl.GL11.glTexCoord2f(((float) col + widthMinusEps - 1.0F) / 128.0F, (float) row / 128.0F);
+        org.lwjgl.opengl.GL11.glVertex3f(this.posX + widthMinusEps - 1.0F + italicOff, this.posY, 0.0F);
+        org.lwjgl.opengl.GL11.glTexCoord2f(((float) col + widthMinusEps - 1.0F) / 128.0F, ((float) row + 7.99F) / 128.0F);
+        org.lwjgl.opengl.GL11.glVertex3f(this.posX + widthMinusEps - 1.0F - italicOff, this.posY + 7.99F, 0.0F);
+        org.lwjgl.opengl.GL11.glEnd();
+        return (float) w;
+    }
+
+    @Inject(method = "renderUnicodeChar", at = @At("HEAD"))
+    private void purefps$flushBeforeUnicodeChar(char ch, boolean italic, CallbackInfoReturnable<Float> cir) {
+        FastFontBatcher.flushIfPending();
+    }
+
+    @Inject(method = "doDraw", at = @At("HEAD"), remap = false)
+    private void purefps$flushBeforeDecorations(float advance, CallbackInfo ci) {
+        if (this.strikethroughStyle || this.underlineStyle) {
+            FastFontBatcher.flushIfPending();
+        }
     }
 
     @ModifyVariable(method = "renderStringAtPos", at = @At("HEAD"), argsOnly = true, ordinal = 0)
@@ -125,36 +261,25 @@ public abstract class MixinFontRenderer {
         return width;
     }
 
-    @Redirect(
-            method = "renderDefaultChar",
-            at = @At(
-                    value = "INVOKE",
-                    target = "Lnet/minecraft/client/gui/FontRenderer;bindTexture(Lnet/minecraft/util/ResourceLocation;)V",
-                    remap = false
-            )
-    )
-    private void purefps$fastAsciiFontBind(FontRenderer self, ResourceLocation location) {
-        if (PureFPSConfig.enabled && PureFPSConfig.fastFontRenderer && location == this.locationFontTexture) {
-            int texId = this.purefps$asciiGlTextureId;
-            if (texId >= 0) {
-                GlStateManager.bindTexture(texId);
-                return;
+    @Unique
+    private int purefps$resolveAsciiGlTextureId() {
+        int texId = this.purefps$asciiGlTextureId;
+        if (texId > 0) {
+            return texId;
+        }
+        if (this.renderEngine != null && this.locationFontTexture != null) {
+            ITextureObject tex = this.renderEngine.getTexture(this.locationFontTexture);
+            if (tex == null) {
+                this.bindTexture(this.locationFontTexture);
+                tex = this.renderEngine.getTexture(this.locationFontTexture);
             }
-            if (this.renderEngine != null) {
-                ITextureObject tex = this.renderEngine.getTexture(location);
-                if (tex == null) {
-                    this.bindTexture(location);
-                    tex = this.renderEngine.getTexture(location);
-                }
-                if (tex != null) {
-                    texId = tex.getGlTextureId();
-                    this.purefps$asciiGlTextureId = texId;
-                    GlStateManager.bindTexture(texId);
-                    return;
-                }
+            if (tex != null) {
+                texId = tex.getGlTextureId();
+                this.purefps$asciiGlTextureId = texId;
+                return texId;
             }
         }
-        this.bindTexture(location);
+        return -1;
     }
 
     @Redirect(

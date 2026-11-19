@@ -105,15 +105,219 @@
     position: fixed;
     inset: 0;
     z-index: 20;
-    background: #000000;
+    background: radial-gradient(circle at 50% 42%, rgba(20, 16, 12, 0.96) 0%, #030407 62%, #000000 100%);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.28s linear;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
   }
 
   #horizon-blackout.active {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  .launch-hud {
+    width: min(560px, calc(100vw - 48px));
+    padding: 24px 26px;
+    border-radius: 16px;
+    background: rgba(9, 11, 16, 0.88);
+    border: 1px solid rgba(240, 178, 84, 0.24);
+    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.85), 0 0 42px rgba(240, 178, 84, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+  }
+
+  .launch-hud-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .launch-hud-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .launch-step-pill {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(240, 178, 84, 0.14);
+    border: 1px solid rgba(240, 178, 84, 0.42);
+    color: var(--gold-bright);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+  }
+
+  .launch-elapsed {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .launch-stage-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .launch-stage-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .launch-pct {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gold-bright);
+    flex-shrink: 0;
+  }
+
+  .launch-bar-track {
+    position: relative;
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+
+  .launch-bar-fill {
+    position: relative;
+    height: 100%;
+    width: 2%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #c97f21 0%, #f0b254 55%, #ffdf9e 100%);
+    box-shadow: 0 0 18px rgba(240, 178, 84, 0.55);
+    transition: width 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .launch-bar-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.35) 50%, transparent 100%);
+    animation: mashBarShimmer 1.6s linear infinite;
+  }
+
+  @keyframes mashBarShimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .launch-detail {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .launch-recent-steps {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 92px;
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: rgba(226, 228, 236, 0.70);
+  }
+
+  .launch-recent-line {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .launch-stall-banner {
+    display: none;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.14);
+    border: 1px solid rgba(245, 158, 11, 0.44);
+    color: #fde68a;
+    font-size: 11.5px;
+    line-height: 1.4;
+  }
+
+  .launch-stall-banner.visible {
+    display: block;
+  }
+
+  .launch-hud-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 2px;
+  }
+
+  .dock-progress-wrap {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    max-width: 340px;
+    margin: 0 12px;
+  }
+
+  .dock-progress-wrap.active {
+    display: flex;
+  }
+
+  .dock-progress-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .dock-progress-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10.5px;
+    color: var(--text-secondary);
+  }
+
+  .dock-progress-track {
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+
+  .dock-progress-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #d48b2b, #ffdf9e);
+    transition: width 0.2s ease;
   }
 
   .topbar {
@@ -1411,16 +1615,48 @@
   }
 
   .crash-modal-card {
-    width: 580px;
-    max-width: calc(100vw - 48px);
-    max-height: calc(100vh - 64px);
+    width: 740px;
+    max-width: calc(100vw - 44px);
+    max-height: calc(100vh - 44px);
     padding: 20px 22px;
-    gap: 13px;
-    border-color: rgba(248, 113, 113, 0.42);
+    gap: 11px;
+    border-color: rgba(248, 113, 113, 0.44);
+  }
+
+  .crash-modal-card.hang-mode {
+    border-color: rgba(245, 158, 11, 0.55);
+  }
+
+  .crash-pinpoint-box {
+    padding: 10px 13px;
+    border-radius: 9px;
+    background: linear-gradient(90deg, rgba(245, 158, 11, 0.14) 0%, rgba(248, 113, 113, 0.10) 100%);
+    border: 1px solid rgba(245, 158, 11, 0.42);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .crash-pinpoint-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gold-bright);
+  }
+
+  .crash-pinpoint-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff7ed;
+    word-break: break-word;
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   .crash-summary-box {
-    padding: 10px 12px;
+    padding: 9px 12px;
     border-radius: 8px;
     background: rgba(248, 113, 113, 0.09);
     border: 1px solid rgba(248, 113, 113, 0.28);
@@ -1430,14 +1666,167 @@
     word-break: break-word;
   }
 
+  .crash-tabs {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .crash-tab-btn {
+    height: 25px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-hairline);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.14s ease;
+  }
+
+  .crash-tab-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+  }
+
+  .crash-tab-btn.active {
+    background: rgba(240, 178, 84, 0.15);
+    border-color: rgba(240, 178, 84, 0.50);
+    color: var(--gold-bright);
+    font-weight: 600;
+  }
+
+  .crash-diag-scroll {
+    flex: 1;
+    min-height: 160px;
+    max-height: 46vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-right: 4px;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .diag-section {
+    border-radius: 9px;
+    background: rgba(0, 0, 0, 0.52);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    overflow: hidden;
+  }
+
+  .diag-section-head {
+    padding: 7px 11px;
+    background: rgba(255, 255, 255, 0.035);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .diag-step-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .diag-step-row {
+    padding: 6px 11px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    display: grid;
+    grid-template-columns: 62px 60px 84px minmax(0, 1fr);
+    gap: 8px;
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 10.8px;
+    line-height: 1.4;
+  }
+
+  .diag-step-row:last-child {
+    border-bottom: none;
+  }
+
+  .diag-step-row.lvl-error,
+  .diag-step-row.lvl-hang {
+    background: rgba(248, 113, 113, 0.10);
+  }
+
+  .diag-step-row.lvl-warn {
+    background: rgba(245, 158, 11, 0.08);
+  }
+
+  .diag-time {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .diag-lvl {
+    display: inline-block;
+    text-align: center;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-secondary);
+  }
+
+  .diag-lvl.ok {
+    background: rgba(52, 211, 153, 0.16);
+    color: #6ee7b7;
+  }
+
+  .diag-lvl.warn {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fde68a;
+  }
+
+  .diag-lvl.error,
+  .diag-lvl.hang {
+    background: rgba(248, 113, 113, 0.22);
+    color: #fecaca;
+  }
+
+  .diag-stage {
+    color: var(--gold-bright);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .diag-msg {
+    color: rgba(238, 240, 246, 0.90);
+    word-break: break-word;
+  }
+
+  .diag-env-list {
+    padding: 8px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: rgba(232, 235, 242, 0.86);
+  }
+
   .crash-log-box {
-    max-height: 260px;
+    max-height: 220px;
     padding: 10px 12px;
     border-radius: 8px;
     background: rgba(0, 0, 0, 0.65);
     border: 1px solid rgba(255, 255, 255, 0.08);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10.8px;
     line-height: 1.45;
     color: rgba(232, 235, 242, 0.86);
     overflow: auto;
@@ -1445,6 +1834,25 @@
     word-break: break-word;
     user-select: text;
     -webkit-user-select: text;
+  }
+
+  .btn-danger {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 7px;
+    border: 1px solid rgba(248, 113, 113, 0.55);
+    background: rgba(220, 38, 38, 0.26);
+    color: #fecaca;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .btn-danger:hover {
+    background: rgba(220, 38, 38, 0.42);
+    border-color: rgba(254, 202, 202, 0.72);
   }
 
   .crash-suspect-bar {
@@ -1928,7 +2336,7 @@
           <img id="brand-logo-img" alt="MashClient" src="data:image/png;base64,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">
         </div>
         <span class="brand-wordmark">MASHCLIENT</span>
-        <span class="brand-ver">4.5.12</span>
+        <span class="brand-ver">4.5.13</span>
       </div>
 
       <nav class="top-nav" aria-label="Main navigation">
@@ -2151,7 +2559,8 @@
               <div class="updater-top">
                 <div class="updater-title-group">
                   <span class="updater-title" data-i18n-en="Updates" data-i18n-fr="Mises à jour">Updates</span>
-                  <span class="updater-badge" id="upd-status-badge">v4.5.12</span>
+                  <span class="updater-badge" id="upd-status-badge">v4.5.13</span>
+                  <span class="updater-badge ok" id="os-compat-badge" style="font-size:10px;">Windows 10/11</span>
                 </div>
                 <div style="display:flex;gap:6px;align-items:center;">
                   <button class="btn-outline" id="btn-upd-check" onclick="MashSfx.click();triggerManualUpdateCheck()">
@@ -2246,6 +2655,18 @@
         </div>
       </div>
 
+      <div class="dock-progress-wrap" id="dock-launch-progress">
+        <div class="dock-progress-col">
+          <div class="dock-progress-meta">
+            <span id="dock-prog-label" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Loading...</span>
+            <span id="dock-prog-pct" style="font-family:var(--font-mono);color:var(--gold-bright);font-weight:700;">0%</span>
+          </div>
+          <div class="dock-progress-track">
+            <div class="dock-progress-fill" id="dock-prog-fill"></div>
+          </div>
+        </div>
+      </div>
+
       <button class="play-cta" id="btn-launch" onclick="triggerPlaySequence()">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
         <span id="launch-btn-text">LAUNCH</span>
@@ -2286,8 +2707,39 @@
     <div class="modal-card crash-modal-card" id="crash-modal-body"></div>
   </div>
 
-  <!-- Pure #000000 blackout curtain while Minecraft opens -->
-  <div id="horizon-blackout"></div>
+  <!-- Loading bar & progress curtain while Minecraft prepares and boots -->
+  <div id="horizon-blackout">
+    <div class="launch-hud" id="launch-hud-card">
+      <div class="launch-hud-head">
+        <div class="launch-hud-brand">
+          <img id="launch-hud-logo" width="22" height="22" style="object-fit:contain;" alt="">
+          <span class="brand-wordmark">MASHCLIENT</span>
+          <span class="launch-step-pill" id="load-step-pill">1 / 7</span>
+        </div>
+        <span class="launch-elapsed" id="load-elapsed">00:00</span>
+      </div>
+
+      <div class="launch-stage-row">
+        <div class="launch-stage-title" id="load-stage-title">Préparation du lancement...</div>
+        <div class="launch-pct" id="load-pct">0%</div>
+      </div>
+
+      <div class="launch-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="load-bar-track">
+        <div class="launch-bar-fill" id="load-bar-fill"></div>
+      </div>
+
+      <div class="launch-detail" id="load-detail">Initialisation de MashClient 1.8.9...</div>
+
+      <div class="launch-recent-steps" id="load-recent-steps" style="display:none;"></div>
+
+      <div class="launch-stall-banner" id="load-stall-banner"></div>
+
+      <div class="launch-hud-actions">
+        <button type="button" class="btn-outline" id="btn-load-diag" style="height:28px;" onclick="requestHangDiagnostic()" data-i18n-en="Diagnostic" data-i18n-fr="Diagnostic">Diagnostic</button>
+        <button type="button" class="btn-outline" id="btn-load-cancel" style="height:28px;" onclick="abortLaunchOverlay()" data-i18n-en="Hide Overlay" data-i18n-fr="Réduire">Hide Overlay</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Browser preview -->
   <div id="mc-menu-preview">
@@ -3031,12 +3483,25 @@
     java_status_label: "Java 8",
     java_needs_upgrade: false,
     java_installing: false,
+    os_compat_label: "Windows 10/11",
     game_running: false,
+    launch_progress: {
+      active: false,
+      percent: 0,
+      stage_index: 0,
+      total_steps: 7,
+      stage_title: "",
+      detail: "",
+      elapsed_secs: 0,
+      is_stalled: false,
+      stall_reason: null,
+      recent_steps: []
+    },
     device_code: null,
     update: {
       status: "idle",
-      current_version: "4.5.12",
-      installed_jar_version: "4.5.12",
+      current_version: "4.5.13",
+      installed_jar_version: "4.5.13",
       latest_version: null,
       release_notes: null,
       download_percent: 0,
@@ -4460,18 +4925,162 @@
     `;
   }
 
+  let activeCrashTab = "all";
+
+  function formatElapsedMmSs(secs) {
+    const s = Math.max(0, Math.floor(Number(secs) || 0));
+    const mm = String(Math.floor(s / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+  }
+
+  function renderLaunchProgress(prog) {
+    const p = prog || (state && state.launch_progress) || null;
+    const active = !!(p && p.active);
+    const pct = active ? Math.max(0, Math.min(100, Math.round(Number(p.percent) || 0))) : 0;
+    const stepIdx = active ? Math.max(1, Number(p.stage_index) || 1) : 1;
+    const totalSteps = Math.max(1, Number((p && p.total_steps) || 7));
+    const stageTitle = (p && p.stage_title) || t("Preparing launch...", "Préparation du lancement...");
+    const detail = (p && p.detail) || t("Initializing MashClient 1.8.9...", "Initialisation de MashClient 1.8.9...");
+    const stalled = !!(p && p.is_stalled);
+
+    const dockWrap = document.getElementById("dock-launch-progress");
+    const dockLbl = document.getElementById("dock-prog-label");
+    const dockPct = document.getElementById("dock-prog-pct");
+    const dockFill = document.getElementById("dock-prog-fill");
+    if (dockWrap) dockWrap.classList.toggle("active", active);
+    if (dockLbl) dockLbl.textContent = stageTitle;
+    if (dockPct) dockPct.textContent = `${pct}%`;
+    if (dockFill) dockFill.style.width = `${pct}%`;
+
+    const stepPill = document.getElementById("load-step-pill");
+    const elapsedEl = document.getElementById("load-elapsed");
+    const titleEl = document.getElementById("load-stage-title");
+    const pctEl = document.getElementById("load-pct");
+    const trackEl = document.getElementById("load-bar-track");
+    const fillEl = document.getElementById("load-bar-fill");
+    const detailEl = document.getElementById("load-detail");
+    const recentEl = document.getElementById("load-recent-steps");
+    const stallEl = document.getElementById("load-stall-banner");
+
+    if (stepPill) stepPill.textContent = `${stepIdx} / ${totalSteps}`;
+    if (elapsedEl) elapsedEl.textContent = formatElapsedMmSs(p ? p.elapsed_secs : 0);
+    if (titleEl) titleEl.textContent = stageTitle;
+    if (pctEl) pctEl.textContent = `${pct}%`;
+    if (trackEl) trackEl.setAttribute("aria-valuenow", String(pct));
+    if (fillEl) {
+      fillEl.style.width = `${pct}%`;
+      fillEl.classList.toggle("stalled", stalled);
+    }
+    if (detailEl) detailEl.textContent = detail;
+
+    if (recentEl) {
+      const steps = (p && Array.isArray(p.recent_steps)) ? p.recent_steps : [];
+      if (steps.length > 0) {
+        recentEl.style.display = "flex";
+        recentEl.innerHTML = steps.slice(-5).map((line) => `<div>${escapeHtml(line)}</div>`).join("");
+      } else {
+        recentEl.style.display = "none";
+        recentEl.innerHTML = "";
+      }
+    }
+
+    if (stallEl) {
+      if (stalled) {
+        const reason = (p && p.stall_reason)
+          || t(
+            "Startup appears slow or unresponsive. Click Diagnostic to inspect the exact step.",
+            "Le démarrage semble bloqué ou ne répond plus. Cliquez sur Diagnostic pour voir l'étape exacte."
+          );
+        stallEl.textContent = reason;
+        stallEl.classList.add("visible");
+      } else {
+        stallEl.textContent = "";
+        stallEl.classList.remove("visible");
+      }
+    }
+  }
+
+  function abortLaunchOverlay() {
+    MashSfx.click();
+    resetPlungeSequence();
+  }
+
+  function requestHangDiagnostic() {
+    MashSfx.click();
+    if (hasNativeIpc()) {
+      sendIpc({ cmd: "request_hang_diagnostic" });
+    } else {
+      openCrashModal({
+        title: t("Diagnostic Snapshot", "Instantané de diagnostic"),
+        summary: t("Preview mode diagnostic report.", "Rapport de diagnostic en mode aperçu."),
+        details: "",
+        exit_code: null,
+        report_path: null,
+        suspected_mod_file: null,
+        is_not_responding: true,
+        crash_location: "Preview -> Local Browser",
+        environment_lines: ["OS: " + (state.os_compat_label || "Windows 10/11")],
+        diagnostic_steps: [{ time: "00:00.0", level: "info", stage: "PREVIEW", message: "No active JVM process." }],
+        thread_stack_lines: [],
+        can_force_kill: false
+      });
+    }
+  }
+
+  function forceKillHungGame() {
+    MashSfx.click();
+    if (hasNativeIpc()) {
+      sendIpc({ cmd: "force_kill_game" });
+    }
+    if (activeCrashReport) {
+      activeCrashReport.can_force_kill = false;
+      renderCrashModalContent();
+    }
+  }
+
+  function setCrashTab(tab) {
+    activeCrashTab = tab || "all";
+    renderCrashModalContent();
+  }
+
   function openCrashModal(report) {
     if (!report) return;
     resetPlungeSequence();
     listeningKeyTarget = null;
     activeCrashReport = report;
+    activeCrashTab = "all";
     MashSfx.toggle(false);
+    renderCrashModalContent();
+    document.getElementById("crash-modal").classList.add("open");
+  }
 
-    const modal = document.getElementById("crash-modal");
+  function renderCrashModalContent() {
+    const report = activeCrashReport;
+    if (!report) return;
     const box = document.getElementById("crash-modal-body");
-    const codeBadge = report.exit_code !== null && report.exit_code !== undefined
-      ? `<span class="updater-badge err">Code ${escapeHtml(String(report.exit_code))}</span>`
-      : `<span class="updater-badge err">Crash</span>`;
+    if (!box) return;
+
+    const steps = Array.isArray(report.diagnostic_steps) ? report.diagnostic_steps : [];
+    const stackLines = Array.isArray(report.thread_stack_lines) ? report.thread_stack_lines : [];
+    const envLines = Array.isArray(report.environment_lines) ? report.environment_lines : [];
+    const isHang = !!report.is_not_responding;
+
+    const codeBadge = isHang
+      ? `<span class="updater-badge err">Not Responding</span>`
+      : (report.exit_code !== null && report.exit_code !== undefined
+        ? `<span class="updater-badge err">Code ${escapeHtml(String(report.exit_code))}</span>`
+        : `<span class="updater-badge err">Crash</span>`);
+
+    const pinpointBlock = report.crash_location
+      ? `
+        <div class="crash-pinpoint-box">
+          <div class="crash-pinpoint-label">${t("Exact Crash / Freeze Location", "Emplacement précis du crash / blocage")}</div>
+          <div class="crash-pinpoint-val">${escapeHtml(report.crash_location)}</div>
+        </div>
+      `
+      : "";
+
     const suspectBlock = report.suspected_mod_file
       ? `
         <div class="crash-suspect-bar" id="crash-suspect-bar">
@@ -4482,11 +5091,93 @@
         </div>
       `
       : "";
-    const detailsBlock = report.details
-      ? `<pre class="crash-log-box">${escapeHtml(report.details)}</pre>`
-      : "";
+
+    const renderStepsSection = () => {
+      if (steps.length === 0) {
+        return `<div class="diag-section"><div class="diag-section-title">${t("Chronological Trace", "Historique chronologique")}</div><div style="font-size:11.5px;color:var(--text-muted);">${t("No timeline entries recorded.", "Aucune étape enregistrée.")}</div></div>`;
+      }
+      const rows = steps.map((item, idx) => {
+        const lvlRaw = String((item && item.level) || "info").toLowerCase();
+        const lvlCls = lvlRaw === "error" ? "lvl-error" : (lvlRaw === "warn" ? "lvl-warn" : "lvl-info");
+        const timeStr = (item && item.time) ? item.time : `#${idx + 1}`;
+        const stageStr = (item && item.stage) ? item.stage : "LOG";
+        const msgStr = (item && item.message) ? item.message : "";
+        return `<div class="diag-step-row ${lvlCls}"><span class="diag-step-time">${escapeHtml(timeStr)}</span><span class="diag-step-stage">${escapeHtml(stageStr)}</span><span class="diag-step-msg">${escapeHtml(msgStr)}</span></div>`;
+      }).join("");
+      return `
+        <div class="diag-section">
+          <div class="diag-section-title">${t("Detailed Execution Timeline", "Liste chronologique détaillée")} (${steps.length})</div>
+          <div class="diag-steps-list">${rows}</div>
+        </div>
+      `;
+    };
+
+    const renderStackSection = () => {
+      if (stackLines.length === 0) return "";
+      const linesHtml = stackLines.map((ln) => {
+        const s = String(ln || "");
+        const hi = s.includes("dev.purefps.") || s.includes("NOT_RESPONDING") || s.includes("Caused by:");
+        return hi
+          ? `<span style="color:#fcd34d;font-weight:600;">${escapeHtml(s)}</span>`
+          : escapeHtml(s);
+      }).join("\n");
+      return `
+        <div class="diag-section">
+          <div class="diag-section-title">${t("Client Thread Stack Trace (Exact Freeze Point)", "Pile d'appels du thread bloqué (point exact)")} (${stackLines.length})</div>
+          <pre class="crash-log-box" style="max-height:none;">${linesHtml}</pre>
+        </div>
+      `;
+    };
+
+    const renderEnvSection = () => {
+      if (envLines.length === 0) return "";
+      const rows = envLines.map((line) => `<div class="diag-env-row">${escapeHtml(line)}</div>`).join("");
+      return `
+        <div class="diag-section">
+          <div class="diag-section-title">${t("Windows / Hardware / Runtime Environment", "Environnement Windows / Matériel / Runtime")}</div>
+          <div class="diag-env-list">${rows}</div>
+        </div>
+      `;
+    };
+
+    const renderRawSection = () => {
+      if (!report.details) return "";
+      return `
+        <div class="diag-section">
+          <div class="diag-section-title">${t("Detailed Raw Log", "Journal technique complet")}</div>
+          <pre class="crash-log-box" style="max-height:none;">${escapeHtml(report.details)}</pre>
+        </div>
+      `;
+    };
+
+    let bodyHtml = "";
+    if (activeCrashTab === "steps") {
+      bodyHtml = renderStepsSection();
+    } else if (activeCrashTab === "stack") {
+      bodyHtml = renderStackSection() || `<div class="diag-section"><div style="font-size:11.5px;color:var(--text-muted);">${t("No Java thread stack captured for this event.", "Aucune pile d'appels Java capturée pour cet événement.")}</div></div>`;
+    } else if (activeCrashTab === "env") {
+      bodyHtml = renderEnvSection() || `<div class="diag-section"><div style="font-size:11.5px;color:var(--text-muted);">${t("No environment details available.", "Aucune donnée système disponible.")}</div></div>`;
+    } else if (activeCrashTab === "log") {
+      bodyHtml = renderRawSection() || `<div class="diag-section"><div style="font-size:11.5px;color:var(--text-muted);">${t("No raw console log available.", "Aucun journal brut disponible.")}</div></div>`;
+    } else {
+      bodyHtml = renderStackSection() + renderStepsSection() + renderEnvSection() + renderRawSection();
+    }
+
+    const tabsHtml = `
+      <div class="crash-tabs">
+        <button type="button" class="crash-tab ${activeCrashTab === "all" ? "active" : ""}" onclick="setCrashTab('all')">${t("Full List", "Liste complète")}</button>
+        <button type="button" class="crash-tab ${activeCrashTab === "steps" ? "active" : ""}" onclick="setCrashTab('steps')">${t("Steps", "Étapes")} (${steps.length})</button>
+        <button type="button" class="crash-tab ${activeCrashTab === "stack" ? "active" : ""}" onclick="setCrashTab('stack')">${t("Call Stack", "Pile d'appels")} (${stackLines.length})</button>
+        <button type="button" class="crash-tab ${activeCrashTab === "env" ? "active" : ""}" onclick="setCrashTab('env')">${t("System", "Système")} (${envLines.length})</button>
+        <button type="button" class="crash-tab ${activeCrashTab === "log" ? "active" : ""}" onclick="setCrashTab('log')">${t("Raw Log", "Journal")}</button>
+      </div>
+    `;
+
     const openReportBtn = report.report_path
       ? `<button type="button" class="btn-outline" style="height:32px;" onclick="openCrashReportFile()">${t("Open Report", "Ouvrir le rapport")}</button>`
+      : "";
+    const forceKillBtn = report.can_force_kill
+      ? `<button type="button" class="btn-danger" style="height:32px;" onclick="forceKillHungGame()">${t("Force Stop Minecraft", "Forcer l'arrêt")}</button>`
       : "";
 
     box.innerHTML = `
@@ -4498,15 +5189,17 @@
         <button type="button" class="btn-outline" style="height:28px;flex-shrink:0;" onclick="closeCrashModal()">${t("Close", "Fermer")}</button>
       </div>
       <div class="crash-summary-box">${escapeHtml(report.summary || t("An error prevented the client from launching.", "Une erreur a empêché l'ouverture du client."))}</div>
+      ${pinpointBlock}
       ${suspectBlock}
-      ${detailsBlock}
+      ${tabsHtml}
+      <div class="crash-diag-scroll">${bodyHtml}</div>
       <div class="modal-actions" style="justify-content:flex-end;flex-wrap:wrap;">
         <button type="button" class="btn-outline" style="height:32px;margin-right:auto;" onclick="MashSfx.click();sendIpc({cmd:'open_mods_folder'})">${t("Mods Folder", "Dossier mods")}</button>
+        ${forceKillBtn}
         ${openReportBtn}
-        <button type="button" class="btn-gold" style="flex:none;height:32px;padding:0 14px;" onclick="copyCrashDetails()">${t("Copy Error", "Copier l'erreur")}</button>
+        <button type="button" class="btn-gold" style="flex:none;height:32px;padding:0 14px;" onclick="copyCrashDetails()">${t("Copy Full Diagnostic", "Copier le diagnostic")}</button>
       </div>
     `;
-    modal.classList.add("open");
   }
 
   function disableSuspectedCrashMod(fileName) {
@@ -4528,21 +5221,40 @@
   function copyCrashDetails() {
     if (!activeCrashReport) return;
     MashSfx.click();
-    const parts = [
-      activeCrashReport.title || "Minecraft Crash",
-      activeCrashReport.exit_code !== null && activeCrashReport.exit_code !== undefined
-        ? "Exit code: " + activeCrashReport.exit_code
-        : null,
-      activeCrashReport.summary || "",
-      activeCrashReport.details || ""
-    ].filter(Boolean);
-    const fullText = parts.join("\n\n");
+    const r = activeCrashReport;
+    const sections = [];
+    sections.push(r.title || "MashClient Diagnostic");
+    if (r.exit_code !== null && r.exit_code !== undefined) {
+      sections.push("Exit code: " + r.exit_code);
+    }
+    if (r.crash_location) {
+      sections.push("Exact Location:\n" + r.crash_location);
+    }
+    if (r.summary) {
+      sections.push("Summary:\n" + r.summary);
+    }
+    if (Array.isArray(r.environment_lines) && r.environment_lines.length > 0) {
+      sections.push("Environment:\n" + r.environment_lines.map((l) => "  - " + l).join("\n"));
+    }
+    if (Array.isArray(r.thread_stack_lines) && r.thread_stack_lines.length > 0) {
+      sections.push("Thread Stack Trace:\n" + r.thread_stack_lines.join("\n"));
+    }
+    if (Array.isArray(r.diagnostic_steps) && r.diagnostic_steps.length > 0) {
+      sections.push(
+        "Chronological Diagnostic Steps (" + r.diagnostic_steps.length + "):\n"
+        + r.diagnostic_steps.map((it, i) => `  ${String(i + 1).padStart(3, "0")}. [${it.time || ""}] [${it.stage || ""}] (${it.level || "info"}) ${it.message || ""}`).join("\n")
+      );
+    }
+    if (r.details) {
+      sections.push("Raw Details:\n" + r.details);
+    }
+    const fullText = sections.join("\n\n");
     if (hasNativeIpc()) {
       sendIpc({ cmd: "copy_code", code: fullText });
     } else if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(fullText).catch(() => {});
     }
-    showToast(t("Error copied to clipboard.", "Erreur copiée dans le presse-papiers."), false);
+    showToast(t("Full diagnostic copied to clipboard.", "Diagnostic complet copié dans le presse-papiers."), false);
   }
 
   function openCrashReportFile() {
@@ -5210,6 +5922,10 @@
       javaBadge.textContent = state.java_status_label || "Java 8";
       javaBadge.className = "updater-badge " + (state.java_needs_upgrade ? "gold" : "ok");
     }
+    const osBadge = document.getElementById("os-compat-badge");
+    if (osBadge) {
+      osBadge.textContent = state.os_compat_label || "Windows 10/11";
+    }
     const temurinBtn = document.getElementById("btn-install-temurin");
     if (temurinBtn) {
       temurinBtn.disabled = !!state.java_installing;
@@ -5248,7 +5964,7 @@
     const checkBtn = document.getElementById("btn-upd-check");
     const actBtn = document.getElementById("btn-upd-action");
 
-    const curVer = upd.current_version || "4.5.12";
+    const curVer = upd.current_version || "4.5.13";
     const modVer = upd.installed_jar_version ? ` • Mod v${upd.installed_jar_version}` : "";
     if (msgEl) msgEl.textContent = upd.message || `MashClient v${curVer}${modVer}`;
 
@@ -5306,12 +6022,12 @@
   function triggerManualUpdateCheck() {
     if (!hasNativeIpc()) {
       state.update.status = "available";
-      state.update.latest_version = "4.5.12";
+      state.update.latest_version = "4.5.13";
       state.update.has_jar_update = true;
       state.update.has_exe_update = true;
-      state.update.message = t("Version v4.5.12 available.", "Version v4.5.12 disponible.");
+      state.update.message = t("Version v4.5.13 available.", "Version v4.5.13 disponible.");
       renderAll();
-      showToast(t("Update v4.5.12 available.", "Mise à jour v4.5.12 disponible."), false);
+      showToast(t("Update v4.5.13 available.", "Mise à jour v4.5.13 disponible."), false);
       return;
     }
     sendIpc({ cmd: "check_updates", manual: true });
@@ -5461,6 +6177,7 @@
     renderModules();
     renderModsView();
     renderSystem();
+    renderLaunchProgress(state.launch_progress);
     renderAccountModal();
     if (hudStudioOpen && !hudDragState) renderHudStudio();
     syncMenuAmbient();
@@ -5489,6 +6206,9 @@
         state.modules = {};
       }
       renderAll();
+    } else if (msg.kind === "launch_progress") {
+      state.launch_progress = msg.progress;
+      renderLaunchProgress(msg.progress);
     } else if (msg.kind === "plunge") {
       if (msg.action === "start") {
         startPlungeAnimation(false);
@@ -5882,8 +6602,9 @@
           plungeProgress = Math.min(1.0, plungeProgress + clampedDtMs / PLUNGE_DURATION_MS);
         }
 
-        if (plungeProgress >= 0.94) {
+        if (plungeProgress >= 0.72) {
           document.getElementById("horizon-blackout").classList.add("active");
+          renderLaunchProgress(state.launch_progress);
         }
         if (plungeProgress >= 1.0 && !darknessSignaled) {
           darknessSignaled = true;
@@ -5975,8 +6696,12 @@
   (function boot() {
     const brandImg = document.getElementById("brand-logo-img");
     const prevImg = document.getElementById("mc-preview-logo");
+    const hudImg = document.getElementById("launch-hud-logo");
     if (brandImg && prevImg) {
       prevImg.src = brandImg.src;
+    }
+    if (brandImg && hudImg) {
+      hudImg.src = brandImg.src;
     }
 
     const params = new URLSearchParams(window.location.search);

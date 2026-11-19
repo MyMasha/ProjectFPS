@@ -24,22 +24,26 @@ public class PureFPSMod {
 
     public static final String MODID = "purefps";
     public static final String NAME = "MashClient";
-    public static final String VERSION = "4.5.12";
+    public static final String VERSION = "4.5.13";
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
+        File mcDir = event.getModConfigurationDirectory().getParentFile();
+        dev.purefps.core.ClientHangWatchdog.start(mcDir);
+        dev.purefps.core.ClientHangWatchdog.markPhase("FML:preInit", true);
         dev.purefps.core.ModernTlsTrustHelper.installModernRootTrustIfNeeded();
         dev.purefps.core.VulkanBackendHelper.preloadZinkIfConfigured();
-        File mcDir = event.getModConfigurationDirectory().getParentFile();
         dev.purefps.client.audio.LowLatencyAudioConfigurator.applyBeforeOpenALInit(mcDir);
         PureFPSConfig.init(mcDir);
         MashModules.init(mcDir);
         dev.purefps.client.audio.MashAudioEngine.ensurePrewarmed();
         applyMashWindowIcon();
+        dev.purefps.core.ClientHangWatchdog.markPhase("FML:preInit:done", true);
     }
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
+        dev.purefps.core.ClientHangWatchdog.markPhase("FML:init", true);
         MinecraftForge.EVENT_BUS.register(new ClientEventBridge());
         ClientCommandHandler.instance.registerCommand(new PureFPSCommand());
 
@@ -48,6 +52,7 @@ public class PureFPSMod {
             Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle(VERSION));
             applyMashWindowIcon();
         }
+        dev.purefps.core.ClientHangWatchdog.markPhase("FML:init:done", true);
     }
 
     private static void applyMashWindowIcon() {

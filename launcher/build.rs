@@ -4,6 +4,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=.ms_client_id");
     println!("cargo:rerun-if-changed=assets/mashclient.ico");
+    println!("cargo:rerun-if-changed=assets/mashclient.manifest");
     println!("cargo:rerun-if-env-changed=MASHCLIENT_MS_CLIENT_ID");
 
     // Sécurité : le dépôt est public — aucun jeton GitHub n'est utilisé ni embarqué dans MashClient.exe.
@@ -22,14 +23,14 @@ fn main() {
     println!("cargo:rustc-env=MASHCLIENT_EMBEDDED_MS_CLIENT_ID={resolved_ms_id}");
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        embed_windows_exe_icon();
+        embed_windows_exe_resources();
         if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
             stage_webview2_loader_dll_for_gnu();
         }
     }
 }
 
-fn embed_windows_exe_icon() {
+fn embed_windows_exe_resources() {
     let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
         return;
     };
@@ -37,24 +38,39 @@ fn embed_windows_exe_icon() {
         return;
     };
 
-    let ico_path = Path::new(&manifest_dir).join("assets").join("mashclient.ico");
+    let assets_dir = Path::new(&manifest_dir).join("assets");
+    let ico_path = assets_dir.join("mashclient.ico");
     if !ico_path.is_file() {
         return;
     }
 
-    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "4.4.6".to_owned());
+    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "4.5.13".to_owned());
     let mut parts = pkg_ver.split('.').map(|p| p.parse::<u16>().unwrap_or(0));
     let v_maj = parts.next().unwrap_or(4);
-    let v_min = parts.next().unwrap_or(4);
-    let v_pat = parts.next().unwrap_or(6);
+    let v_min = parts.next().unwrap_or(5);
+    let v_pat = parts.next().unwrap_or(13);
 
     let ico_escaped = ico_path.to_string_lossy().replace('\\', "/");
     let out_path = PathBuf::from(&out_dir);
     let rc_script_full = out_path.join("mashclient_res.rc");
 
+    let manifest_path = assets_dir.join("mashclient.manifest");
+    let manifest_line = if manifest_path.is_file() {
+        let out_manifest = out_path.join("mashclient.manifest");
+        let manifest_content = std::fs::read_to_string(&manifest_path)
+            .unwrap_or_default()
+            .replace("version=\"4.5.13.0\"", &format!("version=\"{v_maj}.{v_min}.{v_pat}.0\""));
+        let _ = std::fs::write(&out_manifest, manifest_content);
+        let manifest_escaped = out_manifest.to_string_lossy().replace('\\', "/");
+        format!("1 24 \"{manifest_escaped}\"\r\n")
+    } else {
+        String::new()
+    };
+
     let full_rc = format!(
         "#pragma code_page(65001)\r\n\
          1 ICON \"{ico_escaped}\"\r\n\
+         {manifest_line}\
          1 VERSIONINFO\r\n\
          FILEVERSION {v_maj},{v_min},{v_pat},0\r\n\
          PRODUCTVERSION {v_maj},{v_min},{v_pat},0\r\n\
@@ -69,7 +85,7 @@ fn embed_windows_exe_icon() {
              BLOCK \"040904b0\"\r\n\
              BEGIN\r\n\
                VALUE \"CompanyName\", \"MashClient\\0\"\r\n\
-               VALUE \"FileDescription\", \"MashClient\\0\"\r\n\
+               VALUE \"FileDescription\", \"MashClient — Minecraft 1.8.9 Launcher\\0\"\r\n\
                VALUE \"FileVersion\", \"{pkg_ver}\\0\"\r\n\
                VALUE \"InternalName\", \"MashClient\\0\"\r\n\
                VALUE \"OriginalFilename\", \"MashClient.exe\\0\"\r\n\
@@ -97,7 +113,7 @@ fn embed_windows_exe_icon() {
                 .is_ok_and(|s| s.success());
 
             if !compiled || !res_output.is_file() {
-                let minimal_rc = format!("1 ICON \"{ico_escaped}\"\r\n");
+                let minimal_rc = format!("1 ICON \"{ico_escaped}\"\r\n{manifest_line}");
                 let _ = std::fs::write(&rc_script_full, minimal_rc);
                 let _ = Command::new(&rc_exe)
                     .args(["/nologo", "/fo"])
@@ -127,7 +143,7 @@ fn embed_windows_exe_icon() {
             .is_ok_and(|s| s.success());
 
         if !compiled || !obj_output.is_file() {
-            let minimal_rc = format!("1 ICON \"{ico_escaped}\"\r\n");
+            let minimal_rc = format!("1 ICON \"{ico_escaped}\"\r\n{manifest_line}");
             let _ = std::fs::write(&rc_script_full, minimal_rc);
             let _ = Command::new(&windres)
                 .arg("-i")

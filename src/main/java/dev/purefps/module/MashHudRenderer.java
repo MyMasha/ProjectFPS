@@ -4,6 +4,7 @@ import dev.purefps.client.CpsTracker;
 import dev.purefps.client.ui.NanoUiRenderer;
 import dev.purefps.client.ui.SmoothFontRenderer;
 import dev.purefps.config.PureFPSConfig;
+import dev.purefps.core.RealPingEstimator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.gui.FontRenderer;
@@ -108,6 +109,36 @@ public final class MashHudRenderer {
     private static String cachedBiomeName = "Plains";
     private static String cachedPackName = "Default";
     private static int cachedLightLevel = 15;
+
+    // Caches zéro-allocation pour widgets à rafraîchissement continu (supprime String.format + Regex par frame)
+    private static final StringBuilder HUD_FMT_SB = new StringBuilder(64);
+    private static final String[] DIRECTIONS_EN = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+    private static final String[] DIRECTIONS_FR = {"N", "NE", "E", "SE", "S", "SO", "O", "NO"};
+    private static final String[] MOON_PHASES_EN = {
+            "Full Moon", "Waning Gib.", "Last Quarter", "Waning Cres.",
+            "New Moon", "Waxing Cres.", "First Quarter", "Waxing Gib."
+    };
+    private static final String[] MOON_PHASES_FR = {
+            "Pleine Lune", "Gibbeuse D.", "Dernier Q.", "Croissant D.",
+            "Nouvelle Lune", "Premier C.", "Premier Q.", "Gibbeuse C."
+    };
+    private static final String[] CUSTOM_LABEL_PRESETS = {
+            "MashClient", "MASH \u2022 FPS", "GG \u2022 FairPlay", "PvP"
+    };
+    private static int cachedFrameMsTenths = Integer.MIN_VALUE;
+    private static String cachedFrameMsText = "4.0 ms";
+    private static int cachedTpsTenths = Integer.MIN_VALUE;
+    private static String cachedTpsText = "20.0 TPS";
+    private static long cachedSessionSec = -1L;
+    private static String cachedSessionText = "00:00";
+    private static int cachedGameTimeMin = -1;
+    private static String cachedGameTimeText = "12:00";
+    private static int cachedReachHundredths = Integer.MIN_VALUE;
+    private static boolean cachedReachLangEn = false;
+    private static String cachedReachText = "0.00 blocs";
+    private static int cachedSpeedScaled = Integer.MIN_VALUE;
+    private static int cachedSpeedUnit = -1;
+    private static String cachedSpeedText = "0.00 m/s";
 
     // Compteurs inventaire mis en cache (ticks)
     private static int invArrows = 0;
@@ -494,7 +525,7 @@ public final class MashHudRenderer {
         NanoUiRenderer.endBatch();
 
         // =========================================================================
-        // PASSE 2 : TEXTES REGROUPÉS EN UN SEUL TESSELLATOR DRAW
+        // PASSE 2 : TOUS LES TEXTES (TOUTES ÉCHELLES) REGROUPÉS EN 1 SEUL DRAW CALL
         // =========================================================================
         if (textQueueUsed > 0) {
             if (PureFPSConfig.smoothClientFont) {
@@ -502,35 +533,9 @@ public final class MashHudRenderer {
                 smallF.beginBatch();
                 for (int i = 0; i < textQueueUsed; i++) {
                     QueuedText qt = TEXT_QUEUE.get(i);
-                    if (Math.abs(qt.scale - 1.0F) <= 0.015F) {
-                        if (qt.centered) {
-                            smallF.drawCentered(qt.text, qt.x, qt.y, qt.argb, qt.shadow);
-                        } else if (qt.shadow) {
-                            smallF.drawStringWithShadow(qt.text, qt.x, qt.y, qt.argb);
-                        } else {
-                            smallF.drawString(qt.text, qt.x, qt.y, qt.argb);
-                        }
-                    }
+                    smallF.drawBatchedScaled(qt.text, qt.x, qt.y, qt.scale, qt.argb, qt.shadow, qt.centered);
                 }
                 smallF.endBatch();
-
-                // Éléments avec échelle personnalisée != 1.0x
-                for (int i = 0; i < textQueueUsed; i++) {
-                    QueuedText qt = TEXT_QUEUE.get(i);
-                    if (Math.abs(qt.scale - 1.0F) > 0.015F) {
-                        GlStateManager.pushMatrix();
-                        GlStateManager.translate(qt.x, qt.y, 0.0F);
-                        GlStateManager.scale(qt.scale, qt.scale, 1.0F);
-                        if (qt.centered) {
-                            smallF.drawCentered(qt.text, 0.0F, 0.0F, qt.argb, qt.shadow);
-                        } else if (qt.shadow) {
-                            smallF.drawStringWithShadow(qt.text, 0.0F, 0.0F, qt.argb);
-                        } else {
-                            smallF.drawString(qt.text, 0.0F, 0.0F, qt.argb);
-                        }
-                        GlStateManager.popMatrix();
-                    }
-                }
             } else {
                 FontRenderer fr = mc.fontRendererObj;
                 for (int i = 0; i < textQueueUsed; i++) {
@@ -678,8 +683,16 @@ public final class MashHudRenderer {
             case "hud_reach": {
                 float decayMs = num(mod, "decay_sec", 3.5F) * 1000.0F;
                 float r = (nowMs - lastHitTimeMs <= (long) decayMs) ? lastReachBlocks : 0.0F;
-                String val = String.format(Locale.US, en ? "%.2f blocks" : "%.2f blocs", r);
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Reach", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                int hundredths = Math.round(r * 100.0F);
+                if (hundredths != cachedReachHundredths || en != cachedReachLangEn) {
+                    HUD_FMT_SB.setLength(0);
+                    appendFixed2(HUD_FMT_SB, r);
+                    HUD_FMT_SB.append(en ? " blocks" : " blocs");
+                    cachedReachText = HUD_FMT_SB.toString();
+                    cachedReachHundredths = hundredths;
+                    cachedReachLangEn = en;
+                }
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Reach", cachedReachText, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_combo": {
@@ -691,15 +704,24 @@ public final class MashHudRenderer {
                 int unit = mode(mod, "unit", 0);
                 boolean incY = bool(mod, "include_y", false);
                 float bps = incY ? currentSpeed3DBps : currentSpeedBps;
-                String val;
-                if (unit == 1) {
-                    val = String.format(Locale.US, "%.1f km/h", bps * 3.6F);
-                } else if (unit == 2) {
-                    val = String.format(Locale.US, "%.2f b/t", bps * 0.05F);
-                } else {
-                    val = String.format(Locale.US, "%.2f m/s", bps);
+                int scaled = (unit == 1) ? Math.round(bps * 36.0F) : ((unit == 2) ? Math.round(bps * 5.0F) : Math.round(bps * 100.0F));
+                if (scaled != cachedSpeedScaled || unit != cachedSpeedUnit) {
+                    HUD_FMT_SB.setLength(0);
+                    if (unit == 1) {
+                        appendFixed1(HUD_FMT_SB, bps * 3.6F);
+                        HUD_FMT_SB.append(" km/h");
+                    } else if (unit == 2) {
+                        appendFixed2(HUD_FMT_SB, bps * 0.05F);
+                        HUD_FMT_SB.append(" b/t");
+                    } else {
+                        appendFixed2(HUD_FMT_SB, bps);
+                        HUD_FMT_SB.append(" m/s");
+                    }
+                    cachedSpeedText = HUD_FMT_SB.toString();
+                    cachedSpeedScaled = scaled;
+                    cachedSpeedUnit = unit;
                 }
-                drawStandardBadge(mod, x, y, s, val, accentCol, textCol, shadow, true, alphaMul);
+                drawStandardBadge(mod, x, y, s, cachedSpeedText, accentCol, textCol, shadow, true, alphaMul);
                 return;
             }
             case "hud_clock": {
@@ -712,8 +734,15 @@ public final class MashHudRenderer {
             case "hud_game_time": {
                 long wt = mc.theWorld != null ? (mc.theWorld.getWorldTime() % 24000L) : 6000L;
                 int totalMin = (int) (((wt + 6000L) % 24000L) * 60L / 1000L);
-                String val = String.format(Locale.ROOT, "%02d:%02d", totalMin / 60, totalMin % 60);
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "World" : "Monde", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                if (totalMin != cachedGameTimeMin) {
+                    HUD_FMT_SB.setLength(0);
+                    appendTwoDigits(HUD_FMT_SB, totalMin / 60);
+                    HUD_FMT_SB.append(':');
+                    appendTwoDigits(HUD_FMT_SB, totalMin % 60);
+                    cachedGameTimeText = HUD_FMT_SB.toString();
+                    cachedGameTimeMin = totalMin;
+                }
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "World" : "Monde", cachedGameTimeText, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_memory": {
@@ -722,8 +751,12 @@ public final class MashHudRenderer {
                 return;
             }
             case "hud_frametime": {
-                String val = String.format(Locale.US, "%.1f ms", smoothedFrameMs);
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Frame", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                int tenths = Math.round(smoothedFrameMs * 10.0F);
+                if (tenths != cachedFrameMsTenths) {
+                    cachedFrameMsText = formatFixed1(smoothedFrameMs, null, " ms");
+                    cachedFrameMsTenths = tenths;
+                }
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Frame", cachedFrameMsText, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_fps_graph": {
@@ -747,8 +780,12 @@ public final class MashHudRenderer {
                 return;
             }
             case "hud_tps": {
-                String val = String.format(Locale.US, "%.1f TPS", estimatedServerTps);
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Server" : "Serveur", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                int tenths = Math.round(estimatedServerTps * 10.0F);
+                if (tenths != cachedTpsTenths) {
+                    cachedTpsText = formatFixed1(estimatedServerTps, null, " TPS");
+                    cachedTpsTenths = tenths;
+                }
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Server" : "Serveur", cachedTpsText, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_pack_display": {
@@ -817,15 +854,21 @@ public final class MashHudRenderer {
                 long totalMs = stopwatchAccumulatedMs + (stopwatchRunning ? (nowMs - stopwatchLastStartMs) : 0L);
                 long sec = totalMs / 1000L;
                 int tenth = (int) ((totalMs % 1000L) / 100L);
-                String val = String.format(Locale.ROOT, "%02d:%02d.%d", sec / 60L, sec % 60L, tenth);
-                drawStandardBadge(mod, x, y, s, (en ? "Timer: " : "Chrono: ") + val, stopwatchRunning ? accentCol : mulAlpha(0xFF64748B, alphaMul), textCol, shadow, true, alphaMul);
+                HUD_FMT_SB.setLength(0);
+                HUD_FMT_SB.append(en ? "Timer: " : "Chrono: ");
+                appendTwoDigits(HUD_FMT_SB, sec / 60L);
+                HUD_FMT_SB.append(':');
+                appendTwoDigits(HUD_FMT_SB, sec % 60L);
+                HUD_FMT_SB.append('.').append(tenth);
+                drawStandardBadge(mod, x, y, s, HUD_FMT_SB.toString(), stopwatchRunning ? accentCol : mulAlpha(0xFF64748B, alphaMul), textCol, shadow, true, alphaMul);
                 return;
             }
             case "hud_pitch_yaw": {
                 float yaw = mc.thePlayer != null ? MathHelper.wrapAngleTo180_float(mc.thePlayer.rotationYaw) : 0.0F;
                 float pitch = mc.thePlayer != null ? mc.thePlayer.rotationPitch : 0.0F;
-                String val = String.format(Locale.US, "%.0f\u00b0 / %.0f\u00b0", yaw, pitch);
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Angles", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                HUD_FMT_SB.setLength(0);
+                HUD_FMT_SB.append(Math.round(yaw)).append("\u00b0 / ").append(Math.round(pitch)).append('\u00b0');
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Angles", HUD_FMT_SB.toString(), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_light_level": {
@@ -834,12 +877,12 @@ public final class MashHudRenderer {
             }
             case "hud_saturation": {
                 float sat = mc.thePlayer != null ? mc.thePlayer.getFoodStats().getSaturationLevel() : 20.0F;
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Saturation", String.format(Locale.US, "%.1f", sat), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Saturation", formatFixed1(sat, null, null), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_absorption": {
                 float abs = mc.thePlayer != null ? mc.thePlayer.getAbsorptionAmount() * 0.5F : 0.0F;
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Absorption", String.format(Locale.US, "+%.1f", abs), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Absorption", formatFixed1(abs, "+", null), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_xp_info": {
@@ -872,7 +915,7 @@ public final class MashHudRenderer {
                 return;
             }
             case "hud_cps_ratio": {
-                String val = (rCps <= 0) ? (lCps + ":0") : String.format(Locale.US, "%.1f:1", (float) lCps / (float) rCps);
+                String val = (rCps <= 0) ? (lCps + ":0") : formatFixed1((double) lCps / (double) rCps, null, ":1");
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Ratio", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
@@ -881,7 +924,7 @@ public final class MashHudRenderer {
                 return;
             }
             case "hud_damage_taken": {
-                String val = String.format(Locale.US, en ? "-%.1f hearts" : "-%.1f cœurs", lastDamageHearts);
+                String val = formatFixed1(lastDamageHearts, "-", en ? " hearts" : " cœurs");
                 drawStandardBadge(mod, x, y, s, formatBadgeText(mod, "Impact", val, false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
@@ -927,7 +970,7 @@ public final class MashHudRenderer {
             }
             case "hud_fly_speed": {
                 float fs = mc.thePlayer != null ? mc.thePlayer.capabilities.getFlySpeed() * 20.0F : 1.0F;
-                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Fly" : "Vol", String.format(Locale.US, "%.1fx", fs), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
+                drawStandardBadge(mod, x, y, s, formatBadgeText(mod, en ? "Fly" : "Vol", formatFixed1(fs, null, "x"), false), accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
             case "hud_packet_rate": {
@@ -948,9 +991,7 @@ public final class MashHudRenderer {
             }
             case "hud_moon_phase": {
                 int phase = mc.theWorld != null ? mc.theWorld.getMoonPhase() : 0;
-                String[] names = en
-                        ? new String[]{"Full Moon", "Waning Gib.", "Last Quarter", "Waning Cres.", "New Moon", "Waxing Cres.", "First Quarter", "Waxing Gib."}
-                        : new String[]{"Pleine Lune", "Gibbeuse D.", "Dernier Q.", "Croissant D.", "Nouvelle Lune", "Premier C.", "Premier Q.", "Gibbeuse C."};
+                String[] names = en ? MOON_PHASES_EN : MOON_PHASES_FR;
                 drawStandardBadge(mod, x, y, s, names[phase & 7], accentCol, textCol, shadow, bool(mod, "dot_indicator", true), alphaMul);
                 return;
             }
@@ -1018,7 +1059,7 @@ public final class MashHudRenderer {
                     return;
                 }
                 String val = rem > 0.05F
-                        ? String.format(Locale.US, en ? "Pearl: %.1fs" : "Perle: %.1fs", rem)
+                        ? formatFixed1(rem, en ? "Pearl: " : "Perle: ", "s")
                         : (en ? "Pearl: Ready" : "Perle: Prête");
                 drawStandardBadge(mod, x, y, s, val, accentCol, textCol, shadow, true, alphaMul);
                 return;
@@ -1030,7 +1071,7 @@ public final class MashHudRenderer {
                     return;
                 }
                 String val = rem > 0.05F
-                        ? String.format(Locale.US, en ? "Regen: %.1fs" : "Régén: %.1fs", rem)
+                        ? formatFixed1(rem, en ? "Regen: " : "Régén: ", "s")
                         : (en ? "Regen: Ready" : "Régén: Prête");
                 drawStandardBadge(mod, x, y, s, val, accentCol, textCol, shadow, true, alphaMul);
                 return;
@@ -1038,8 +1079,7 @@ public final class MashHudRenderer {
             case "hud_custom_label":
             default: {
                 int idx = mode(mod, "preset_label", 0);
-                String[] opts = {"MashClient", "MASH \u2022 FPS", "GG \u2022 FairPlay", "PvP"};
-                String val = opts[Math.max(0, Math.min(opts.length - 1, idx))];
+                String val = CUSTOM_LABEL_PRESETS[Math.max(0, Math.min(CUSTOM_LABEL_PRESETS.length - 1, idx))];
                 drawStandardBadge(mod, x, y, s, val, accentCol, textCol, shadow, true, alphaMul);
             }
         }
@@ -1321,25 +1361,42 @@ public final class MashHudRenderer {
         double pz = mc.thePlayer != null ? mc.thePlayer.posZ : 0.0D;
         int dec = Math.round(num(mod, "decimals", 0.0F));
         boolean showY = bool(mod, "show_y", true);
-        String fmt = dec <= 0 ? "%.0f" : (dec == 1 ? "%.1f" : "%.2f");
 
         if (mode(mod, "layout", 0) == 0) {
-            String txt = showY
-                    ? ("XYZ: " + String.format(Locale.US, fmt, px) + "  " + String.format(Locale.US, fmt, py) + "  " + String.format(Locale.US, fmt, pz))
-                    : ("XZ: " + String.format(Locale.US, fmt, px) + "  " + String.format(Locale.US, fmt, pz));
-            drawStandardBadge(mod, x, y, s, txt, accentCol, textCol, shadow, true, alphaMul);
+            HUD_FMT_SB.setLength(0);
+            HUD_FMT_SB.append(showY ? "XYZ: " : "XZ: ");
+            appendCoord(HUD_FMT_SB, px, dec);
+            if (showY) {
+                HUD_FMT_SB.append("  ");
+                appendCoord(HUD_FMT_SB, py, dec);
+            }
+            HUD_FMT_SB.append("  ");
+            appendCoord(HUD_FMT_SB, pz, dec);
+            drawStandardBadge(mod, x, y, s, HUD_FMT_SB.toString(), accentCol, textCol, shadow, true, alphaMul);
         } else {
             int rows = showY ? 3 : 2;
             float bw = 88.0F;
             float bh = rows * 12.0F + 7.0F;
             mod.setBaseHudSize(bw, bh);
             drawHudCard(mod, x, y, bw, bh, s, alphaMul);
-            queueText("X: " + String.format(Locale.US, fmt, px), x + 7.0F * s, y + 4.5F * s, s, textCol, shadow, false);
+            HUD_FMT_SB.setLength(0);
+            HUD_FMT_SB.append("X: ");
+            appendCoord(HUD_FMT_SB, px, dec);
+            queueText(HUD_FMT_SB.toString(), x + 7.0F * s, y + 4.5F * s, s, textCol, shadow, false);
             if (showY) {
-                queueText("Y: " + String.format(Locale.US, fmt, py), x + 7.0F * s, y + 16.5F * s, s, textCol, shadow, false);
-                queueText("Z: " + String.format(Locale.US, fmt, pz), x + 7.0F * s, y + 28.5F * s, s, textCol, shadow, false);
+                HUD_FMT_SB.setLength(0);
+                HUD_FMT_SB.append("Y: ");
+                appendCoord(HUD_FMT_SB, py, dec);
+                queueText(HUD_FMT_SB.toString(), x + 7.0F * s, y + 16.5F * s, s, textCol, shadow, false);
+                HUD_FMT_SB.setLength(0);
+                HUD_FMT_SB.append("Z: ");
+                appendCoord(HUD_FMT_SB, pz, dec);
+                queueText(HUD_FMT_SB.toString(), x + 7.0F * s, y + 28.5F * s, s, textCol, shadow, false);
             } else {
-                queueText("Z: " + String.format(Locale.US, fmt, pz), x + 7.0F * s, y + 16.5F * s, s, textCol, shadow, false);
+                HUD_FMT_SB.setLength(0);
+                HUD_FMT_SB.append("Z: ");
+                appendCoord(HUD_FMT_SB, pz, dec);
+                queueText(HUD_FMT_SB.toString(), x + 7.0F * s, y + 16.5F * s, s, textCol, shadow, false);
             }
         }
     }
@@ -1357,9 +1414,7 @@ public final class MashHudRenderer {
     ) {
         float yaw = mc.thePlayer != null ? MathHelper.wrapAngleTo180_float(mc.thePlayer.rotationYaw) : 0.0F;
         float deg360 = (yaw + 180.0F + 360.0F) % 360.0F;
-        String[] dirs = PureFPSConfig.isEnglish()
-                ? new String[]{"N", "NE", "E", "SE", "S", "SW", "W", "NW"}
-                : new String[]{"N", "NE", "E", "SE", "S", "SO", "O", "NO"};
+        String[] dirs = PureFPSConfig.isEnglish() ? DIRECTIONS_EN : DIRECTIONS_FR;
         int idx = Math.round(deg360 / 45.0F) & 7;
         boolean showDeg = bool(mod, "show_deg", true);
 
@@ -1455,9 +1510,15 @@ public final class MashHudRenderer {
         drawHudCard(mod, x, y, bw, bh, s, alphaMul);
 
         queueText(name, x + 8.0F * s, y + 5.0F * s, s, textCol, shadow, false);
-        String sub = String.format(Locale.US, en ? "%.1f HP" : "%.1f PV", hp)
-                + (bool(mod, "show_dist", true) ? String.format(Locale.US, "  \u2022  %.1fm", dist) : "");
-        queueText(sub, x + 8.0F * s, y + 15.0F * s, s, mulAlpha(0xFF949CB0, alphaMul), shadow, false);
+        HUD_FMT_SB.setLength(0);
+        appendFixed1(HUD_FMT_SB, hp);
+        HUD_FMT_SB.append(en ? " HP" : " PV");
+        if (bool(mod, "show_dist", true)) {
+            HUD_FMT_SB.append("  \u2022  ");
+            appendFixed1(HUD_FMT_SB, dist);
+            HUD_FMT_SB.append('m');
+        }
+        queueText(HUD_FMT_SB.toString(), x + 8.0F * s, y + 15.0F * s, s, mulAlpha(0xFF949CB0, alphaMul), shadow, false);
 
         if (bool(mod, "show_hearts", true)) {
             float barW = (bw - 16.0F) * s;
@@ -1720,13 +1781,78 @@ public final class MashHudRenderer {
     }
 
     private static String formatDurationSec(long sec) {
+        if (sec == cachedSessionSec) {
+            return cachedSessionText;
+        }
         long h = sec / 3600L;
         long m = (sec % 3600L) / 60L;
         long s = sec % 60L;
+        HUD_FMT_SB.setLength(0);
         if (h > 0L) {
-            return String.format(Locale.ROOT, "%d:%02d:%02d", h, m, s);
+            HUD_FMT_SB.append(h).append(':');
+            appendTwoDigits(HUD_FMT_SB, m);
+            HUD_FMT_SB.append(':');
+            appendTwoDigits(HUD_FMT_SB, s);
+        } else {
+            appendTwoDigits(HUD_FMT_SB, m);
+            HUD_FMT_SB.append(':');
+            appendTwoDigits(HUD_FMT_SB, s);
         }
-        return String.format(Locale.ROOT, "%02d:%02d", m, s);
+        cachedSessionSec = sec;
+        cachedSessionText = HUD_FMT_SB.toString();
+        return cachedSessionText;
+    }
+
+    private static void appendTwoDigits(StringBuilder sb, long v) {
+        if (v < 10L) {
+            sb.append('0');
+        }
+        sb.append(v);
+    }
+
+    private static void appendFixed1(StringBuilder sb, double val) {
+        long tenths = Math.round(val * 10.0D);
+        if (tenths < 0L) {
+            sb.append('-');
+            tenths = -tenths;
+        }
+        sb.append(tenths / 10L).append('.').append(tenths % 10L);
+    }
+
+    private static void appendFixed2(StringBuilder sb, double val) {
+        long hundredths = Math.round(val * 100.0D);
+        if (hundredths < 0L) {
+            sb.append('-');
+            hundredths = -hundredths;
+        }
+        sb.append(hundredths / 100L).append('.');
+        long frac = hundredths % 100L;
+        if (frac < 10L) {
+            sb.append('0');
+        }
+        sb.append(frac);
+    }
+
+    private static String formatFixed1(double val, String prefix, String suffix) {
+        HUD_FMT_SB.setLength(0);
+        if (prefix != null) {
+            HUD_FMT_SB.append(prefix);
+        }
+        appendFixed1(HUD_FMT_SB, val);
+        if (suffix != null) {
+            HUD_FMT_SB.append(suffix);
+        }
+        return HUD_FMT_SB.toString();
+    }
+
+    private static void appendCoord(StringBuilder sb, double val, int decimals) {
+        if (decimals <= 0) {
+            sb.append(Math.round(val));
+        } else if (decimals == 1) {
+            appendFixed1(sb, val);
+        } else {
+            appendFixed2(sb, val);
+        }
     }
 
     private static String stripFormatting(String s) {
@@ -1787,6 +1913,7 @@ public final class MashHudRenderer {
             return -1;
         }
         NetworkPlayerInfo info = mc.getNetHandler().getPlayerInfo(mc.thePlayer.getUniqueID());
-        return info != null ? info.getResponseTime() : 0;
+        int rawPing = info != null ? info.getResponseTime() : 0;
+        return RealPingEstimator.resolveEffectivePing(mc, rawPing);
     }
 }

@@ -12,7 +12,7 @@ import java.util.List;
 
 /**
  * Affiche sur l'écran F3 le profil actif, le batching GPU VAO+EBO, le déchargement des coeurs d'îles,
- * les compteurs temps-réel et le backend graphique (Vulkan Mesa3D Zink vs OpenGL) de MashClient 4.5.12.
+ * les compteurs temps-réel et le backend graphique (Vulkan Mesa3D Zink vs OpenGL) de MashClient 4.5.13.
  */
 @Mixin(GuiOverlayDebug.class)
 public class MixinGuiOverlayDebug {
@@ -27,10 +27,10 @@ public class MixinGuiOverlayDebug {
             return;
         }
         if (!PureFPSConfig.enabled) {
-            lines.add("\u00a7b[MashClient 4.5.12]\u00a7r " + (PureFPSConfig.isEnglish() ? "Disabled (/mashclient)" : "Désactivé (/mashclient)"));
+            lines.add("\u00a7b[MashClient 4.5.13]\u00a7r " + (PureFPSConfig.isEnglish() ? "Disabled (/mashclient)" : "Désactivé (/mashclient)"));
         } else {
             lines.add(String.format(
-                    "\u00a7b[MashClient 4.5.12 | %s\u00a7b | %s\u00a7b]\u00a7r MultiDraw: %dc (%dd) | CoreUnload:%d | StaticSkip:%d | Culled E:%d TE:%d P:%d",
+                    "\u00a7b[MashClient 4.5.13 | %s\u00a7b | %s\u00a7b]\u00a7r MultiDraw: %dc (%dd) | CoreUnload:%d | StaticSkip:%d | Culled E:%d TE:%d P:%d",
                     PureFPSConfig.activeProfile.getColoredName(),
                     VulkanBackendHelper.getF3BackendBadge(),
                     PureFPSConfig.chunksBatchedLastFrame,

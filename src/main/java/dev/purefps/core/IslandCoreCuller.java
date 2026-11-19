@@ -35,6 +35,7 @@ public final class IslandCoreCuller {
         public final long[] outwardOpenBoundaryBits = new long[64];
         public final long[] exteriorReachableBits = new long[64];
         public final long[] visibleBlockMask = new long[64];
+        public final IBlockState[] cachedStates = new IBlockState[4096];
         final int[] bfsQueue = new int[4096];
         final BlockPos.MutableBlockPos scanPos = new BlockPos.MutableBlockPos();
 
@@ -166,6 +167,7 @@ public final class IslandCoreCuller {
                     }
                     nonAirCount++;
                     int idx = yzShift | lx;
+                    ctx.cachedStates[idx] = state;
                     ctx.nonAirBits[idx >>> 6] |= (1L << (idx & 63));
                     if (block.isOpaqueCube()) {
                         ctx.opaqueBits[idx >>> 6] |= (1L << (idx & 63));

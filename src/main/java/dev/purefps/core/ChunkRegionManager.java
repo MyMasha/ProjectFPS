@@ -12,6 +12,7 @@ import org.lwjgl.opengl.ContextCapabilities;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GLContext;
 
 import java.nio.ByteBuffer;
@@ -25,14 +26,17 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Moteur GPU Ultra-Haute-Fréquence d'Arènes Régionales MultiDraw (MashClient 4.5.1) :
+ * Moteur GPU Ultra-Haute-Fréquence d'Arènes Régionales MultiDraw + VAO GL 3.0 (MashClient 4.5.13) :
  * - Fusionne jusqu'à 256+ sections de chunks par région 256x256 blocs dans un unique tampon VRAM contigu
- *   (RegionLayerArena) et émet UN SEUL appel GL14.glMultiDrawArrays par région (divisant par ~150x à ~300x
- *   le nombre d'appels JNI OpenGL et de validations d'état Mesa3D Zink / Vulkan pour dépasser 2 000 FPS !).
- * - Conserve le repli indexé QuadIndexBuffer GL_TRIANGLES pour la couche TRANSLUCENT afin de garantir un
- *   tri alpha arrière-vers-avant 100 % exact aux frontières de régions.
+ *   (RegionLayerArena) avec VAO matériel OpenGL 3.0 (1 seul glBindVertexArray + 1 seul glMultiDrawArrays par région).
+ * - Déporte la conversion quads -> triangles + translation régionale sur les threads workers ChunkRenderWorker
+ *   pour libérer le thread OpenGL principal lors des uploads de chunks.
+ * - Conserve le repli indexé QuadIndexBuffer GL_TRIANGLES (4 sommets/quad) pour la couche TRANSLUCENT afin de
+ *   garantir un tri alpha arrière-vers-avant 100 % exact avec 33 % de bande passante VRAM en moins.
  */
 public final class ChunkRegionManager {
 
@@ -47,13 +51,27 @@ public final class ChunkRegionManager {
     private static final Map<Long, RegionLayerArena> ARENAS = new HashMap<Long, RegionLayerArena>();
     private static final List<RegionLayerArena> ACTIVE_BATCH_ARENAS = new ArrayList<RegionLayerArena>(8);
 
+    // Pool lock-free de tampons directs pour le pré-calcul quad->triangles sur les threads ChunkRenderWorker
+    private static final int MAX_POOLED_WORKER_BUFFERS = 16;
+    private static final int MAX_POOLED_BUFFER_BYTES = 512 * 1024;
+    private static final ConcurrentLinkedQueue<ByteBuffer> WORKER_TRI_POOL = new ConcurrentLinkedQueue<ByteBuffer>();
+    private static final AtomicInteger WORKER_TRI_POOL_SIZE = new AtomicInteger(0);
+
+    // Passage zéro-allocation entre ChunkUploadTask.run() et uploadChunkLayerToArena() sur le thread OpenGL principal
+    private static ByteBuffer pendingPrebakedBuf = null;
+    private static int pendingPrebakedTriVerts = 0;
+    private static int pendingPrebakedPosX = 0;
+    private static int pendingPrebakedPosY = 0;
+    private static int pendingPrebakedPosZ = 0;
+
     private static ByteBuffer stagingBuffer = ByteBuffer.allocateDirect(262144).order(ByteOrder.nativeOrder());
     private static IntBuffer multiFirstBuf = BufferUtils.createIntBuffer(512);
     private static IntBuffer multiCountBuf = BufferUtils.createIntBuffer(512);
 
-    private static int capabilityState = 0;
-    private static int multiDrawState = 0;
+    private static volatile int capabilityState = 0;
+    private static volatile int multiDrawState = 0;
     private static boolean hasGL31Copy = false;
+    private static boolean hasGL30Vao = false;
 
     private ChunkRegionManager() {
     }
@@ -81,6 +99,7 @@ public final class ChunkRegionManager {
                 ContextCapabilities caps = GLContext.getCapabilities();
                 boolean ok = caps != null && caps.OpenGL15 && OpenGlHelper.useVbo();
                 hasGL31Copy = caps != null && caps.OpenGL31;
+                hasGL30Vao = caps != null && caps.OpenGL30;
                 capabilityState = ok ? 1 : -1;
             } catch (Exception | LinkageError t) {
                 capabilityState = -1;
@@ -95,12 +114,99 @@ public final class ChunkRegionManager {
                 ContextCapabilities caps = GLContext.getCapabilities();
                 boolean ok = caps != null && caps.OpenGL15 && caps.OpenGL14 && OpenGlHelper.useVbo();
                 hasGL31Copy = caps != null && caps.OpenGL31;
+                hasGL30Vao = caps != null && caps.OpenGL30;
                 multiDrawState = ok ? 1 : -1;
             } catch (Exception | LinkageError t) {
                 multiDrawState = -1;
             }
         }
         return multiDrawState == 1;
+    }
+
+    /**
+     * Lecture thread-safe depuis les threads workers (ne touche jamais GLContext).
+     */
+    public static boolean isMultiDrawReadyForWorkers() {
+        return multiDrawState == 1;
+    }
+
+    public static ByteBuffer acquireWorkerTriBuffer(int requiredBytes) {
+        ByteBuffer candidate = WORKER_TRI_POOL.poll();
+        if (candidate != null) {
+            WORKER_TRI_POOL_SIZE.decrementAndGet();
+            if (candidate.capacity() >= requiredBytes) {
+                candidate.clear();
+                return candidate;
+            }
+        }
+        int alloc = Math.max(65536, requiredBytes);
+        return ByteBuffer.allocateDirect(alloc).order(ByteOrder.nativeOrder());
+    }
+
+    public static void releaseWorkerTriBuffer(ByteBuffer buf) {
+        if (buf == null || buf.capacity() > MAX_POOLED_BUFFER_BYTES) {
+            return;
+        }
+        if (WORKER_TRI_POOL_SIZE.get() >= MAX_POOLED_WORKER_BUFFERS) {
+            return;
+        }
+        buf.clear();
+        if (WORKER_TRI_POOL_SIZE.incrementAndGet() <= MAX_POOLED_WORKER_BUFFERS) {
+            WORKER_TRI_POOL.offer(buf);
+        } else {
+            WORKER_TRI_POOL_SIZE.decrementAndGet();
+        }
+    }
+
+    /**
+     * Exécuté sur les threads ChunkRenderWorker : convertit les quads en triangles régionaux hors thread OpenGL.
+     */
+    public static ByteBuffer bakeChunkToRegionTriangles(ByteBuffer srcBytes, int posX, int posY, int posZ) {
+        if (srcBytes == null) {
+            return null;
+        }
+        int byteLimit = srcBytes.limit();
+        int quadVertexCount = byteLimit / RegionLayerArena.VERTEX_STRIDE_BYTES;
+        int triVertexCount = (quadVertexCount >> 2) * 6;
+        if (triVertexCount <= 0) {
+            return null;
+        }
+        int requiredBytes = triVertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
+        int originX = posX & ~255;
+        int originZ = posZ & ~255;
+        float localX = (float) (posX - originX);
+        float localY = (float) posY;
+        float localZ = (float) (posZ - originZ);
+
+        ByteBuffer dst = acquireWorkerTriBuffer(requiredBytes);
+        transformBlockQuadsToTriangles(srcBytes, quadVertexCount, localX, localY, localZ, dst);
+        return dst;
+    }
+
+    public static void setPendingPrebakedUpload(ByteBuffer triBuf, int triVerts, int posX, int posY, int posZ) {
+        pendingPrebakedBuf = triBuf;
+        pendingPrebakedTriVerts = triVerts;
+        pendingPrebakedPosX = posX;
+        pendingPrebakedPosY = posY;
+        pendingPrebakedPosZ = posZ;
+    }
+
+    public static void clearPendingPrebakedUpload() {
+        pendingPrebakedBuf = null;
+        pendingPrebakedTriVerts = 0;
+    }
+
+    private static ByteBuffer consumePendingPrebakedUpload(int posX, int posY, int posZ, int triVerts) {
+        ByteBuffer buf = pendingPrebakedBuf;
+        pendingPrebakedBuf = null;
+        if (buf != null
+                && pendingPrebakedTriVerts == triVerts
+                && pendingPrebakedPosX == posX
+                && pendingPrebakedPosY == posY
+                && pendingPrebakedPosZ == posZ) {
+            return buf;
+        }
+        return null;
     }
 
     public static long packRegionLayerKey(int blockX, int blockZ, int layerOrdinal) {
@@ -381,9 +487,13 @@ public final class ChunkRegionManager {
         float localY = (float) posY;
         float localZ = (float) (posZ - arena.originZ);
 
-        int requiredBytes = triVertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
-        ensureStagingCapacity(requiredBytes);
-        transformBlockQuadsToTriangles(srcBytes, quadVertexCount, localX, localY, localZ, stagingBuffer);
+        ByteBuffer uploadBuf = consumePendingPrebakedUpload(posX, posY, posZ, triVertexCount);
+        if (uploadBuf == null) {
+            int requiredBytes = triVertexCount * RegionLayerArena.VERTEX_STRIDE_BYTES;
+            ensureStagingCapacity(requiredBytes);
+            transformBlockQuadsToTriangles(srcBytes, quadVertexCount, localX, localY, localZ, stagingBuffer);
+            uploadBuf = stagingBuffer;
+        }
 
         RegionLayerArena prevArena = fvb.purefps$getArena();
         int prevFirst = fvb.purefps$getArenaFirstVertex();
@@ -393,7 +503,8 @@ public final class ChunkRegionManager {
         int alignedVerts = FreeRangeAllocator.alignVertices(triVertexCount);
         int newFirst = arena.allocator.allocate(alignedVerts);
         int requiredCap = arena.allocator.getHighWaterMark();
-        arena.ensureCapacity(requiredCap, prevHwm, hasGL31Copy, false);
+        boolean useVao = hasGL30Vao && PureFPSConfig.hardwareRegionVao;
+        arena.ensureCapacity(requiredCap, prevHwm, hasGL31Copy, useVao);
 
         if (prevArena != null && prevArena.vboId >= 0 && prevFirst >= 0 && prevAlloc > 0) {
             prevArena.allocator.free(prevFirst, prevAlloc);
@@ -403,7 +514,7 @@ public final class ChunkRegionManager {
         GL15.glBufferSubData(
                 OpenGlHelper.GL_ARRAY_BUFFER,
                 (long) newFirst * (long) RegionLayerArena.VERTEX_STRIDE_BYTES,
-                stagingBuffer
+                uploadBuf
         );
         OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
 
@@ -423,8 +534,6 @@ public final class ChunkRegionManager {
         }
 
         int layerOrd = layer.ordinal();
-        boolean menuDimmed = MenuUnloadManager.isWorldDimmedByMenu();
-        float menuMaxDistSq = (layerOrd == 0) ? 2304.0F : 1024.0F;
         boolean useMultiDraw = layerOrd < 3 && PureFPSConfig.regionMultiDraw && isMultiDrawSupported();
 
         int drawnSections = 0;
@@ -443,15 +552,6 @@ public final class ChunkRegionManager {
                 if (vCount <= 0) {
                     continue;
                 }
-                if (menuDimmed) {
-                    BlockPos pos = rc.getPosition();
-                    float cx = (float) ((double) pos.getX() - viewX) + 8.0F;
-                    float cy = (float) ((double) pos.getY() - viewY) + 8.0F;
-                    float cz = (float) ((double) pos.getZ() - viewZ) + 8.0F;
-                    if (cx * cx + cy * cy + cz * cz > menuMaxDistSq) {
-                        continue;
-                    }
-                }
                 RegionLayerArena arena = fvb.purefps$getArena();
                 int firstVert = fvb.purefps$getArenaFirstVertex();
                 if (arena != null && arena.vboId >= 0 && firstVert >= 0) {
@@ -467,7 +567,16 @@ public final class ChunkRegionManager {
 
             int arenaCount = ACTIVE_BATCH_ARENAS.size();
             if (arenaCount > 0) {
+                boolean allowVao = hasGL30Vao && PureFPSConfig.hardwareRegionVao;
+                boolean anyVaoBound = false;
+                boolean vaoCurrentlyBound = false;
                 OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
+
+                GlStateManager.pushMatrix();
+                float prevTx = 0.0F;
+                float prevTy = 0.0F;
+                float prevTz = 0.0F;
+
                 for (int a = 0; a < arenaCount; a++) {
                     RegionLayerArena arena = ACTIVE_BATCH_ARENAS.get(a);
                     int n = arena.batchSize;
@@ -476,14 +585,31 @@ public final class ChunkRegionManager {
                         continue;
                     }
 
-                    GlStateManager.pushMatrix();
-                    GL11.glTranslatef(
-                            (float) ((double) arena.originX - viewX),
-                            (float) (-viewY),
-                            (float) ((double) arena.originZ - viewZ)
-                    );
-                    OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, arena.vboId);
-                    setupBlockArrayPointers();
+                    float tx = (float) ((double) arena.originX - viewX);
+                    float ty = (float) (-viewY);
+                    float tz = (float) ((double) arena.originZ - viewZ);
+                    float dx = tx - prevTx;
+                    float dy = ty - prevTy;
+                    float dz = tz - prevTz;
+                    if (dx != 0.0F || dy != 0.0F || dz != 0.0F) {
+                        GL11.glTranslatef(dx, dy, dz);
+                        prevTx = tx;
+                        prevTy = ty;
+                        prevTz = tz;
+                    }
+
+                    if (allowVao && arena.vaoId > 0) {
+                        GL30.glBindVertexArray(arena.vaoId);
+                        vaoCurrentlyBound = true;
+                        anyVaoBound = true;
+                    } else {
+                        if (vaoCurrentlyBound) {
+                            GL30.glBindVertexArray(0);
+                            vaoCurrentlyBound = false;
+                        }
+                        OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, arena.vboId);
+                        setupBlockArrayPointers();
+                    }
 
                     if (n == 1) {
                         GL11.glDrawArrays(GL11.GL_TRIANGLES, arena.batchFirst[0], arena.batchCount[0]);
@@ -504,9 +630,13 @@ public final class ChunkRegionManager {
                         GL14.glMultiDrawArrays(GL11.GL_TRIANGLES, multiFirstBuf, multiCountBuf);
                     }
 
-                    GlStateManager.popMatrix();
                     PureFPSConfig.frameMultiDrawsAccumulator++;
                 }
+
+                if (anyVaoBound) {
+                    GL30.glBindVertexArray(0);
+                }
+                GlStateManager.popMatrix();
                 ACTIVE_BATCH_ARENAS.clear();
             }
 
@@ -551,14 +681,6 @@ public final class ChunkRegionManager {
             float targetX = (float) ((double) pos.getX() - viewX);
             float targetY = (float) ((double) pos.getY() - viewY);
             float targetZ = (float) ((double) pos.getZ() - viewZ);
-            if (menuDimmed) {
-                float cx = targetX + 8.0F;
-                float cy = targetY + 8.0F;
-                float cz = targetZ + 8.0F;
-                if (cx * cx + cy * cy + cz * cz > menuMaxDistSq) {
-                    continue;
-                }
-            }
             float dx = targetX - prevX;
             float dy = targetY - prevY;
             float dz = targetZ - prevZ;
@@ -642,6 +764,7 @@ public final class ChunkRegionManager {
     }
 
     public static void clearAll() {
+        clearPendingPrebakedUpload();
         ACTIVE_BATCH_ARENAS.clear();
         if (!ARENAS.isEmpty()) {
             for (RegionLayerArena arena : ARENAS.values()) {

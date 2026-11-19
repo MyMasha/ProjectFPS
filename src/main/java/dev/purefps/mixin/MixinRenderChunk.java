@@ -196,7 +196,7 @@ public abstract class MixinRenderChunk {
             generator.getLock().unlock();
         }
 
-        HashSet<TileEntity> globalTileEntities = Sets.newHashSet();
+        HashSet<TileEntity> globalTileEntities = null;
         if (!regionCache.extendedLevelsInChunkCache()) {
             ++renderChunksUpdated;
             boolean useCoreCull = PureFPSConfig.enabled && PureFPSConfig.islandCoreCulling;
@@ -225,17 +225,27 @@ public abstract class MixinRenderChunk {
 
                 try {
                     for (int ly = 0; ly < 16; ly++) {
+                        int wy = by0 + ly;
+                        int yShift = ly << 8;
                         for (int lz = 0; lz < 16; lz++) {
+                            int wz = bz0 + lz;
+                            int yzShift = yShift | (lz << 4);
                             for (int lx = 0; lx < 16; lx++) {
+                                IBlockState state;
                                 if (coreCtx != null) {
-                                    int idx = IslandCoreCuller.packLocal(lx, ly, lz);
+                                    int idx = yzShift | lx;
                                     if ((coreCtx.nonAirBits[idx >>> 6] & (1L << (idx & 63))) == 0L) {
                                         continue;
                                     }
+                                    state = coreCtx.cachedStates[idx];
+                                    mpos.set(bx0 + lx, wy, wz);
+                                    if (state == null) {
+                                        state = regionCache.getBlockState(mpos);
+                                    }
+                                } else {
+                                    mpos.set(bx0 + lx, wy, wz);
+                                    state = regionCache.getBlockState(mpos);
                                 }
-
-                                mpos.set(bx0 + lx, by0 + ly, bz0 + lz);
-                                IBlockState state = regionCache.getBlockState(mpos);
                                 Block block = state.getBlock();
 
                                 if (block.isOpaqueCube()) {
@@ -249,6 +259,9 @@ public abstract class MixinRenderChunk {
                                     if (te != null && tesr != null) {
                                         compiledchunk.addTileEntity(te);
                                         if (tesr.forceTileEntityRender()) {
+                                            if (globalTileEntities == null) {
+                                                globalTileEntities = Sets.newHashSet();
+                                            }
                                             globalTileEntities.add(te);
                                         }
                                     }
@@ -256,14 +269,15 @@ public abstract class MixinRenderChunk {
                                     continue;
                                 }
 
-                                for (int i = 0; i < 4; i++) {
-                                    EnumWorldBlockLayer layer = layers[i];
-                                    if (!block.canRenderInLayer(layer)) {
-                                        continue;
-                                    }
-                                    ForgeHooksClient.setRenderLayer(layer);
-                                    int layerOrd = layer.ordinal();
-                                    if (block.getRenderType() != -1) {
+                                int renderType = block.getRenderType();
+                                if (renderType != -1) {
+                                    for (int i = 0; i < 4; i++) {
+                                        EnumWorldBlockLayer layer = layers[i];
+                                        if (!block.canRenderInLayer(layer)) {
+                                            continue;
+                                        }
+                                        ForgeHooksClient.setRenderLayer(layer);
+                                        int layerOrd = layer.ordinal();
                                         WorldRenderer wr = generator.getRegionRenderCacheBuilder().getWorldRendererByLayerId(layerOrd);
                                         if (!compiledchunk.isLayerStarted(layer)) {
                                             compiledchunk.setLayerStarted(layer);
@@ -302,13 +316,19 @@ public abstract class MixinRenderChunk {
 
         this.lockCompileTask.lock();
         try {
-            Set<TileEntity> added = Sets.newHashSet(globalTileEntities);
-            Set<TileEntity> removed = Sets.newHashSet(this.setTileEntities);
-            added.removeAll(this.setTileEntities);
-            removed.removeAll(globalTileEntities);
-            this.setTileEntities.clear();
-            this.setTileEntities.addAll(globalTileEntities);
-            this.renderGlobal.updateTileEntities(removed, added);
+            if ((globalTileEntities != null && !globalTileEntities.isEmpty()) || !this.setTileEntities.isEmpty()) {
+                Set<TileEntity> added = (globalTileEntities != null)
+                        ? Sets.newHashSet(globalTileEntities)
+                        : Sets.<TileEntity>newHashSet();
+                Set<TileEntity> removed = Sets.newHashSet(this.setTileEntities);
+                added.removeAll(this.setTileEntities);
+                removed.removeAll(globalTileEntities != null ? globalTileEntities : java.util.Collections.<TileEntity>emptySet());
+                this.setTileEntities.clear();
+                if (globalTileEntities != null) {
+                    this.setTileEntities.addAll(globalTileEntities);
+                }
+                this.renderGlobal.updateTileEntities(removed, added);
+            }
         } finally {
             this.lockCompileTask.unlock();
         }

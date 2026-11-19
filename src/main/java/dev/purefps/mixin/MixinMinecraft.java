@@ -32,7 +32,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.5.12) :
+ * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.5.13) :
  * 1. Supprime les 2 appels bloquants GL11.glGetError() par frame dans checkGLError.
  * 2. Régule la file GPU sans spin (1-frame-in-flight GLSync) et maintient la composition DWM fenêtrée (+1 px)
  *    pour éliminer tout freeze des streams Discord, captures Win+Shift+S et pointeurs Windows personnalisés.
@@ -126,13 +126,17 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "startGame", at = @At("HEAD"))
     private void purefps$onStartGameHead(CallbackInfo ci) {
+        Minecraft mc = (Minecraft) (Object) this;
+        dev.purefps.core.ClientHangWatchdog.start(mc.mcDataDir);
+        dev.purefps.core.ClientHangWatchdog.markPhase("startGame:head", false);
         this.session = dev.purefps.core.EphemeralSessionBridge.resolveSession(this.session);
         dev.purefps.core.VulkanBackendHelper.preloadZinkIfConfigured();
-        SeamlessLaunchTransition.onStartGameHead((Minecraft) (Object) this);
+        SeamlessLaunchTransition.onStartGameHead(mc);
     }
 
     @Inject(method = "setInitialDisplayMode", at = @At("HEAD"), cancellable = true)
     private void purefps$prepareSeamlessDisplay(CallbackInfo ci) {
+        dev.purefps.core.ClientHangWatchdog.markPhase("createDisplay:setInitialDisplayMode", false);
         if (SeamlessLaunchTransition.applyBorderlessDisplayMode((Minecraft) (Object) this)) {
             this.fullscreen = false;
             ci.cancel();
@@ -154,10 +158,12 @@ public abstract class MixinMinecraft {
     @Inject(method = "createDisplay", at = @At("RETURN"))
     private void purefps$onDisplayCreated(CallbackInfo ci) {
         SeamlessLaunchTransition.onDisplayCreated((Minecraft) (Object) this);
+        dev.purefps.core.ClientHangWatchdog.markPhase("createDisplay:done", true);
     }
 
     @Inject(method = "drawSplashScreen", at = @At("HEAD"), cancellable = true)
     private void purefps$renderBlackHoleEmergenceFallback(TextureManager textureManagerInstance, CallbackInfo ci) {
+        dev.purefps.core.ClientHangWatchdog.markPhase("startGame:splashScreen", true);
         if (PureFPSConfig.enabled || SeamlessLaunchTransition.isActive()) {
             BlackHoleEmergenceRenderer.renderPureBlackBootFrame((Minecraft) (Object) this);
             ci.cancel();
@@ -190,14 +196,16 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "startGame", at = @At("RETURN"))
     private void purefps$syncStartupSettings(CallbackInfo ci) {
+        dev.purefps.core.ClientHangWatchdog.markPhase("startGame:return", true);
         if (SeamlessLaunchTransition.isActive()) {
             BlackHoleEmergenceRenderer.renderPureBlackBootFrame((Minecraft) (Object) this);
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.12"));
+            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.13"));
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
+        dev.purefps.core.ClientHangWatchdog.markStartupComplete();
     }
 
     @Inject(method = "updateDisplay", at = @At("HEAD"))
@@ -233,6 +241,7 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "runGameLoop", at = @At("HEAD"))
     private void purefps$restoreCursorOnFocusRegain(CallbackInfo ci) {
+        dev.purefps.core.ClientHangWatchdog.heartbeat();
         boolean activeNow = Display.isCreated() && Display.isActive();
         if (activeNow && !this.purefps$wasDisplayActive && this.currentScreen != null) {
             BorderlessWindowHelper.ensureMenuCursorVisible();
@@ -242,6 +251,7 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "shutdownMinecraftApplet", at = @At("HEAD"))
     private void purefps$flushDirtyConfigOnShutdown(CallbackInfo ci) {
+        dev.purefps.core.ClientHangWatchdog.shutdown();
         GpuFramePacer.release();
         dev.purefps.module.MashModules.saveNow();
         PureFPSConfig.save();
