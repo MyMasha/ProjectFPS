@@ -1714,7 +1714,7 @@ public final class MashHudRenderer {
             if (raw != null && raw.length() <= 3) {
                 return raw.toUpperCase(Locale.ROOT);
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
         return fallback;
     }

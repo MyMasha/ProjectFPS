@@ -66,18 +66,27 @@ public final class ResourcePackBrowserHelper {
         String os = System.getProperty("os.name", "").toLowerCase();
         try {
             if (os.contains("win")) {
-                new ProcessBuilder("explorer.exe", absPath).start();
+                String sysRoot = System.getenv("SystemRoot");
+                if (sysRoot == null || sysRoot.trim().isEmpty()) {
+                    sysRoot = System.getenv("WINDIR");
+                }
+                if (sysRoot == null || sysRoot.trim().isEmpty()) {
+                    sysRoot = "C:\\Windows";
+                }
+                File explorer = new File(sysRoot.trim(), "explorer.exe");
+                String explorerCmd = explorer.isFile() ? explorer.getAbsolutePath() : "C:\\Windows\\explorer.exe";
+                new ProcessBuilder(explorerCmd, absPath).start();
                 return;
             }
             if (java.awt.Desktop.isDesktopSupported()) {
                 java.awt.Desktop.getDesktop().open(dir);
                 return;
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
         try {
             org.lwjgl.Sys.openURL(dir.toURI().toString());
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -146,7 +155,7 @@ public final class ResourcePackBrowserHelper {
         if (entryFileField != null) {
             try {
                 return (File) entryFileField.get(entry);
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
         return null;
@@ -158,7 +167,7 @@ public final class ResourcePackBrowserHelper {
         }
         try {
             return a.getCanonicalFile().equals(b.getCanonicalFile());
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return a.getAbsoluteFile().equals(b.getAbsoluteFile());
         }
     }
@@ -174,7 +183,7 @@ public final class ResourcePackBrowserHelper {
                 dp = dp + File.separator;
             }
             return fp.startsWith(dp);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return false;
         }
     }

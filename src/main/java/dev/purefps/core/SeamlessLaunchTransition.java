@@ -128,7 +128,7 @@ public final class SeamlessLaunchTransition {
             try (FileOutputStream fos = new FileOutputStream(splashFile)) {
                 fos.write(content.getBytes(StandardCharsets.UTF_8));
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -161,7 +161,7 @@ public final class SeamlessLaunchTransition {
                 Display.update();
                 GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
                 Display.update();
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
 
@@ -253,7 +253,7 @@ public final class SeamlessLaunchTransition {
                     fos.write("DISPLAY_READY\n".getBytes(StandardCharsets.UTF_8));
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
         System.out.println(DISPLAY_CREATED_SIGNAL);
         System.out.flush();
@@ -283,7 +283,7 @@ public final class SeamlessLaunchTransition {
                     handoff.delete();
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 }

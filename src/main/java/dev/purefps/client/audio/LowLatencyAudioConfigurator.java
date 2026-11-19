@@ -58,7 +58,7 @@ public final class LowLatencyAudioConfigurator {
 
     public static String buildAlsoftIniContent(String preferredDevice) {
         StringBuilder sb = new StringBuilder(256);
-        sb.append("# MashClient 4.5.9 — Profil OpenAL Soft WASAPI Basse Latence\n")
+        sb.append("# MashClient 4.5.10 — Profil OpenAL Soft WASAPI Basse Latence\n")
                 .append("[general]\n")
                 .append("drivers = mmdevapi,dsound\n")
                 .append("periods = 3\n")
@@ -90,7 +90,7 @@ public final class LowLatencyAudioConfigurator {
                     if (expected.equals(existing)) {
                         return iniFile;
                     }
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
             try (FileOutputStream out = new FileOutputStream(iniFile, false)) {
@@ -98,7 +98,7 @@ public final class LowLatencyAudioConfigurator {
                 out.flush();
             }
             return iniFile;
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return null;
         }
     }
@@ -122,7 +122,7 @@ public final class LowLatencyAudioConfigurator {
             String prefDev = PureFPSConfig.audioOutputDevice != null ? PureFPSConfig.audioOutputDevice.trim() : "";
             Win32EnvBridge.setProcessEnv(absPath, prefDev);
             ENV_APPLIED.set(true);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -143,15 +143,15 @@ public final class LowLatencyAudioConfigurator {
                 try {
                     String defAll = org.lwjgl.openal.ALC10.alcGetString(null, ALC_DEFAULT_ALL_DEVICES_SPECIFIER);
                     addUniqueDevice(result, defAll);
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
                 try {
                     String defSpec = org.lwjgl.openal.ALC10.alcGetString(null, org.lwjgl.openal.ALC10.ALC_DEFAULT_DEVICE_SPECIFIER);
                     addUniqueDevice(result, defSpec);
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
 
         // Compléter / replier avec les périphériques de lecture Java Sound (WASAPI / DirectAudio)
@@ -188,11 +188,11 @@ public final class LowLatencyAudioConfigurator {
                                 addUniqueDevice(result, trim);
                             }
                         }
-                    } catch (Throwable ignored) {
+                    } catch (Exception | LinkageError ignored) {
                     }
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
 
         cachedOutputDevices = Collections.unmodifiableList(result);
@@ -228,12 +228,12 @@ public final class LowLatencyAudioConfigurator {
                     return;
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
         try {
             String single = org.lwjgl.openal.ALC10.alcGetString(null, pname);
             addUniqueDevice(out, single);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -307,7 +307,7 @@ public final class LowLatencyAudioConfigurator {
                         sm.reloadSoundSystem();
                     }
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
     }
@@ -332,7 +332,7 @@ public final class LowLatencyAudioConfigurator {
                 if (currentSpec == null || currentSpec.isEmpty()) {
                     currentSpec = org.lwjgl.openal.ALC10.alcGetString(currentDev, org.lwjgl.openal.ALC10.ALC_DEVICE_SPECIFIER);
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
             if (currentSpec != null && (currentSpec.equalsIgnoreCase(target)
                     || currentSpec.toLowerCase(Locale.ROOT).contains(target.toLowerCase(Locale.ROOT)))) {
@@ -354,25 +354,25 @@ public final class LowLatencyAudioConfigurator {
                         java.lang.reflect.Field ctxField = org.lwjgl.openal.AL.class.getDeclaredField("context");
                         ctxField.setAccessible(true);
                         ctxField.set(null, newCtx);
-                    } catch (Throwable ignored) {
+                    } catch (Exception | LinkageError ignored) {
                     }
                     if (oldCtx != null) {
                         try {
                             org.lwjgl.openal.ALC10.alcDestroyContext(oldCtx);
-                        } catch (Throwable ignored) {
+                        } catch (Exception | LinkageError ignored) {
                         }
                     }
                     if (currentDev != null) {
                         try {
                             org.lwjgl.openal.ALC10.alcCloseDevice(currentDev);
-                        } catch (Throwable ignored) {
+                        } catch (Exception | LinkageError ignored) {
                         }
                     }
                 } else {
                     org.lwjgl.openal.ALC10.alcCloseDevice(newDevice);
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -404,7 +404,7 @@ public final class LowLatencyAudioConfigurator {
                         kernelEnvLib.SetEnvironmentVariableW(new WString("ALSOFT_DEFAULT_DEVICE"), null);
                     }
                 }
-            } catch (Throwable t) {
+            } catch (Exception | LinkageError t) {
                 kernelEnvFailed = true;
             }
         }

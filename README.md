@@ -18,7 +18,7 @@ Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://
 
 2. **Mod seul (`purefps-*.jar`)**
    - Installez **Minecraft Forge 1.8.9** (`11.15.1.2318`).
-   - Placez `purefps-4.5.1.jar` dans votre dossier `.minecraft/mods/`.
+   - Placez `purefps-4.5.10.jar` dans votre dossier `.minecraft/mods/`.
 
 ---
 
@@ -90,7 +90,7 @@ Si vos JDK ne sont pas dans les emplacements standards détectés automatiquemen
   -Porg.gradle.java.installations.paths=/chemin/vers/jdk8,/chemin/vers/jdk17
 ```
 
-Le fichier final obfusqué est généré dans `build/libs/purefps-4.5.1.jar`.
+Le fichier final obfusqué est généré dans `build/libs/purefps-4.5.10.jar`.
 
 ### 2. Launcher Windows (`MashClient.exe`)
 
@@ -108,7 +108,7 @@ L'exécutable est généré dans `launcher/target/release/MashClient.exe`.
 
 ## Secrets de compilation et sécurité
 
-Aucune clé API secrète n'est stockée dans le dépôt Git :
+Aucune clé API secrète ni jeton GitHub n'est stocké dans le dépôt Git ou utilisé par l'Auto-Updater :
 
-- **Auto-Updater (`PURECLIENT_UPDATER_TOKEN`)** et **OAuth2 Microsoft (`MASHCLIENT_MS_CLIENT_ID`)** sont configurés uniquement dans **GitHub Actions Secrets** (*Settings -> Secrets and variables -> Actions*), accessibles exclusivement aux administrateurs du dépôt lors de la génération des releases officielles.
-- Une compilation open source réalisée sans ces secrets reste pleinement fonctionnelle : l'Auto-Updater utilise automatiquement l'API publique GitHub Releases sans jeton, et un identifiant d'application Azure OAuth2 personnel peut être fourni via `MASHCLIENT_MS_CLIENT_ID` (voir [`launcher/.env.example`](launcher/.env.example) et [`SECURITY.md`](SECURITY.md)).
+- **OAuth2 Microsoft (`MASHCLIENT_MS_CLIENT_ID`)** est configuré uniquement dans **GitHub Actions Secrets** (*Settings -> Secrets and variables -> Actions*), accessible exclusivement aux administrateurs du dépôt lors de la génération des releases officielles.
+- L'**Auto-Updater** utilise exclusivement l'API publique GitHub Releases sans aucun jeton et vérifie les empreintes cryptographiques `SHA256SUMS.txt`. Une compilation open source reste pleinement fonctionnelle (un identifiant d'application Azure OAuth2 personnel peut être fourni via `MASHCLIENT_MS_CLIENT_ID`, voir [`launcher/.env.example`](launcher/.env.example) et [`SECURITY.md`](SECURITY.md)).

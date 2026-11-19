@@ -1,10 +1,13 @@
-//! Gestionnaire des runtimes MashClient 4.5.1 :
+//! Gestionnaire des runtimes MashClient 4.5.10 :
 //! 1. Détection, classement et installation automatique d'Eclipse Temurin Java 8 x64 récent (`8u400+`)
 //! 2. Déploiement du traducteur OpenGL -> Vulkan **Mesa3D Zink** (`opengl32.dll` + `javaw.exe.local`)
 //!    tout en conservant le même dossier `.minecraft` unifié (resourcepacks, mondes, serveurs, configs).
 
-use crate::config::{app_storage_dir, effective_github_token, LauncherPrefs};
-use crate::updater::sanitize_repo;
+use crate::config::{app_storage_dir, LauncherPrefs};
+use crate::updater::{
+    fetch_trusted_redirect_chain, is_trusted_github_api_url, parse_sha256sums, sanitize_repo,
+    sha256_file_hex,
+};
 use crate::AppEvent;
 use serde::Deserialize;
 use std::fs::File;
@@ -22,7 +25,12 @@ pub const VULKAN_OPTIONAL_COMPANION_DLLS: &[&str] = &[
     "zink_dri.dll",
 ];
 
-const USER_AGENT: &str = "MashClient-Runtimes/4.5.1";
+const USER_AGENT: &str = "MashClient-Runtimes/4.5.10";
+const MAX_RUNTIME_DOWNLOAD_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_ZIP_ENTRY_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_ZIP_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_ZIP_ENTRIES: usize = 8_192;
+const MAX_CHECKSUM_TEXT_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Java8Probe {
@@ -167,7 +175,7 @@ fn build_http_agents() -> Result<(ureq::Agent, ureq::Agent), String> {
         .tls_connector(tls)
         .redirects(0)
         .timeout_connect(Duration::from_secs(12))
-        .timeout_read(Duration::from_secs(30))
+        .timeout_read(Duration::from_secs(120))
         .timeout_write(Duration::from_secs(12))
         .build();
     Ok((standard, no_redirect))
@@ -190,55 +198,68 @@ struct GhAssetSimple {
     size: u64,
 }
 
-fn stream_download_to_file(
-    standard_agent: &ureq::Agent,
+fn fetch_trusted_text_asset(
     no_redirect_agent: &ureq::Agent,
     api_url: Option<&str>,
     browser_url: &str,
-    token: Option<&str>,
+) -> Result<String, String> {
+    let resp = open_trusted_stream(no_redirect_agent, api_url, browser_url)?;
+    let mut raw = String::new();
+    resp.into_reader()
+        .take(MAX_CHECKSUM_TEXT_BYTES)
+        .read_to_string(&mut raw)
+        .map_err(|e| format!("Lecture des empreintes SHA-256 impossible: {e}"))?;
+    Ok(raw)
+}
+
+fn open_trusted_stream(
+    no_redirect_agent: &ureq::Agent,
+    api_url: Option<&str>,
+    browser_url: &str,
+) -> Result<ureq::Response, String> {
+    if let Some(aurl) = api_url {
+        if is_trusted_github_api_url(aurl) {
+            let req = no_redirect_agent
+                .get(aurl)
+                .set("Accept", "application/octet-stream")
+                .set("User-Agent", USER_AGENT)
+                .set("X-GitHub-Api-Version", "2022-11-28");
+            match req.call() {
+                Ok(r) if matches!(r.status(), 301 | 302 | 303 | 307 | 308) => {
+                    if let Some(loc) = r.header("Location") {
+                        return fetch_trusted_redirect_chain(no_redirect_agent, loc);
+                    }
+                    return Ok(r);
+                }
+                Ok(r) => return Ok(r),
+                Err(ureq::Error::Status(301 | 302 | 303 | 307 | 308, redirect_resp)) => {
+                    if let Some(loc) = redirect_resp.header("Location") {
+                        return fetch_trusted_redirect_chain(no_redirect_agent, loc);
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+    }
+    fetch_trusted_redirect_chain(no_redirect_agent, browser_url)
+}
+
+fn stream_download_to_file(
+    no_redirect_agent: &ureq::Agent,
+    api_url: Option<&str>,
+    browser_url: &str,
     dest: &Path,
     mut on_progress: impl FnMut(u8),
 ) -> Result<(), String> {
-    let resp = if let Some(aurl) = api_url {
-        let mut req = no_redirect_agent
-            .get(aurl)
-            .set("Accept", "application/octet-stream")
-            .set("User-Agent", USER_AGENT)
-            .set("X-GitHub-Api-Version", "2022-11-28");
-        if let Some(tok) = token.map(str::trim).filter(|t| !t.is_empty()) {
-            req = req.set("Authorization", &format!("Bearer {tok}"));
-        }
-        match req.call() {
-            Ok(r) if matches!(r.status(), 301 | 302 | 303 | 307 | 308) => {
-                if let Some(loc) = r.header("Location") {
-                    standard_agent
-                        .get(loc)
-                        .set("User-Agent", USER_AGENT)
-                        .call()
-                        .map_err(|e| format!("Téléchargement échoué: {e}"))?
-                } else {
-                    r
-                }
-            }
-            Ok(r) => r,
-            Err(_) => standard_agent
-                .get(browser_url)
-                .set("User-Agent", USER_AGENT)
-                .call()
-                .map_err(|e| format!("Téléchargement direct échoué: {e}"))?,
-        }
-    } else {
-        standard_agent
-            .get(browser_url)
-            .set("User-Agent", USER_AGENT)
-            .call()
-            .map_err(|e| format!("Téléchargement échoué: {e}"))?
-    };
+    let resp = open_trusted_stream(no_redirect_agent, api_url, browser_url)?;
 
     let total = resp
         .header("Content-Length")
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
+    if total > MAX_RUNTIME_DOWNLOAD_BYTES {
+        return Err("Archive distante refusée : taille supérieure à la limite autorisée.".to_owned());
+    }
 
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -251,15 +272,23 @@ fn stream_download_to_file(
     let mut last_pct = 0u8;
 
     loop {
-        let n = reader
-            .read(&mut buf)
-            .map_err(|e| format!("Interruption téléchargement: {e}"))?;
+        let n = reader.read(&mut buf).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("Interruption téléchargement: {e}")
+        })?;
         if n == 0 {
             break;
         }
-        out.write_all(&buf[..n])
-            .map_err(|e| format!("Écriture disque: {e}"))?;
-        downloaded += n as u64;
+        downloaded = downloaded.saturating_add(n as u64);
+        if downloaded > MAX_RUNTIME_DOWNLOAD_BYTES {
+            drop(out);
+            let _ = std::fs::remove_file(&tmp);
+            return Err("Téléchargement interrompu : taille maximale autorisée dépassée.".to_owned());
+        }
+        out.write_all(&buf[..n]).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("Écriture disque: {e}")
+        })?;
         if total > 0 {
             let pct = ((downloaded * 100) / total).min(99) as u8;
             if pct >= last_pct + 10 {
@@ -280,10 +309,24 @@ fn stream_download_to_file(
 fn extract_zip_to_dir(zip_path: &Path, target_dir: &Path) -> Result<(), String> {
     let f = File::open(zip_path).map_err(|e| format!("Ouverture archive zip: {e}"))?;
     let mut archive = zip::ZipArchive::new(f).map_err(|e| format!("Archive zip invalide: {e}"))?;
+    if archive.len() > MAX_ZIP_ENTRIES {
+        return Err("Archive zip refusée : nombre excessif d'entrées.".to_owned());
+    }
     std::fs::create_dir_all(target_dir).map_err(|e| e.to_string())?;
 
+    let mut total_extracted: u64 = 0;
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        let entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        // Refuse les liens symboliques à l'intérieur des archives ZIP
+        if entry
+            .unix_mode()
+            .is_some_and(|m| (m & 0o170000) == 0o120000)
+        {
+            continue;
+        }
+        if entry.size() > MAX_ZIP_ENTRY_BYTES {
+            return Err("Archive zip refusée : entrée décompressée trop volumineuse.".to_owned());
+        }
         let Some(safe_rel) = entry.enclosed_name().map(|p| p.to_path_buf()) else {
             continue;
         };
@@ -296,8 +339,20 @@ fn extract_zip_to_dir(zip_path: &Path, target_dir: &Path) -> Result<(), String> 
             }
             let mut out_f = File::create(&out_path)
                 .map_err(|e| format!("Extraction '{}' échouée: {e}", out_path.display()))?;
-            std::io::copy(&mut entry, &mut out_f)
+            let mut limited = entry.take(MAX_ZIP_ENTRY_BYTES + 1);
+            let written = std::io::copy(&mut limited, &mut out_f)
                 .map_err(|e| format!("Copie '{}' échouée: {e}", out_path.display()))?;
+            if written > MAX_ZIP_ENTRY_BYTES {
+                drop(out_f);
+                let _ = std::fs::remove_file(&out_path);
+                return Err("Archive zip refusée : limite de décompression par fichier dépassée.".to_owned());
+            }
+            total_extracted = total_extracted.saturating_add(written);
+            if total_extracted > MAX_ZIP_TOTAL_BYTES {
+                drop(out_f);
+                let _ = std::fs::remove_file(&out_path);
+                return Err("Archive zip refusée : limite totale de décompression dépassée.".to_owned());
+            }
         }
     }
     Ok(())
@@ -338,6 +393,27 @@ pub fn install_temurin_jre8(proxy: &EventLoopProxy<AppEvent>) -> Result<(String,
         })
         .ok_or_else(|| "Archive Windows x64 JRE 8 introuvable dans la release Adoptium.".to_owned())?;
 
+    let expected_sha256_name = format!("{}.sha256.txt", asset.name);
+    let expected_sha256 = rel
+        .assets
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case(&expected_sha256_name))
+        .and_then(|sha_asset| {
+            fetch_trusted_text_asset(
+                &no_redirect,
+                Some(sha_asset.url.as_str()),
+                &sha_asset.browser_download_url,
+            )
+            .ok()
+        })
+        .and_then(|raw| {
+            let parsed = parse_sha256sums(&raw);
+            parsed
+                .get(&asset.name.to_ascii_lowercase())
+                .cloned()
+                .or_else(|| parsed.values().next().cloned())
+        });
+
     let zip_dest = app_storage_dir()
         .join("runtimes")
         .join("temurin8-win-x64.zip");
@@ -349,11 +425,9 @@ pub fn install_temurin_jre8(proxy: &EventLoopProxy<AppEvent>) -> Result<(String,
     )));
 
     stream_download_to_file(
-        &standard,
         &no_redirect,
         None,
         &asset.browser_download_url,
-        None,
         &zip_dest,
         |pct| {
             let _ = proxy.send_event(AppEvent::LogLine(format!(
@@ -361,6 +435,14 @@ pub fn install_temurin_jre8(proxy: &EventLoopProxy<AppEvent>) -> Result<(String,
             )));
         },
     )?;
+
+    if let Some(ref want_sha) = expected_sha256 {
+        let got_sha = sha256_file_hex(&zip_dest)?;
+        if !got_sha.eq_ignore_ascii_case(want_sha) {
+            let _ = std::fs::remove_file(&zip_dest);
+            return Err("Intégrité SHA-256 invalide pour l'archive Eclipse Temurin JRE 8.".to_owned());
+        }
+    }
 
     let _ = proxy.send_event(AppEvent::LogLine(
         "[Java 8] Extraction du runtime Temurin Java 8 64-bit...".to_owned(),
@@ -390,6 +472,9 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
+        if ty.is_symlink() {
+            continue;
+        }
         let dst_path = dst.join(entry.file_name());
         if ty.is_dir() {
             copy_dir_recursive(&entry.path(), &dst_path)?;
@@ -472,8 +557,10 @@ fn ensure_vulkan_zink_dlls_downloaded(
     }
     std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
 
-    // 1. Recherche d'une archive locale `mashclient-vulkan-zink-win64.zip` à côté de l'exécutable (build local)
+    // 1. Recherche locale sécurisée (dossier updates/ uniquement en Release ; exe_dir autorisé uniquement en Debug)
+    #[allow(unused_mut)]
     let mut local_candidates = vec![app_storage_dir().join("updates").join(VULKAN_ZINK_ASSET_NAME)];
+    #[cfg(debug_assertions)]
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             local_candidates.push(dir.join(VULKAN_ZINK_ASSET_NAME));
@@ -493,9 +580,8 @@ fn ensure_vulkan_zink_dlls_downloaded(
         }
     }
 
-    // 2. Téléchargement depuis la GitHub Release officielle du dépôt MashClient
+    // 2. Téléchargement depuis la GitHub Release officielle publique du dépôt MashClient (sans aucun jeton)
     let repo = sanitize_repo(&prefs.github_repo)?;
-    let tok = effective_github_token();
     let (standard, no_redirect) = build_http_agents()?;
 
     let _ = proxy.send_event(AppEvent::LogLine(
@@ -507,14 +593,12 @@ fn ensure_vulkan_zink_dlls_downloaded(
     let mut browser_url = format!(
         "https://github.com/{repo}/releases/latest/download/{VULKAN_ZINK_ASSET_NAME}"
     );
+    let mut expected_sha256: Option<String> = None;
 
-    let mut req = standard
+    let req = standard
         .get(&latest_api)
         .set("Accept", "application/vnd.github+json")
         .set("User-Agent", USER_AGENT);
-    if let Some(ref t) = tok {
-        req = req.set("Authorization", &format!("Bearer {t}"));
-    }
     if let Ok(resp) = req.call() {
         if let Ok(rel) = resp.into_json::<GhReleaseSimple>() {
             if let Some(a) = rel
@@ -525,16 +609,28 @@ fn ensure_vulkan_zink_dlls_downloaded(
                 api_asset_url = Some(a.url.clone());
                 browser_url = a.browser_download_url.clone();
             }
+            if let Some(sum_asset) = rel
+                .assets
+                .iter()
+                .find(|a| a.name.eq_ignore_ascii_case("SHA256SUMS.txt"))
+            {
+                if let Ok(raw_sums) = fetch_trusted_text_asset(
+                    &no_redirect,
+                    Some(sum_asset.url.as_str()),
+                    &sum_asset.browser_download_url,
+                ) {
+                    let parsed = parse_sha256sums(&raw_sums);
+                    expected_sha256 = parsed.get(&VULKAN_ZINK_ASSET_NAME.to_ascii_lowercase()).cloned();
+                }
+            }
         }
     }
 
     let zip_dest = cache_dir.join(VULKAN_ZINK_ASSET_NAME);
     stream_download_to_file(
-        &standard,
         &no_redirect,
         api_asset_url.as_deref(),
         &browser_url,
-        tok.as_deref(),
         &zip_dest,
         |pct| {
             let _ = proxy.send_event(AppEvent::LogLine(format!(
@@ -547,6 +643,16 @@ fn ensure_vulkan_zink_dlls_downloaded(
             "Impossible de télécharger le module Vulkan Bêta ({VULKAN_ZINK_ASSET_NAME}) depuis {repo} : {e}"
         )
     })?;
+
+    if let Some(ref want_sha) = expected_sha256 {
+        let got_sha = sha256_file_hex(&zip_dest)?;
+        if !got_sha.eq_ignore_ascii_case(want_sha) {
+            let _ = std::fs::remove_file(&zip_dest);
+            return Err(format!(
+                "Intégrité SHA-256 invalide pour {VULKAN_ZINK_ASSET_NAME} (attendu {want_sha}, reçu {got_sha})."
+            ));
+        }
+    }
 
     let staging = cache_dir.join("staging");
     let _ = std::fs::remove_dir_all(&staging);
@@ -567,25 +673,7 @@ fn mirror_directory_fast(src: &Path, dst: &Path) -> Result<(), String> {
     if dst.exists() {
         return Ok(());
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        // Jonction NTFS instantanée sans privilège administrateur (0 Mo d'espace disque dupliqué pour lib/)
-        let status = std::process::Command::new("cmd.exe")
-            .args([
-                "/C",
-                "mklink",
-                "/J",
-                &dst.to_string_lossy(),
-                &src.to_string_lossy(),
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
-        if status.is_ok_and(|s| s.success()) && dst.exists() {
-            return Ok(());
-        }
-    }
+    // Copie native directe sans invoquer cmd.exe /C mklink (élimine tout risque d'injection de commande shell)
     copy_dir_recursive(src, dst)
         .map_err(|e| format!("Copie du dossier runtime '{}' impossible : {e}", src.display()))
 }

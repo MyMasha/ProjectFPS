@@ -39,31 +39,37 @@ extern "system" {
 
 static EXPORTS: OnceLock<WebView2Exports> = OnceLock::new();
 
+fn matches_embedded_dll(path: &Path) -> bool {
+    let expected_len = EMBEDDED_WEBVIEW2_LOADER_DLL.len() as u64;
+    let is_regular_same_len = std::fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_file() && m.len() == expected_len)
+        .unwrap_or(false);
+    if !is_regular_same_len {
+        return false;
+    }
+    std::fs::read(path)
+        .map(|bytes| bytes.as_slice() == EMBEDDED_WEBVIEW2_LOADER_DLL)
+        .unwrap_or(false)
+}
+
 fn ensure_extracted_dll_at(dir: &Path) -> Option<PathBuf> {
     std::fs::create_dir_all(dir).ok()?;
     let dll_path = dir.join("WebView2Loader_x64_0_39_1.dll");
-    let expected_len = EMBEDDED_WEBVIEW2_LOADER_DLL.len() as u64;
 
-    let already_valid = std::fs::metadata(&dll_path)
-        .map(|m| m.is_file() && m.len() == expected_len)
-        .unwrap_or(false);
-
-    if !already_valid {
+    if !matches_embedded_dll(&dll_path) {
         let tmp_path = dir.join(format!(
             "WebView2Loader_x64_0_39_1.{}.tmp",
             std::process::id()
         ));
         if std::fs::write(&tmp_path, EMBEDDED_WEBVIEW2_LOADER_DLL).is_ok() {
+            let _ = std::fs::remove_file(&dll_path);
             if std::fs::rename(&tmp_path, &dll_path).is_err() {
                 let _ = std::fs::remove_file(&tmp_path);
             }
         }
     }
 
-    let ok_now = std::fs::metadata(&dll_path)
-        .map(|m| m.is_file() && m.len() == expected_len)
-        .unwrap_or(false);
-    if ok_now {
+    if matches_embedded_dll(&dll_path) {
         Some(dll_path)
     } else {
         None
@@ -73,7 +79,9 @@ fn ensure_extracted_dll_at(dir: &Path) -> Option<PathBuf> {
 fn load_exports() -> &'static WebView2Exports {
     EXPORTS.get_or_init(|| {
         let primary_dir = crate::config::app_storage_dir().join("bin");
-        let fallback_dir = std::env::temp_dir().join("MashClient_bin");
+        let fallback_dir = PathBuf::from(crate::config::resolve_user_local_appdata())
+            .join(".PureFPS")
+            .join("bin");
 
         let dll_path = ensure_extracted_dll_at(&primary_dir)
             .or_else(|| ensure_extracted_dll_at(&fallback_dir));

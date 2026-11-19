@@ -366,7 +366,7 @@ public final class BlackHoleEmergenceRenderer {
                 splashNoiseTex = 0;
             }
             GL11.glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -386,7 +386,7 @@ public final class BlackHoleEmergenceRenderer {
             GL11.glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
             GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
             Display.update();
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -431,7 +431,7 @@ public final class BlackHoleEmergenceRenderer {
                 GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
             }
             Display.update();
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -567,7 +567,7 @@ public final class BlackHoleEmergenceRenderer {
         if (menuFbo != null) {
             try {
                 menuFbo.deleteFramebuffer();
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
             menuFbo = null;
         }
@@ -585,7 +585,7 @@ public final class BlackHoleEmergenceRenderer {
         try {
             menuFbo = new Framebuffer(w, h, false);
             menuFbo.setFramebufferFilter(GL11.GL_LINEAR);
-        } catch (Throwable t) {
+        } catch (Exception | LinkageError t) {
             menuFbo = null;
         }
     }
@@ -663,7 +663,7 @@ public final class BlackHoleEmergenceRenderer {
             splashULocOffsetX = GL20.glGetUniformLocation(prog, "uOffsetX");
             splashULocNoise = GL20.glGetUniformLocation(prog, "uNoiseTex");
             return true;
-        } catch (Throwable t) {
+        } catch (Exception | LinkageError t) {
             return false;
         }
     }
@@ -693,7 +693,7 @@ public final class BlackHoleEmergenceRenderer {
             mainULocNoise = GL20.glGetUniformLocation(prog, "uNoiseTex");
             mainShaderState = 1;
             return true;
-        } catch (Throwable t) {
+        } catch (Exception | LinkageError t) {
             mainShaderState = -1;
             return false;
         }

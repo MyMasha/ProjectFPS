@@ -24,7 +24,7 @@ use auth::{
 };
 use config::{
     apply_module_entry_to_pure_settings, app_storage_dir, builtin_quick_servers,
-    clear_microsoft_account, delete_custom_profile_entry, effective_github_token,
+    clear_microsoft_account, delete_custom_profile_entry,
     export_profile_bundle_to_path, import_profile_bundle_from_path, load_account_store,
     load_custom_profiles, load_launcher_prefs, load_microsoft_account, load_modules_json,
     public_account_views, remove_microsoft_account, save_all_client_configs,
@@ -41,7 +41,7 @@ use runner::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -96,6 +96,122 @@ fn user_pressing_task_switch_keys() -> bool {
 #[cfg(not(windows))]
 fn user_pressing_task_switch_keys() -> bool {
     false
+}
+
+const MAX_IPC_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
+
+/// Résout un exécutable système Windows par chemin absolu depuis `%SystemRoot%` (empêche le détournement via PATH/CWD).
+fn windows_system_exe(relative: &str) -> PathBuf {
+    let root = std::env::var("SystemRoot")
+        .or_else(|_| std::env::var("WINDIR"))
+        .unwrap_or_else(|_| r"C:\Windows".to_owned());
+    Path::new(&root).join(relative)
+}
+
+fn is_unc_or_control_path(raw: &str) -> bool {
+    raw.starts_with(r"\\")
+        || raw.starts_with("//")
+        || raw.bytes().any(|b| b < 0x20 || b == 0x7F)
+}
+
+/// Vérifie qu'un rapport de crash ouvert par IPC appartient strictement au dossier Minecraft actif
+/// (`crash-reports/*.txt`, `logs/*.log`, ou `hs_err_pid*.log` à la racine).
+fn is_safe_crash_report_path(raw_path: &str, game_dir: &str) -> Option<PathBuf> {
+    let clean = raw_path.trim();
+    if clean.is_empty() || is_unc_or_control_path(clean) {
+        return None;
+    }
+    let p = Path::new(clean);
+    if !std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file()) {
+        return None;
+    }
+    let canon_game = std::fs::canonicalize(game_dir).ok()?;
+    let canon_file = std::fs::canonicalize(p).ok()?;
+    if !canon_file.starts_with(&canon_game) {
+        return None;
+    }
+    let ext = canon_file
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase())?;
+    if ext != "txt" && ext != "log" {
+        return None;
+    }
+    let rel = canon_file.strip_prefix(&canon_game).ok()?;
+    let comps: Vec<String> = rel
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(s.to_string_lossy().to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect();
+    let allowed = match comps.as_slice() {
+        [dir, _file] if dir == "crash-reports" || dir == "logs" => true,
+        [file] if file.starts_with("hs_err_pid") && file.ends_with(".log") => true,
+        _ => false,
+    };
+    allowed.then_some(canon_file)
+}
+
+fn validate_java_executable_path(raw: &str) -> Result<String, String> {
+    let clean = raw.trim();
+    if clean.is_empty() || is_unc_or_control_path(clean) {
+        return Err("Chemin Java invalide (les chemins réseau UNC sont refusés).".to_owned());
+    }
+    let p = Path::new(clean);
+    if !p.is_absolute() || !p.is_file() {
+        return Err("Le chemin Java doit pointer vers un exécutable local existant.".to_owned());
+    }
+    let fname = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if !matches!(fname.as_str(), "javaw.exe" | "java.exe" | "javaw" | "java") {
+        return Err("Seuls les exécutables Java (javaw.exe / java.exe) sont autorisés.".to_owned());
+    }
+    let probe = runtimes::probe_java8_executable(p);
+    let has_rt_jar = p
+        .parent()
+        .and_then(|b| b.parent())
+        .is_some_and(|root| {
+            root.join("lib").join("rt.jar").is_file()
+                || root.join("jre").join("lib").join("rt.jar").is_file()
+        });
+    if !probe.is_java8 && !has_rt_jar {
+        return Err("L'exécutable sélectionné n'est pas un runtime Java 8 valide.".to_owned());
+    }
+    Ok(clean.to_owned())
+}
+
+fn validate_game_dir_path(raw: &str) -> Result<String, String> {
+    let clean = raw.trim();
+    if clean.is_empty() || is_unc_or_control_path(clean) {
+        return Err("Chemin du dossier de jeu invalide.".to_owned());
+    }
+    let p = Path::new(clean);
+    if !p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err("Le dossier de jeu doit être un chemin absolu sans '..'.".to_owned());
+    }
+    let norm = clean.replace('/', "\\").trim_end_matches('\\').to_ascii_lowercase();
+    let is_drive_root = norm.len() == 2 && norm.ends_with(':');
+    let forbidden_prefixes = [
+        r"c:\windows",
+        r"c:\program files",
+        r"c:\program files (x86)",
+        r"c:\programdata",
+        r"c:\users\public",
+    ];
+    if is_drive_root
+        || norm.is_empty()
+        || norm == "\\"
+        || forbidden_prefixes
+            .iter()
+            .any(|pre| norm == *pre || norm.starts_with(&format!(r"{pre}\")))
+        || matches!(clean, "/" | "/etc" | "/usr" | "/bin" | "/sbin" | "/System")
+    {
+        return Err("Dossier système refusé comme répertoire de jeu Minecraft.".to_owned());
+    }
+    Ok(clean.to_owned())
 }
 
 /// Masque instantanément le HWND sous Windows SANS quitter le plein écran au préalable
@@ -619,10 +735,9 @@ impl Controller {
 
         let repo = self.prefs.github_repo.clone();
         let game_dir = self.active_game_dir();
-        let tok = effective_github_token();
         let p = proxy.clone();
         std::thread::spawn(move || {
-            let result = check_for_updates(&repo, tok.as_deref(), &game_dir);
+            let result = check_for_updates(&repo, &game_dir);
             let _ = p.send_event(AppEvent::UpdateChecked { manual, result });
         });
     }
@@ -1350,13 +1465,16 @@ fn handle_ipc(
             }
         }
         IpcCommand::OpenCrashReport { path } => {
-            let p = Path::new(&path);
-            if p.is_file() {
-                if Command::new("notepad.exe").arg(p).spawn().is_err() {
-                    let _ = Command::new("explorer.exe")
-                        .arg(format!("/select,{}", p.display()))
+            if let Some(safe_path) = is_safe_crash_report_path(&path, &ctrl.active_game_dir()) {
+                let notepad = windows_system_exe(r"System32\notepad.exe");
+                if Command::new(&notepad).arg(&safe_path).spawn().is_err() {
+                    let explorer = windows_system_exe("explorer.exe");
+                    let _ = Command::new(&explorer)
+                        .arg(format!("/select,{}", safe_path.display()))
                         .spawn();
                 }
+            } else {
+                Controller::push_toast(webview, "Chemin de rapport de crash refusé par sécurité.", true);
             }
         }
         IpcCommand::SetRam { ram_mb } => {
@@ -1371,15 +1489,15 @@ fn handle_ipc(
                 ctrl.push_full_state(webview);
             }
         }
-        IpcCommand::SetJavaPath { path } => {
-            let clean = path.trim();
-            if !clean.is_empty() {
-                ctrl.prefs.java_path = clean.to_owned();
+        IpcCommand::SetJavaPath { path } => match validate_java_executable_path(&path) {
+            Ok(valid_java) => {
+                ctrl.prefs.java_path = valid_java;
                 ctrl.refresh_java_probe();
                 let _ = save_launcher_prefs(&ctrl.prefs);
                 ctrl.push_full_state(webview);
             }
-        }
+            Err(e) => Controller::push_toast(webview, &e, true),
+        },
         IpcCommand::InstallTemurinJava8 => {
             if ctrl.java_installing {
                 return false;
@@ -1397,18 +1515,18 @@ fn handle_ipc(
                 let _ = p.send_event(AppEvent::TemurinInstalled(res));
             });
         }
-        IpcCommand::SetGameDir { path } => {
-            let clean = path.trim();
-            if !clean.is_empty() {
-                ctrl.prefs.game_dir = clean.to_owned();
-                let p = Path::new(clean);
+        IpcCommand::SetGameDir { path } => match validate_game_dir_path(&path) {
+            Ok(valid_dir) => {
+                ctrl.prefs.game_dir = valid_dir.clone();
+                let p = Path::new(&valid_dir);
                 ctrl.prefs.libraries_dir = p.join("libraries").to_string_lossy().to_string();
                 ctrl.prefs.assets_dir = p.join("assets").to_string_lossy().to_string();
                 ctrl.reload_active_instance_state();
                 let _ = save_launcher_prefs(&ctrl.prefs);
                 ctrl.push_full_state(webview);
             }
-        }
+            Err(e) => Controller::push_toast(webview, &e, true),
+        },
         IpcCommand::SetLaunchMode { mode } => {
             ctrl.prefs.launch_mode = mode;
             let _ = save_launcher_prefs(&ctrl.prefs);
@@ -1465,16 +1583,25 @@ fn handle_ipc(
             } else {
                 name.trim().to_owned()
             };
-            let id = format!(
-                "srv_{}_{}",
-                clean_addr
-                    .chars()
-                    .filter(|c| c.is_ascii_alphanumeric())
-                    .take(12)
-                    .collect::<String>()
-                    .to_ascii_lowercase(),
-                ctrl.prefs.custom_servers.len() + 1
-            );
+            let slug: String = clean_addr
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .take(12)
+                .collect::<String>()
+                .to_ascii_lowercase();
+            let slug = if slug.is_empty() { "custom".to_owned() } else { slug };
+            let ts_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            let mut seq: u64 = 1;
+            let id = loop {
+                let candidate = format!("srv_{slug}_{ts_ms}_{seq}");
+                if !ctrl.prefs.custom_servers.iter().any(|s| s.id == candidate) {
+                    break candidate;
+                }
+                seq = seq.saturating_add(1);
+            };
             let entry = QuickServerEntry {
                 id,
                 name: clean_name.clone(),
@@ -1580,7 +1707,8 @@ fn handle_ipc(
         IpcCommand::OpenModsFolder => {
             let mods_dir = Path::new(&ctrl.active_game_dir()).join("mods");
             let _ = std::fs::create_dir_all(&mods_dir);
-            let _ = Command::new("explorer.exe").arg(mods_dir).spawn();
+            let explorer = windows_system_exe("explorer.exe");
+            let _ = Command::new(&explorer).arg(mods_dir).spawn();
         }
         IpcCommand::CheckUpdates { manual } => {
             ctrl.spawn_update_check(manual, webview, proxy);
@@ -1598,11 +1726,10 @@ fn handle_ipc(
             ctrl.update_view.message = format!("Téléchargement de MashClient v{}...", plan.version);
             ctrl.push_full_state(webview);
 
-            let tok = effective_github_token();
             let game_dir = ctrl.active_game_dir();
             let p = proxy.clone();
             std::thread::spawn(move || {
-                let res = download_and_install_update(&plan, tok.as_deref(), &game_dir, &p);
+                let res = download_and_install_update(&plan, &game_dir, &p);
                 let _ = p.send_event(AppEvent::UpdateInstalled(res));
             });
         }
@@ -1716,7 +1843,22 @@ fn main() -> wry::Result<()> {
         .with_devtools(false)
         .with_background_color((0, 0, 0, 255))
         .with_html(UI_HTML)
+        .with_navigation_handler(|uri| {
+            uri == "about:blank"
+                || uri.starts_with("about:blank#")
+                || uri.starts_with("data:text/html")
+        })
+        .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
+        .with_download_started_handler(|_, _| false)
         .with_ipc_handler(move |req: wry::http::Request<String>| {
+            let origin = req.uri().to_string();
+            let trusted_origin = origin.is_empty()
+                || origin == "about:blank"
+                || origin.starts_with("about:blank#")
+                || origin.starts_with("data:text/html");
+            if !trusted_origin || req.body().len() > MAX_IPC_PAYLOAD_BYTES {
+                return;
+            }
             let _ = ipc_proxy.send_event(AppEvent::IpcRaw(req.body().clone()));
         });
     #[cfg(windows)]

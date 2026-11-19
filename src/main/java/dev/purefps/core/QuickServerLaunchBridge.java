@@ -71,7 +71,7 @@ public final class QuickServerLaunchBridge {
             }
             String name = (nameLine != null && !nameLine.trim().isEmpty()) ? nameLine.trim() : host;
             return new TargetServer(name, host);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return null;
         }
     }

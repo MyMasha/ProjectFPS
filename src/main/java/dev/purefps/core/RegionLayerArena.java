@@ -44,12 +44,30 @@ public final class RegionLayerArena {
         this.originZ = originZ;
     }
 
-    public void ensureCapacity(int requiredVertices, int previousHighWaterMark, boolean hasGL31, boolean hasGL30Vao) {
-        if (vboId < 0) {
-            int cap = (layerOrdinal <= 1) ? INITIAL_SOLID_VERTICES : INITIAL_ALPHA_VERTICES;
-            while (cap < requiredVertices) {
-                cap <<= 1;
+    private static final int MAX_CAPACITY_VERTICES = 1 << 30;
+
+    private static int nextSafeCapacity(int currentCap, int requiredVertices) {
+        if (requiredVertices <= 0) {
+            return currentCap;
+        }
+        int target = Math.min(requiredVertices, MAX_CAPACITY_VERTICES);
+        int cap = Math.max(1, currentCap);
+        while (cap < target) {
+            if (cap >= (MAX_CAPACITY_VERTICES >> 1)) {
+                return MAX_CAPACITY_VERTICES;
             }
+            cap <<= 1;
+        }
+        return cap;
+    }
+
+    public void ensureCapacity(int requiredVertices, int previousHighWaterMark, boolean hasGL31, boolean hasGL30Vao) {
+        if (requiredVertices <= 0) {
+            return;
+        }
+        if (vboId < 0) {
+            int initCap = (layerOrdinal <= 1) ? INITIAL_SOLID_VERTICES : INITIAL_ALPHA_VERTICES;
+            int cap = nextSafeCapacity(initCap, requiredVertices);
             vboId = OpenGlHelper.glGenBuffers();
             OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, vboId);
             GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, (long) cap * VERTEX_STRIDE_BYTES, GL15.GL_DYNAMIC_DRAW);
@@ -61,14 +79,11 @@ public final class RegionLayerArena {
             return;
         }
 
-        if (requiredVertices <= capacityVertices) {
+        if (requiredVertices <= capacityVertices || capacityVertices >= MAX_CAPACITY_VERTICES) {
             return;
         }
 
-        int newCap = capacityVertices;
-        while (newCap < requiredVertices) {
-            newCap <<= 1;
-        }
+        int newCap = nextSafeCapacity(capacityVertices, requiredVertices);
 
         int newVbo = OpenGlHelper.glGenBuffers();
         OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, newVbo);
@@ -129,7 +144,7 @@ public final class RegionLayerArena {
             OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
             GL30.glBindVertexArray(0);
             OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             vaoId = -1;
         }
     }
@@ -149,7 +164,7 @@ public final class RegionLayerArena {
         if (vaoId > 0) {
             try {
                 GL30.glDeleteVertexArrays(vaoId);
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
             vaoId = -1;
         }

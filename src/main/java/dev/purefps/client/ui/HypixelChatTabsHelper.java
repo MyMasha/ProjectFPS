@@ -167,7 +167,7 @@ public final class HypixelChatTabsHelper {
                 if (net.minecraftforge.client.ClientCommandHandler.instance.executeCommand(mc.thePlayer, rawMessage) != 0) {
                     return;
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
             mc.thePlayer.sendChatMessage(rawMessage);
             return;
@@ -208,6 +208,17 @@ public final class HypixelChatTabsHelper {
             return true;
         }
         String low = unformattedText.toLowerCase(Locale.ROOT).trim();
+        if (low.length() >= 8
+                && low.charAt(0) == '['
+                && Character.isDigit(low.charAt(1))
+                && Character.isDigit(low.charAt(2))
+                && low.charAt(3) == ':'
+                && Character.isDigit(low.charAt(4))
+                && Character.isDigit(low.charAt(5))
+                && low.charAt(6) == ']'
+                && low.charAt(7) == ' ') {
+            low = low.substring(8).trim();
+        }
         if (activeChannel == CHANNEL_PARTY) {
             return low.startsWith("party >")
                     || low.startsWith("[party]")
@@ -248,7 +259,7 @@ public final class HypixelChatTabsHelper {
                 return false;
             }
             return data.serverIP.toLowerCase(Locale.ROOT).contains("hypixel");
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return false;
         }
     }

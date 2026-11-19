@@ -94,7 +94,7 @@ public abstract class MashSetting {
             if (el != null && el.isJsonPrimitive()) {
                 try {
                     this.value = el.getAsBoolean();
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }
@@ -196,7 +196,7 @@ public abstract class MashSetting {
             if (el != null && el.isJsonPrimitive()) {
                 try {
                     this.value = snapAndClamp(el.getAsFloat());
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }
@@ -265,7 +265,7 @@ public abstract class MashSetting {
             if (el != null && el.isJsonPrimitive()) {
                 try {
                     this.index = clampIdx(el.getAsInt());
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }
@@ -384,14 +384,14 @@ public abstract class MashSetting {
             if (el != null && el.isJsonPrimitive()) {
                 try {
                     syncHsbFromArgb(el.getAsInt());
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
             JsonElement ch = in.get(id + "_chroma");
             if (ch != null && ch.isJsonPrimitive()) {
                 try {
                     this.chroma = ch.getAsBoolean();
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }
@@ -430,7 +430,7 @@ public abstract class MashSetting {
             try {
                 String name = Keyboard.getKeyName(keyCode);
                 return (name != null && !name.isEmpty()) ? name.toUpperCase(Locale.ROOT) : ("KEY " + keyCode);
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
                 return "KEY " + keyCode;
             }
         }
@@ -451,7 +451,7 @@ public abstract class MashSetting {
             if (el != null && el.isJsonPrimitive()) {
                 try {
                     this.keyCode = el.getAsInt();
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }

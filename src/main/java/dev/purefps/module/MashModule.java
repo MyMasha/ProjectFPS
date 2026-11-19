@@ -568,14 +568,14 @@ public final class MashModule {
         if (en != null && en.isJsonPrimitive()) {
             try {
                 this.enabled = en.getAsBoolean();
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
         JsonElement fav = obj.get("favorite");
         if (fav != null && fav.isJsonPrimitive()) {
             try {
                 this.favorite = fav.getAsBoolean();
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
         if (hudWidget) {
@@ -584,13 +584,13 @@ public final class MashModule {
             if (xEl != null && xEl.isJsonPrimitive()) {
                 try {
                     this.hudX = Math.max(0.0F, Math.min(3840.0F, xEl.getAsFloat()));
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
             if (yEl != null && yEl.isJsonPrimitive()) {
                 try {
                     this.hudY = Math.max(0.0F, Math.min(2160.0F, yEl.getAsFloat()));
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }

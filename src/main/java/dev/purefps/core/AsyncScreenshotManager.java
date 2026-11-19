@@ -16,6 +16,7 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.io.File;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -25,6 +26,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Pipeline asynchrone de captures d'écran F2 (0 ms de gel en PvP) :
@@ -36,12 +38,21 @@ public final class AsyncScreenshotManager {
 
     private static final SimpleDateFormat TIMESTAMP_FORMAT = new SimpleDateFormat("yyyy-MM-dd_HH.mm.ss", Locale.ROOT);
     private static final int MAX_CACHED_RECORDS = 8;
+    private static final long MAX_CLIPBOARD_PNG_BYTES = 32L * 1024L * 1024L;
 
     private static final ExecutorService SCREENSHOT_IO = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MashClient-ScreenshotIO");
         t.setDaemon(true);
         return t;
     });
+
+    private static final ExecutorService CLIPBOARD_IO = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "MashClient-ClipboardIO");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private static final AtomicBoolean CLIPBOARD_BUSY = new AtomicBoolean(false);
 
     private static final class Record {
         final File file;
@@ -63,13 +74,51 @@ public final class AsyncScreenshotManager {
     private AsyncScreenshotManager() {
     }
 
+    public static String sanitizeScreenshotFileName(String rawName) {
+        if (rawName == null) {
+            return null;
+        }
+        String trimmed = rawName.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 160) {
+            return null;
+        }
+        if (trimmed.contains("/") || trimmed.contains("\\") || trimmed.contains(":") || trimmed.contains("..")) {
+            return null;
+        }
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (c < 0x20 || c == 0x7F) {
+                return null;
+            }
+        }
+        if (!trimmed.toLowerCase(Locale.ROOT).endsWith(".png")) {
+            return null;
+        }
+        return trimmed;
+    }
+
+    private static boolean isConfinedInDirectory(File baseDir, File candidate) {
+        try {
+            File canonBase = baseDir.getCanonicalFile();
+            File canonCandidate = candidate.getCanonicalFile();
+            File parent = canonCandidate.getParentFile();
+            return parent != null && parent.equals(canonBase);
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
     public static synchronized File allocateScreenshotFile(File screenshotsDir, String customName) {
         if (!screenshotsDir.exists()) {
             //noinspection ResultOfMethodCallIgnored
             screenshotsDir.mkdirs();
         }
-        if (customName != null && !customName.trim().isEmpty()) {
-            return new File(screenshotsDir, customName);
+        String safeCustom = sanitizeScreenshotFileName(customName);
+        if (safeCustom != null) {
+            File candidate = new File(screenshotsDir, safeCustom);
+            if (isConfinedInDirectory(screenshotsDir, candidate)) {
+                return candidate;
+            }
         }
         String base = TIMESTAMP_FORMAT.format(new Date());
         int idx = 1;
@@ -101,7 +150,7 @@ public final class AsyncScreenshotManager {
                 BufferedImage img = buildFlippedRgbImage(rawPixels, texWidth, texHeight, viewWidth, viewHeight, fboMode);
                 rec.cachedImage = img;
                 ImageIO.write(img, "png", targetFile);
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             } finally {
                 rec.ready.countDown();
             }
@@ -168,11 +217,14 @@ public final class AsyncScreenshotManager {
     }
 
     public static void copyScreenshotToClipboardAsync(final String fileName) {
-        if (fileName == null || fileName.trim().isEmpty()) {
+        final String cleanName = sanitizeScreenshotFileName(fileName);
+        if (cleanName == null) {
             return;
         }
-        final String cleanName = new File(fileName.trim()).getName();
-        Thread worker = new Thread(() -> {
+        if (!CLIPBOARD_BUSY.compareAndSet(false, true)) {
+            return;
+        }
+        CLIPBOARD_IO.execute(() -> {
             boolean en = dev.purefps.config.PureFPSConfig.isEnglish();
             try {
                 Record rec;
@@ -189,10 +241,14 @@ public final class AsyncScreenshotManager {
                 if (img == null) {
                     Minecraft mc = Minecraft.getMinecraft();
                     File baseDir = mc != null ? mc.mcDataDir : new File(".");
+                    File screenshotsDir = new File(baseDir, "screenshots");
                     if (diskFile == null) {
-                        diskFile = new File(new File(baseDir, "screenshots"), cleanName);
+                        diskFile = new File(screenshotsDir, cleanName);
                     }
-                    if (diskFile.isFile()) {
+                    if (isConfinedInDirectory(screenshotsDir, diskFile)
+                            && diskFile.isFile()
+                            && diskFile.length() > 0L
+                            && diskFile.length() <= MAX_CLIPBOARD_PNG_BYTES) {
                         img = ImageIO.read(diskFile);
                     }
                 }
@@ -206,14 +262,14 @@ public final class AsyncScreenshotManager {
                 postClientChat(en
                         ? "\u00a76[MashClient] \u00a7aScreenshot copied to clipboard! (Ctrl+V)"
                         : "\u00a76[MashClient] \u00a7aCapture copiée dans le presse-papiers ! (Ctrl+V)");
-            } catch (Throwable t) {
+            } catch (Exception | LinkageError t) {
                 postClientChat(en
                         ? "\u00a76[MashClient] \u00a7cFailed to copy screenshot: " + t.getClass().getSimpleName()
                         : "\u00a76[MashClient] \u00a7cImpossible de copier la capture : " + t.getClass().getSimpleName());
+            } finally {
+                CLIPBOARD_BUSY.set(false);
             }
-        }, "MashClient-ClipboardCopy");
-        worker.setDaemon(true);
-        worker.start();
+        });
     }
 
     private static void postClientChat(final String message) {

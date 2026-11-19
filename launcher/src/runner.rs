@@ -1,5 +1,5 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.1 (OpenGL & Vulkan Bêta).
-//! - Synchronise automatiquement `purefps-4.5.1.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.10 (OpenGL & Vulkan Bêta).
+//! - Synchronise automatiquement `purefps-4.5.10.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Télécharge ou récupère automatiquement les bibliothèques Forge 1.8.9, `minecraft-1.8.9-client.jar` et l'index d'assets `1.8.json`
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
 //! - Isolat dédié pour le mode Vulkan (Bêta) via Mesa3D Zink (`javaw.exe.local` + `GALLIUM_DRIVER=zink`)
@@ -7,8 +7,9 @@
 //!   pour réduire le Launcher en bas à droite (System Tray) à l'instant exact où Minecraft prend sa place.
 
 use crate::config::{
-    app_storage_dir, effective_github_token, prepare_seamless_launch_files, split_server_host_port,
-    write_or_clear_quick_server_file, InstanceFlavor, LauncherPrefs, PureClientSettings,
+    app_storage_dir, prepare_seamless_launch_files, resolve_user_appdata,
+    split_server_host_port, write_or_clear_quick_server_file, InstanceFlavor, LauncherPrefs,
+    PureClientSettings,
 };
 use crate::runtimes::{ensure_vulkan_instance_initialized, prepare_isolated_vulkan_jre};
 use crate::updater::{
@@ -27,7 +28,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.9.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.10.jar";
+const MAX_LIBRARY_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_NATIVE_DLL_BYTES: u64 = 32 * 1024 * 1024;
+const EXPECTED_MC_189_CLIENT_SHA1: &str = "3870888a6c3d349d37e1a1e9d16c9bf5c076b9c8";
+const EXPECTED_ASSET_INDEX_18_SHA1: &str = "f6ad102bcaa53b1a58358f16e376d548d44933ec";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -123,9 +128,8 @@ pub fn auto_fetch_mod_jar_if_needed(
         return;
     }
 
-    let tok = effective_github_token();
     if let Ok(UpdateCheckOutcome::Available(mut plan)) =
-        check_for_updates(&prefs.github_repo, tok.as_deref(), target_game_dir)
+        check_for_updates(&prefs.github_repo, target_game_dir)
     {
         if plan.jar_asset.is_some() {
             plan.exe_asset = None;
@@ -133,7 +137,7 @@ pub fn auto_fetch_mod_jar_if_needed(
                 "[MashClient] Téléchargement automatique du mod MashClient v{}...",
                 plan.version
             )));
-            let _ = download_and_install_update(&plan, tok.as_deref(), target_game_dir, proxy);
+            let _ = download_and_install_update(&plan, target_game_dir, proxy);
         }
     }
 }
@@ -142,23 +146,28 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
     let mods_dir = Path::new(game_dir).join("mods");
     std::fs::create_dir_all(&mods_dir).map_err(|e| format!("Création dossier mods: {e}"))?;
 
+    #[allow(unused_mut)]
     let mut search_dirs: Vec<PathBuf> = vec![app_storage_dir().join("updates"), mods_dir.clone()];
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            search_dirs.push(dir.to_path_buf());
-            search_dirs.push(dir.join("build").join("libs"));
-            if let Some(parent) = dir.parent().and_then(|p| p.parent()) {
-                search_dirs.push(parent.to_path_buf());
-                search_dirs.push(parent.join("build").join("libs"));
-                if let Some(workspace_root) = parent.parent() {
-                    search_dirs.push(workspace_root.to_path_buf());
-                    search_dirs.push(workspace_root.join("build").join("libs"));
+    // En build Release, on interdit le sideloading depuis le dossier de l'exécutable (ex: Téléchargements/) ou CWD.
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                search_dirs.push(dir.to_path_buf());
+                search_dirs.push(dir.join("build").join("libs"));
+                if let Some(parent) = dir.parent().and_then(|p| p.parent()) {
+                    search_dirs.push(parent.to_path_buf());
+                    search_dirs.push(parent.join("build").join("libs"));
+                    if let Some(workspace_root) = parent.parent() {
+                        search_dirs.push(workspace_root.to_path_buf());
+                        search_dirs.push(workspace_root.join("build").join("libs"));
+                    }
                 }
             }
         }
+        search_dirs.push(PathBuf::from(r"build\libs"));
+        search_dirs.push(PathBuf::from("."));
     }
-    search_dirs.push(PathBuf::from(r"build\libs"));
-    search_dirs.push(PathBuf::from("."));
 
     let mut best_jar: Option<((u32, u32, u32), String, PathBuf)> = None;
     for dir in &search_dirs {
@@ -210,6 +219,182 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
     ))
 }
 
+/// Implémentation FIPS 180-4 SHA-1 autonome (sans dépendance externe) pour vérifier les artefacts Mojang.
+struct Sha1 {
+    state: [u32; 5],
+    buf: [u8; 64],
+    buf_len: usize,
+    total_bits: u64,
+}
+
+impl Sha1 {
+    fn new() -> Self {
+        Self {
+            state: [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0],
+            buf: [0u8; 64],
+            buf_len: 0,
+            total_bits: 0,
+        }
+    }
+
+    fn compress(&mut self, block: &[u8; 64]) {
+        let mut w = [0u32; 80];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([
+                block[i * 4],
+                block[i * 4 + 1],
+                block[i * 4 + 2],
+                block[i * 4 + 3],
+            ]);
+        }
+        for i in 16..80 {
+            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e] = self.state;
+        for (i, &wi) in w.iter().enumerate() {
+            let (f, k) = match i {
+                0..=19 => ((b & c) | ((!b) & d), 0x5a827999u32),
+                20..=39 => (b ^ c ^ d, 0x6ed9eba1u32),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8f1bbcdcu32),
+                _ => (b ^ c ^ d, 0xca62c1d6u32),
+            };
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(wi);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+        self.state[0] = self.state[0].wrapping_add(a);
+        self.state[1] = self.state[1].wrapping_add(b);
+        self.state[2] = self.state[2].wrapping_add(c);
+        self.state[3] = self.state[3].wrapping_add(d);
+        self.state[4] = self.state[4].wrapping_add(e);
+    }
+
+    fn update(&mut self, mut data: &[u8]) {
+        self.total_bits = self.total_bits.wrapping_add((data.len() as u64) * 8);
+        if self.buf_len > 0 {
+            let take = (64 - self.buf_len).min(data.len());
+            self.buf[self.buf_len..self.buf_len + take].copy_from_slice(&data[..take]);
+            self.buf_len += take;
+            data = &data[take..];
+            if self.buf_len == 64 {
+                let block = self.buf;
+                self.compress(&block);
+                self.buf_len = 0;
+            }
+        }
+        while data.len() >= 64 {
+            let mut block = [0u8; 64];
+            block.copy_from_slice(&data[..64]);
+            self.compress(&block);
+            data = &data[64..];
+        }
+        if !data.is_empty() {
+            self.buf[..data.len()].copy_from_slice(data);
+            self.buf_len = data.len();
+        }
+    }
+
+    fn finalize_hex(mut self) -> String {
+        let bit_len = self.total_bits;
+        self.buf[self.buf_len] = 0x80;
+        self.buf_len += 1;
+        if self.buf_len > 56 {
+            for b in &mut self.buf[self.buf_len..64] {
+                *b = 0;
+            }
+            let block = self.buf;
+            self.compress(&block);
+            self.buf = [0u8; 64];
+            self.buf_len = 0;
+        } else {
+            for b in &mut self.buf[self.buf_len..56] {
+                *b = 0;
+            }
+        }
+        self.buf[56..64].copy_from_slice(&bit_len.to_be_bytes());
+        let block = self.buf;
+        self.compress(&block);
+
+        let mut out = String::with_capacity(40);
+        for word in self.state {
+            use std::fmt::Write as _;
+            let _ = write!(&mut out, "{word:08x}");
+        }
+        out
+    }
+}
+
+fn sha1_file_hex(path: &Path) -> Result<String, String> {
+    let mut f = File::open(path).map_err(|e| format!("Lecture SHA-1 {}: {e}", path.display()))?;
+    let mut hasher = Sha1::new();
+    let mut buf = [0u8; 32 * 1024];
+    loop {
+        let n = f
+            .read(&mut buf)
+            .map_err(|e| format!("Calcul SHA-1 {}: {e}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finalize_hex())
+}
+
+fn is_valid_sha1_hex(s: &str) -> bool {
+    s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Vérifie qu'une archive `log4j-core` ne contient PAS la classe vulnérable `JndiLookup.class` (CVE-2021-44228).
+/// Retourne `true` (rejet par sécurité) si la classe est trouvée ou si l'archive ZIP est illisible.
+fn jar_contains_jndi_lookup(path: &Path) -> bool {
+    let Ok(f) = File::open(path) else {
+        return true;
+    };
+    let Ok(mut archive) = zip::ZipArchive::new(f) else {
+        return true;
+    };
+    for i in 0..archive.len() {
+        let Ok(entry) = archive.by_index_raw(i) else {
+            return true;
+        };
+        if entry
+            .name()
+            .to_ascii_lowercase()
+            .ends_with("jndilookup.class")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_valid_library_file(path: &Path, is_log4j_core: bool, expected_sha1: Option<&str>) -> bool {
+    if !path
+        .metadata()
+        .map(|m| m.is_file() && m.len() > 64)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    if is_log4j_core && jar_contains_jndi_lookup(path) {
+        return false;
+    }
+    if let Some(want) = expected_sha1 {
+        if !sha1_file_hex(path).is_ok_and(|got| got.eq_ignore_ascii_case(want)) {
+            return false;
+        }
+    }
+    true
+}
+
 fn build_download_agent() -> Result<ureq::Agent, String> {
     let tls = Arc::new(
         native_tls::TlsConnector::new()
@@ -223,21 +408,45 @@ fn build_download_agent() -> Result<ureq::Agent, String> {
         .build())
 }
 
-fn download_file_to_path(agent: &ureq::Agent, url: &str, dst: &Path) -> Result<(), String> {
+fn download_file_to_path(
+    agent: &ureq::Agent,
+    url: &str,
+    dst: &Path,
+    expected_sha1: Option<&str>,
+) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err(format!("Protocole non sécurisé refusé pour {url}"));
+    }
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.9")
+        .set("User-Agent", "MashClient/4.5.10")
         .call()
         .map_err(|e| format!("Échec téléchargement {url}: {e}"))?;
+    if let Some(cl) = resp
+        .header("Content-Length")
+        .and_then(|s| s.parse::<u64>().ok())
+    {
+        if cl > MAX_LIBRARY_DOWNLOAD_BYTES {
+            return Err(format!("Fichier distant trop volumineux depuis {url}"));
+        }
+    }
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let tmp = dst.with_extension("part");
-    let mut reader = resp.into_reader();
+    let mut reader = resp.into_reader().take(MAX_LIBRARY_DOWNLOAD_BYTES + 1);
     let mut out = File::create(&tmp).map_err(|e| e.to_string())?;
-    let written = std::io::copy(&mut reader, &mut out).map_err(|e| e.to_string())?;
+    let written = std::io::copy(&mut reader, &mut out).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })?;
     out.flush().map_err(|e| e.to_string())?;
     drop(out);
+
+    if written > MAX_LIBRARY_DOWNLOAD_BYTES {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("Limite de taille dépassée lors du téléchargement de {url}"));
+    }
 
     let is_jar = dst
         .extension()
@@ -258,6 +467,15 @@ fn download_file_to_path(agent: &ureq::Agent, url: &str, dst: &Path) -> Result<(
             return Err(format!("Archive JAR invalide reçue depuis {url}"));
         }
     }
+    if let Some(want_sha1) = expected_sha1 {
+        let got_sha1 = sha1_file_hex(&tmp)?;
+        if !got_sha1.eq_ignore_ascii_case(want_sha1) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!(
+                "Intégrité SHA-1 invalide pour {url} (attendu {want_sha1}, reçu {got_sha1})"
+            ));
+        }
+    }
 
     let _ = std::fs::remove_file(dst);
     std::fs::rename(&tmp, dst).map_err(|e| e.to_string())?;
@@ -270,11 +488,17 @@ fn copy_dir_tree_missing(src_dir: &Path, dst_dir: &Path) {
     };
     let _ = std::fs::create_dir_all(dst_dir);
     for entry in entries.flatten() {
+        let Ok(ty) = entry.file_type() else {
+            continue;
+        };
+        if ty.is_symlink() {
+            continue;
+        }
         let src_path = entry.path();
         let dst_path = dst_dir.join(entry.file_name());
-        if src_path.is_dir() {
+        if ty.is_dir() {
             copy_dir_tree_missing(&src_path, &dst_path);
-        } else if src_path.is_file() && !dst_path.exists() {
+        } else if ty.is_file() && !dst_path.exists() {
             let _ = std::fs::copy(&src_path, &dst_path);
         }
     }
@@ -291,7 +515,7 @@ pub fn ensure_standalone_189_files(
     std::fs::create_dir_all(lib_root)
         .map_err(|e| format!("Failed to create libraries directory: {e}"))?;
 
-    let appdata = std::env::var("APPDATA").unwrap_or_else(|_| r"C:\Users\Default\AppData\Roaming".to_owned());
+    let appdata = resolve_user_appdata();
     let default_mc_root = PathBuf::from(&appdata).join(".minecraft");
     let local_lib_caches = [
         default_mc_root.join("libraries"),
@@ -309,15 +533,28 @@ pub fn ensure_standalone_189_files(
     for rel in all_required {
         let rel_os = rel.replace('\\', std::path::MAIN_SEPARATOR_STR);
         let dst = lib_root.join(&rel_os);
-        if dst.metadata().map(|m| m.len() > 64).unwrap_or(false) {
+        let is_log4j_core = rel.to_ascii_lowercase().contains("log4j-core");
+        let expected_sha1 = if rel.ends_with("minecraft-1.8.9-client.jar") {
+            Some(EXPECTED_MC_189_CLIENT_SHA1)
+        } else {
+            None
+        };
+
+        if is_valid_library_file(&dst, is_log4j_core, expected_sha1) {
             continue;
+        }
+        if dst.exists() {
+            // Purge tout cache corrompu ou vulnérable (ex: log4j-core contenant JndiLookup.class)
+            let _ = std::fs::remove_file(&dst);
         }
 
         // 1. Check existing local caches on disk (.minecraft/libraries)
         let mut copied_locally = false;
         for cache_root in &local_lib_caches {
             let local_candidate = cache_root.join(&rel_os);
-            if local_candidate != dst && local_candidate.metadata().map(|m| m.len() > 64).unwrap_or(false) {
+            if local_candidate != dst
+                && is_valid_library_file(&local_candidate, is_log4j_core, expected_sha1)
+            {
                 if let Some(parent) = dst.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -332,7 +569,7 @@ pub fn ensure_standalone_189_files(
                 .join("versions")
                 .join("1.8.9")
                 .join("1.8.9.jar");
-            if vanilla_jar.metadata().map(|m| m.len() > 64).unwrap_or(false) {
+            if is_valid_library_file(&vanilla_jar, false, expected_sha1) {
                 if let Some(parent) = dst.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -345,7 +582,7 @@ pub fn ensure_standalone_189_files(
             continue;
         }
 
-        // 2. Direct HTTPS download (Windows SChannel native TLS)
+        // 2. Direct HTTPS download from official Mojang/Forge/Maven Central mirrors only
         let agent = match &http_agent {
             Some(a) => a,
             None => {
@@ -374,22 +611,24 @@ pub fn ensure_standalone_189_files(
                     .to_owned(),
             );
         } else {
+            // Uniquement les dépôts officiels Mojang / Forge / Maven Central (aucun miroir tiers ni repli Log4Shell non corrigé)
             candidate_urls.push(format!("https://libraries.minecraft.net/{rel_url}"));
             candidate_urls.push(format!("https://maven.minecraftforge.net/{rel_url}"));
             candidate_urls.push(format!("https://repo1.maven.org/maven2/{rel_url}"));
-            candidate_urls.push(format!("https://bmclapi2.bangbang93.com/maven/{rel_url}"));
-            if rel_url.contains("2.0-beta9-fixed") {
-                let unfixed = rel_url.replace("2.0-beta9-fixed", "2.0-beta9");
-                candidate_urls.push(format!("https://libraries.minecraft.net/{unfixed}"));
-                candidate_urls.push(format!("https://repo1.maven.org/maven2/{unfixed}"));
-            }
         }
 
         let mut downloaded = false;
         let mut last_err = String::new();
         for url in &candidate_urls {
-            match download_file_to_path(agent, url, &dst) {
+            match download_file_to_path(agent, url, &dst, expected_sha1) {
                 Ok(()) => {
+                    if is_log4j_core && jar_contains_jndi_lookup(&dst) {
+                        let _ = std::fs::remove_file(&dst);
+                        last_err = format!(
+                            "Archive log4j-core vulnérable (JndiLookup.class détecté) refusée depuis {url}"
+                        );
+                        continue;
+                    }
                     downloaded = true;
                     break;
                 }
@@ -409,10 +648,18 @@ pub fn ensure_standalone_189_files(
         PathBuf::from(&appdata).join("MashClient").join("assets"),
     ];
     let index_dst = assets_root.join("indexes").join("1.8.json");
-    if !index_dst.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+    let index_valid = index_dst.is_file()
+        && sha1_file_hex(&index_dst)
+            .is_ok_and(|h| h.eq_ignore_ascii_case(EXPECTED_ASSET_INDEX_18_SHA1));
+    if !index_valid {
+        let _ = std::fs::remove_file(&index_dst);
         for asset_cache in &local_asset_caches {
             let local_idx = asset_cache.join("indexes").join("1.8.json");
-            if local_idx != index_dst && local_idx.is_file() {
+            if local_idx != index_dst
+                && local_idx.is_file()
+                && sha1_file_hex(&local_idx)
+                    .is_ok_and(|h| h.eq_ignore_ascii_case(EXPECTED_ASSET_INDEX_18_SHA1))
+            {
                 if let Some(parent) = index_dst.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -436,6 +683,7 @@ pub fn ensure_standalone_189_files(
                 agent,
                 "https://piston-meta.mojang.com/v1/packages/f6ad102bcaa53b1a58358f16e376d548d44933ec/1.8.json",
                 &index_dst,
+                Some(EXPECTED_ASSET_INDEX_18_SHA1),
             );
         }
     }
@@ -465,17 +713,25 @@ pub fn ensure_standalone_189_files(
                     let Some(hash) = entry.get("hash").and_then(serde_json::Value::as_str) else {
                         continue;
                     };
-                    if hash.len() < 4 || !seen.insert(hash.to_owned()) {
+                    // Validation stricte SHA-1 (40 hex ASCII uniquement) : empêche toute traversée de répertoire
+                    if !is_valid_sha1_hex(hash) {
                         continue;
                     }
-                    let sub = &hash[..2];
-                    let obj_path = dst_objects.join(sub).join(hash);
+                    let hash_low = hash.to_ascii_lowercase();
+                    if !seen.insert(hash_low.clone()) {
+                        continue;
+                    }
+                    let sub = &hash_low[..2];
+                    let obj_path = dst_objects.join(sub).join(&hash_low);
                     if !obj_path.is_file() {
-                        // Try local caches first
+                        // Try local caches first (avec vérification SHA-1)
                         let mut copied = false;
                         for asset_cache in &local_asset_caches {
-                            let cand = asset_cache.join("objects").join(sub).join(hash);
-                            if cand.is_file() {
+                            let cand = asset_cache.join("objects").join(sub).join(&hash_low);
+                            if cand.is_file()
+                                && sha1_file_hex(&cand)
+                                    .is_ok_and(|h| h.eq_ignore_ascii_case(&hash_low))
+                            {
                                 if let Some(p) = obj_path.parent() {
                                     let _ = std::fs::create_dir_all(p);
                                 }
@@ -486,7 +742,7 @@ pub fn ensure_standalone_189_files(
                             }
                         }
                         if !copied {
-                            missing_hashes.push(hash.to_owned());
+                            missing_hashes.push(hash_low);
                         }
                     }
                 }
@@ -497,7 +753,7 @@ pub fn ensure_standalone_189_files(
                         "[MashClient] Downloading {total_missing} Minecraft 1.8.9 sound/lang assets..."
                     )));
                     let queue = Arc::new(Mutex::new(VecDeque::from(missing_hashes)));
-                    let done_count = Arc::new( std::sync::atomic::AtomicUsize::new(0) );
+                    let done_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
                     let mut handles = Vec::new();
                     for _ in 0..8 {
                         let q = Arc::clone(&queue);
@@ -517,7 +773,7 @@ pub fn ensure_standalone_189_files(
                                 let sub = &hash[..2];
                                 let target = objs_root.join(sub).join(&hash);
                                 let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
-                                let _ = download_file_to_path(&worker_agent, &url, &target);
+                                let _ = download_file_to_path(&worker_agent, &url, &target, Some(&hash));
                                 let cur = done.fetch_add(1, Ordering::Relaxed) + 1;
                                 if cur % 100 == 0 || cur == total_missing {
                                     let _ = p_log.send_event(AppEvent::LogLine(format!(
@@ -578,7 +834,13 @@ pub fn extract_natives_if_needed_for_flavor(
             File::open(&jar_path).map_err(|e| format!("Ouverture {}: {e}", jar_path.display()))?;
         let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Zip invalide: {e}"))?;
         for idx in 0..archive.len() {
-            let mut entry = archive.by_index(idx).map_err(|e| e.to_string())?;
+            let entry = archive.by_index(idx).map_err(|e| e.to_string())?;
+            if entry
+                .unix_mode()
+                .is_some_and(|m| (m & 0o170000) == 0o120000)
+            {
+                continue;
+            }
             let name = entry.name().to_owned();
             if entry.is_dir() || name.starts_with("META-INF") {
                 continue;
@@ -592,14 +854,24 @@ pub fn extract_natives_if_needed_for_flavor(
             ) {
                 continue;
             }
-            let Some(file_name) = Path::new(&name).file_name() else {
+            if entry.size() > MAX_NATIVE_DLL_BYTES {
+                return Err(format!("DLL native trop volumineuse dans l'archive : {name}"));
+            }
+            let Some(safe_path) = entry.enclosed_name().map(|p| p.to_path_buf()) else {
+                continue;
+            };
+            let Some(file_name) = safe_path.file_name() else {
                 continue;
             };
             let dst_path = natives_dir.join(file_name);
-            let mut buf = Vec::with_capacity(entry.size() as usize);
-            entry.read_to_end(&mut buf).map_err(|e| e.to_string())?;
             let mut out = File::create(&dst_path).map_err(|e| e.to_string())?;
-            out.write_all(&buf).map_err(|e| e.to_string())?;
+            let mut limited = entry.take(MAX_NATIVE_DLL_BYTES + 1);
+            let written = std::io::copy(&mut limited, &mut out).map_err(|e| e.to_string())?;
+            if written > MAX_NATIVE_DLL_BYTES {
+                drop(out);
+                let _ = std::fs::remove_file(&dst_path);
+                return Err(format!("Décompression native interrompue (limite dépassée) : {name}"));
+            }
         }
     }
 
@@ -1145,7 +1417,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.9 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.10 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\
@@ -1355,6 +1627,7 @@ pub fn run_direct_jvm_blocking(
         .arg("-XX:+DisableExplicitGC")
         .arg("-XX:+ParallelRefProcEnabled")
         .arg("-Djava.net.preferIPv4Stack=true")
+        .arg("-Dlog4j2.formatMsgNoLookups=true")
         .arg("-Dfml.ignoreInvalidMinecraftCertificates=true")
         .arg("-Dfml.ignorePatchDiscrepancies=true")
         .arg("-Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=false")
@@ -1366,6 +1639,60 @@ pub fn run_direct_jvm_blocking(
             cmd.arg(format!("-Dpurefps.vulkanDllPath={}", vk_dll.display()));
         }
     }
+    struct EphemeralTokenGuard(Option<PathBuf>);
+    impl Drop for EphemeralTokenGuard {
+        fn drop(&mut self) {
+            if let Some(ref path) = self.0 {
+                if path.exists() {
+                    if let Ok(meta) = std::fs::metadata(path) {
+                        let zeros = vec![0u8; (meta.len() as usize).clamp(64, 16 * 1024)];
+                        let _ = std::fs::write(path, zeros);
+                    }
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+    }
+
+    let supports_ephemeral_token = access_token != "0"
+        && std::fs::read_dir(Path::new(&active_game_dir).join("mods"))
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if extract_purefps_jar_semver(&fname).is_none() {
+                    return false;
+                }
+                File::open(entry.path())
+                    .ok()
+                    .and_then(|f| zip::ZipArchive::new(f).ok())
+                    .is_some_and(|mut z| {
+                        z.by_name("dev/purefps/core/EphemeralSessionBridge.class")
+                            .is_ok()
+                    })
+            });
+
+    let mut _ephemeral_token_guard = EphemeralTokenGuard(None);
+    let cli_access_token = if supports_ephemeral_token {
+        let token_path = app_storage_dir().join(format!(".session_token_{}.tmp", std::process::id()));
+        if std::fs::write(&token_path, access_token.as_bytes()).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600));
+            }
+            cmd.env("MASHCLIENT_SESSION_TOKEN_FILE", &token_path);
+            _ephemeral_token_guard = EphemeralTokenGuard(Some(token_path));
+            "__MASHCLIENT_EPHEMERAL__".to_owned()
+        } else {
+            access_token.clone()
+        }
+    } else {
+        access_token.clone()
+    };
+
     let clean_uuid = crate::auth::normalize_mc_uuid(&uuid);
     cmd.arg(format!("-Djava.library.path={}", natives_dir.display()))
         .arg(format!("-Dorg.lwjgl.librarypath={}", natives_dir.display()))
@@ -1385,7 +1712,7 @@ pub fn run_direct_jvm_blocking(
         .arg("--uuid")
         .arg(&clean_uuid)
         .arg("--accessToken")
-        .arg(&access_token)
+        .arg(&cli_access_token)
         .arg("--userType")
         .arg(&user_type)
         .arg("--width")

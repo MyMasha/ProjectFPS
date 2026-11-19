@@ -164,7 +164,7 @@ public abstract class MixinSoundManager {
                         if (url != null) {
                             sys.loadSound(url, rl.toString());
                         }
-                    } catch (Throwable ignored) {
+                    } catch (Exception | LinkageError ignored) {
                     }
                 }
             }
@@ -259,7 +259,7 @@ public abstract class MixinSoundManager {
             if (SoundSystemConfig.getNumberStreamingChannels() < LowLatencyAudioConfigurator.TARGET_STREAMING_CHANNELS) {
                 SoundSystemConfig.setNumberStreamingChannels(LowLatencyAudioConfigurator.TARGET_STREAMING_CHANNELS);
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -280,7 +280,7 @@ public abstract class MixinSoundManager {
         }
         try {
             return (SoundSystem) purefps$sndSystemField.get(this);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return null;
         }
     }
@@ -297,7 +297,7 @@ public abstract class MixinSoundManager {
             if (cmdObj instanceof Thread) {
                 ((Thread) cmdObj).setPriority(Math.min(Thread.MAX_PRIORITY, Thread.MAX_PRIORITY - 1));
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -319,7 +319,7 @@ public abstract class MixinSoundManager {
                         }
                     }
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
     }

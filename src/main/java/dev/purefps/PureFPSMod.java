@@ -24,7 +24,7 @@ public class PureFPSMod {
 
     public static final String MODID = "purefps";
     public static final String NAME = "MashClient";
-    public static final String VERSION = "4.5.9";
+    public static final String VERSION = "4.5.10";
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -60,7 +60,7 @@ public class PureFPSMod {
             if (icon16 != null && icon32 != null) {
                 Display.setIcon(new java.nio.ByteBuffer[]{icon16, icon32});
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 

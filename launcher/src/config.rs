@@ -251,11 +251,55 @@ pub fn detect_minecraft_189_dirs(appdata: &str, _local_appdata: &str) -> (String
     (game_dir, libs_dir, assets_dir)
 }
 
+pub fn resolve_user_appdata() -> String {
+    if let Ok(v) = std::env::var("APPDATA") {
+        if !v.trim().is_empty() {
+            return v;
+        }
+    }
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        if !profile.trim().is_empty() {
+            return Path::new(&profile)
+                .join("AppData")
+                .join("Roaming")
+                .to_string_lossy()
+                .to_string();
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.trim().is_empty() {
+            return Path::new(&home)
+                .join(".local")
+                .join("share")
+                .to_string_lossy()
+                .to_string();
+        }
+    }
+    ".".to_owned()
+}
+
+pub fn resolve_user_local_appdata() -> String {
+    if let Ok(v) = std::env::var("LOCALAPPDATA") {
+        if !v.trim().is_empty() {
+            return v;
+        }
+    }
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        if !profile.trim().is_empty() {
+            return Path::new(&profile)
+                .join("AppData")
+                .join("Local")
+                .to_string_lossy()
+                .to_string();
+        }
+    }
+    resolve_user_appdata()
+}
+
 impl Default for LauncherPrefs {
     fn default() -> Self {
-        let appdata = std::env::var("APPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
-        let local_appdata =
-            std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
+        let appdata = resolve_user_appdata();
+        let local_appdata = resolve_user_local_appdata();
 
         let java_path = detect_java8_path(&appdata, &local_appdata);
         let (game_dir, libraries_dir, assets_dir) = detect_minecraft_189_dirs(&appdata, &local_appdata);
@@ -801,11 +845,22 @@ impl PureClientSettings {
         map.insert("smartChunkUpdates".into(), self.smart_chunk_updates.to_string());
         map.insert("menuWorldUnload".into(), self.menu_world_unload.to_string());
 
-        let mut out = String::from("# MashClient 4.5.1 Configuration\n");
+        let mut out = String::from("# MashClient 4.5.10 Configuration\n");
         for (k, v) in &map {
-            out.push_str(k);
+            let clean_k: String = k
+                .chars()
+                .filter(|c| !c.is_control() && !matches!(c, '=' | ':' | '#' | '!' | '\r' | '\n'))
+                .collect();
+            if clean_k.is_empty() {
+                continue;
+            }
+            let clean_v: String = v
+                .chars()
+                .filter(|c| !matches!(c, '\r' | '\n' | '\0'))
+                .collect();
+            out.push_str(&clean_k);
             out.push('=');
-            out.push_str(v);
+            out.push_str(&clean_v);
             out.push('\n');
         }
         std::fs::write(&path, out).map_err(|e| format!("Écriture purefps.properties: {e}"))?;
@@ -897,7 +952,7 @@ impl PureClientSettings {
 pub fn empty_modules_json() -> serde_json::Value {
     serde_json::json!({
         "client": "MashClient",
-        "version": "4.5.9",
+        "version": "4.5.10",
         "modules": {}
     })
 }
@@ -912,7 +967,7 @@ pub fn load_modules_json(game_dir: &str) -> serde_json::Value {
 
     if let Some(obj) = root.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.5.9".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.10".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -930,7 +985,7 @@ pub fn save_modules_json(game_dir: &str, data: &serde_json::Value) -> Result<(),
     };
     if let Some(obj) = normalized.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.5.9".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.10".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -1259,25 +1314,31 @@ pub fn save_all_client_configs(
 
 pub fn app_storage_dir() -> PathBuf {
     static MIGRATE_ONCE: std::sync::Once = std::sync::Once::new();
-    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_owned());
+    let base = resolve_user_appdata();
     let purefps_dir = Path::new(&base).join(".PureFPS");
     MIGRATE_ONCE.call_once(|| {
         let _ = std::fs::create_dir_all(&purefps_dir);
+        let _ = std::fs::remove_file(purefps_dir.join("updater_token.txt"));
         for legacy_name in ["MashClient", "PureClient"] {
             let legacy_dir = Path::new(&base).join(legacy_name);
             if legacy_dir.is_dir() {
+                let _ = std::fs::remove_file(legacy_dir.join("updater_token.txt"));
                 for fname in [
                     "launcher.json",
                     "accounts.json",
                     "account.json",
                     "custom_profiles.json",
-                    "updater_token.txt",
                     "ms_client_id.txt",
                 ] {
                     let src = legacy_dir.join(fname);
                     let dst = purefps_dir.join(fname);
                     if src.is_file() && !dst.exists() {
-                        let _ = std::fs::copy(&src, &dst);
+                        if std::fs::copy(&src, &dst).is_ok()
+                            && matches!(fname, "accounts.json" | "account.json")
+                        {
+                            // Supprime les anciennes copies en clair après migration
+                            let _ = std::fs::remove_file(&src);
+                        }
                     }
                 }
                 let src_runtimes = legacy_dir.join("runtimes");
@@ -1347,15 +1408,17 @@ pub fn load_launcher_prefs() -> LauncherPrefs {
         .unwrap_or_default();
     prefs.ram_mb = prefs.ram_mb.clamp(2048, 65536);
     prefs.language = normalize_language(&prefs.language);
+    if crate::updater::sanitize_repo(&prefs.github_repo).is_err() {
+        prefs.github_repo = default_github_repo();
+    }
 
     if prefs.quick_join_hypixel && prefs.selected_server.is_none() {
         prefs.selected_server = builtin_quick_servers().into_iter().next();
         prefs.quick_join_hypixel = false;
     }
 
-    let appdata = std::env::var("APPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
-    let local_appdata =
-        std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public".to_owned());
+    let appdata = resolve_user_appdata();
+    let local_appdata = resolve_user_local_appdata();
 
     let (std_game, std_libs, std_assets) = detect_minecraft_189_dirs(&appdata, &local_appdata);
     let low_game = prefs.game_dir.to_ascii_lowercase();
@@ -1410,7 +1473,193 @@ pub fn save_launcher_prefs(prefs: &LauncherPrefs) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Multi-comptes Microsoft (`accounts.json` + rétro-compatibilité `account.json`)
+// Chiffrement au repos des jetons OAuth2 (Windows DPAPI / permissions 0600 Unix)
+// ---------------------------------------------------------------------------
+
+#[cfg(windows)]
+mod token_crypto {
+    use core::ffi::c_void;
+    use std::fmt::Write as _;
+    use std::ptr::{null, null_mut};
+
+    const CRYPTPROTECT_UI_FORBIDDEN: u32 = 0x01;
+    const DPAPI_PREFIX: &str = "dpapi:";
+
+    #[repr(C)]
+    #[allow(non_snake_case)]
+    struct DATA_BLOB {
+        cbData: u32,
+        pbData: *mut u8,
+    }
+
+    #[link(name = "crypt32")]
+    extern "system" {
+        fn CryptProtectData(
+            pDataIn: *mut DATA_BLOB,
+            szDataDescr: *const u16,
+            pOptionalEntropy: *mut DATA_BLOB,
+            pvReserved: *mut c_void,
+            pPromptStruct: *mut c_void,
+            dwFlags: u32,
+            pDataOut: *mut DATA_BLOB,
+        ) -> i32;
+
+        fn CryptUnprotectData(
+            pDataIn: *mut DATA_BLOB,
+            ppszDataDescr: *mut *mut u16,
+            pOptionalEntropy: *mut DATA_BLOB,
+            pvReserved: *mut c_void,
+            pPromptStruct: *mut c_void,
+            dwFlags: u32,
+            pDataOut: *mut DATA_BLOB,
+        ) -> i32;
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LocalFree(hMem: *mut c_void) -> *mut c_void;
+    }
+
+    fn hex_encode(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for &b in bytes {
+            let _ = write!(&mut out, "{b:02x}");
+        }
+        out
+    }
+
+    fn hex_decode(s: &str) -> Option<Vec<u8>> {
+        let bytes = s.as_bytes();
+        if bytes.len() % 2 != 0 {
+            return None;
+        }
+        let mut out = Vec::with_capacity(bytes.len() / 2);
+        for chunk in bytes.chunks_exact(2) {
+            let hi = (chunk[0] as char).to_digit(16)?;
+            let lo = (chunk[1] as char).to_digit(16)?;
+            out.push(((hi << 4) | lo) as u8);
+        }
+        Some(out)
+    }
+
+    pub fn protect(plaintext: &str) -> Result<String, String> {
+        if plaintext.is_empty() || plaintext.starts_with(DPAPI_PREFIX) {
+            return Ok(plaintext.to_owned());
+        }
+        let mut input = plaintext.as_bytes().to_vec();
+        let cb_data = u32::try_from(input.len()).map_err(|_| "Jeton OAuth2 trop volumineux.".to_owned())?;
+        let mut in_blob = DATA_BLOB {
+            cbData: cb_data,
+            pbData: input.as_mut_ptr(),
+        };
+        let mut out_blob = DATA_BLOB {
+            cbData: 0,
+            pbData: null_mut(),
+        };
+        let ok = unsafe {
+            CryptProtectData(
+                &mut in_blob,
+                null(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut out_blob,
+            )
+        };
+        if ok == 0 || out_blob.pbData.is_null() {
+            return Err("Chiffrement Windows DPAPI impossible pour les jetons OAuth2.".to_owned());
+        }
+        let cipher = unsafe {
+            let slice = core::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+            let vec = slice.to_vec();
+            let _ = LocalFree(out_blob.pbData as *mut c_void);
+            vec
+        };
+        Ok(format!("{DPAPI_PREFIX}{}", hex_encode(&cipher)))
+    }
+
+    pub fn unprotect(stored: &str) -> Option<String> {
+        let Some(hex_body) = stored.strip_prefix(DPAPI_PREFIX) else {
+            return Some(stored.to_owned());
+        };
+        let mut cipher = hex_decode(hex_body)?;
+        if cipher.is_empty() {
+            return Some(String::new());
+        }
+        let cb_data = u32::try_from(cipher.len()).ok()?;
+        let mut in_blob = DATA_BLOB {
+            cbData: cb_data,
+            pbData: cipher.as_mut_ptr(),
+        };
+        let mut out_blob = DATA_BLOB {
+            cbData: 0,
+            pbData: null_mut(),
+        };
+        let ok = unsafe {
+            CryptUnprotectData(
+                &mut in_blob,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut out_blob,
+            )
+        };
+        if ok == 0 || out_blob.pbData.is_null() {
+            return None;
+        }
+        let plain = unsafe {
+            let slice = core::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+            let res = String::from_utf8(slice.to_vec()).ok();
+            let _ = LocalFree(out_blob.pbData as *mut c_void);
+            res
+        };
+        plain
+    }
+
+    pub fn is_protected(stored: &str) -> bool {
+        stored.is_empty() || stored.starts_with(DPAPI_PREFIX)
+    }
+}
+
+#[cfg(not(windows))]
+mod token_crypto {
+    pub fn protect(plaintext: &str) -> Result<String, String> {
+        Ok(plaintext.to_owned())
+    }
+
+    pub fn unprotect(stored: &str) -> Option<String> {
+        if stored.starts_with("dpapi:") {
+            None
+        } else {
+            Some(stored.to_owned())
+        }
+    }
+
+    pub fn is_protected(_stored: &str) -> bool {
+        true
+    }
+}
+
+fn write_restricted_file(path: &Path, content: &str) -> Result<(), String> {
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, content).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    }
+    let _ = std::fs::remove_file(path);
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Multi-comptes Microsoft (`accounts.json` chiffré DPAPI + migration `account.json`)
 // ---------------------------------------------------------------------------
 
 pub fn load_account_store_in_dir(dir: &Path) -> AccountStore {
@@ -1419,7 +1668,9 @@ pub fn load_account_store_in_dir(dir: &Path) -> AccountStore {
         .and_then(|s| serde_json::from_str::<AccountStore>(&s).ok())
         .unwrap_or_default();
 
-    if let Some(legacy) = std::fs::read_to_string(dir.join("account.json"))
+    let mut needs_resave = false;
+    let legacy_path = dir.join("account.json");
+    if let Some(legacy) = std::fs::read_to_string(&legacy_path)
         .ok()
         .and_then(|s| serde_json::from_str::<MicrosoftAccount>(&s).ok())
     {
@@ -1433,6 +1684,17 @@ pub fn load_account_store_in_dir(dir: &Path) -> AccountStore {
             }
             store.accounts.push(legacy);
         }
+        needs_resave = true;
+    }
+
+    for acc in &mut store.accounts {
+        if !token_crypto::is_protected(&acc.access_token)
+            || !token_crypto::is_protected(&acc.refresh_token)
+        {
+            needs_resave = true;
+        }
+        acc.access_token = token_crypto::unprotect(&acc.access_token).unwrap_or_default();
+        acc.refresh_token = token_crypto::unprotect(&acc.refresh_token).unwrap_or_default();
     }
 
     if !store.accounts.is_empty() {
@@ -1449,27 +1711,25 @@ pub fn load_account_store_in_dir(dir: &Path) -> AccountStore {
         store.active_uuid = None;
     }
 
+    if needs_resave && !store.accounts.is_empty() {
+        let _ = save_account_store_in_dir(dir, &store);
+    }
+
     store
 }
 
 pub fn save_account_store_in_dir(dir: &Path, store: &AccountStore) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let json = serde_json::to_string_pretty(store).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("accounts.json"), json).map_err(|e| e.to_string())?;
-
-    let active_acc = store
-        .active_uuid
-        .as_ref()
-        .and_then(|u| store.accounts.iter().find(|a| a.uuid.eq_ignore_ascii_case(u)))
-        .or_else(|| store.accounts.first());
-
-    if let Some(acc) = active_acc {
-        if let Ok(legacy_json) = serde_json::to_string_pretty(acc) {
-            let _ = std::fs::write(dir.join("account.json"), legacy_json);
-        }
-    } else {
-        let _ = std::fs::remove_file(dir.join("account.json"));
+    let mut protected_store = store.clone();
+    for acc in &mut protected_store.accounts {
+        acc.access_token = token_crypto::protect(&acc.access_token)?;
+        acc.refresh_token = token_crypto::protect(&acc.refresh_token)?;
     }
+    let json = serde_json::to_string_pretty(&protected_store).map_err(|e| e.to_string())?;
+    write_restricted_file(&dir.join("accounts.json"), &json)?;
+
+    // Ne plus jamais persister de copie en clair dans l'ancien fichier `account.json`
+    let _ = std::fs::remove_file(dir.join("account.json"));
     Ok(())
 }
 
@@ -1689,7 +1949,7 @@ pub fn export_profile_bundle_to_path(
 ) -> Result<(), String> {
     let bundle = ExportedProfileBundle {
         client: "MashClient".to_owned(),
-        version: "4.5.9".to_owned(),
+        version: "4.5.10".to_owned(),
         name: if name.trim().is_empty() {
             "Profil MashClient".to_owned()
         } else {
@@ -1732,32 +1992,6 @@ pub fn import_profile_bundle_from_path_in_dir(
 
 pub fn import_profile_bundle_from_path(path: &Path) -> Result<CustomProfile, String> {
     import_profile_bundle_from_path_in_dir(&app_storage_dir(), path)
-}
-
-/// Résout le jeton GitHub de l'Auto-Updater dans l'ordre de priorité :
-/// 1. Jeton local optionnel dans `%APPDATA%\MashClient\updater_token.txt`
-/// 2. Variable d'environnement `PURECLIENT_GITHUB_TOKEN`
-/// 3. Secret injecté à la compilation (`PURECLIENT_UPDATER_TOKEN` via GitHub Actions ou `launcher/.github_token` ignoré par Git)
-pub fn effective_github_token() -> Option<String> {
-    if let Ok(custom) = std::fs::read_to_string(app_storage_dir().join("updater_token.txt")) {
-        let t = custom.trim();
-        if !t.is_empty() {
-            return Some(t.to_owned());
-        }
-    }
-    if let Ok(env_t) = std::env::var("PURECLIENT_GITHUB_TOKEN") {
-        let t = env_t.trim();
-        if !t.is_empty() {
-            return Some(t.to_owned());
-        }
-    }
-    if let Some(embedded) = option_env!("PURECLIENT_EMBEDDED_GH_TOKEN") {
-        let t = embedded.trim();
-        if !t.is_empty() {
-            return Some(t.to_owned());
-        }
-    }
-    None
 }
 
 /// Résout le Client ID Microsoft OAuth2 (Device Code Flow) sans clé en dur dans le dépôt public :
@@ -1912,7 +2146,7 @@ mod tests {
 
         save_all_client_configs(&dir_str, &cfg, &mods).unwrap();
         let reloaded_mods = load_modules_json(&dir_str);
-        assert_eq!(reloaded_mods["version"], "4.5.9");
+        assert_eq!(reloaded_mods["version"], "4.5.10");
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["enabled"], false);
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["settings"]["max_dist"], 72);
 

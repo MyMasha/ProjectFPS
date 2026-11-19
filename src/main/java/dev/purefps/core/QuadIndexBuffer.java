@@ -35,7 +35,7 @@ public final class QuadIndexBuffer {
             try {
                 ContextCapabilities caps = GLContext.getCapabilities();
                 gl15State = (caps != null && caps.OpenGL15) ? 1 : -1;
-            } catch (Throwable t) {
+            } catch (Exception | LinkageError t) {
                 gl15State = -1;
             }
         }

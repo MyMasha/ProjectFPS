@@ -1,6 +1,6 @@
 //! Auto-Updater GitHub Releases natif pour MashClient.
-//! - Interroge les GitHub Releases de `MyMasha/ProjectFPS` (avec jeton Auto-Update intégré pour quota API étendu + repli public automatique)
-//! - Téléchargement binaire en 2 étapes (`Accept: application/octet-stream` sans redirection auto -> URL signée S3/Blob sans en-tête Authorization)
+//! - Interroge directement l'API publique GitHub Releases de `MyMasha/ProjectFPS` (sans aucun jeton)
+//! - Téléchargement binaire via redirections HTTPS strictement vérifiées + contrôle d'empreintes SHA-256
 //! - Vérification d'intégrité des en-têtes binaires (`PK\x03\x04` pour le mod `.jar`, `MZ` pour le launcher `MashClient.exe`)
 //! - Auto-remplacement atomique à chaud sous Windows (`MashClient.exe` -> `.exe.old`) avec restauration automatique en cas d'erreur.
 
@@ -16,8 +16,11 @@ use std::time::Duration;
 use tao::event_loop::EventLoopProxy;
 
 pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const USER_AGENT: &str = "MashClient-Updater/4.4";
+pub const OFFICIAL_GITHUB_REPO: &str = "MyMasha/ProjectFPS";
+const USER_AGENT: &str = "MashClient-Updater/4.5.10";
 const GH_API_VERSION: &str = "2022-11-28";
+const MAX_UPDATE_ASSET_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_CHECKSUMS_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct ReleaseAssetPlan {
@@ -36,6 +39,7 @@ pub struct PendingUpdate {
     pub html_url: String,
     pub jar_asset: Option<ReleaseAssetPlan>,
     pub exe_asset: Option<ReleaseAssetPlan>,
+    pub checksums_asset: Option<ReleaseAssetPlan>,
 }
 
 #[derive(Debug, Clone)]
@@ -212,13 +216,237 @@ pub fn sanitize_repo(raw: &str) -> Result<String, String> {
     let valid_part = |p: &str| {
         !p.is_empty()
             && !p.contains('/')
+            && p != "."
+            && p != ".."
             && p.chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     };
     if !valid_part(owner) || !valid_part(repo) {
         return Err("Nom de dépôt GitHub invalide.".to_owned());
     }
-    Ok(format!("{owner}/{repo}"))
+    let normalized = format!("{owner}/{repo}");
+    let allow_custom = std::env::var("MASHCLIENT_ALLOW_CUSTOM_REPO").as_deref() == Ok("1");
+    if !normalized.eq_ignore_ascii_case(OFFICIAL_GITHUB_REPO) && !allow_custom {
+        return Err(format!(
+            "Dépôt non autorisé par sécurité : seul le dépôt officiel '{OFFICIAL_GITHUB_REPO}' est accepté."
+        ));
+    }
+    if normalized.eq_ignore_ascii_case(OFFICIAL_GITHUB_REPO) {
+        Ok(OFFICIAL_GITHUB_REPO.to_owned())
+    } else {
+        Ok(normalized)
+    }
+}
+
+pub fn is_trusted_github_api_url(url: &str) -> bool {
+    if !url.starts_with("https://api.github.com/repos/") {
+        return false;
+    }
+    if url.bytes().any(|b| b <= 0x20 || b == 0x7F) {
+        return false;
+    }
+    let after = &url["https://".len()..];
+    let authority = after.split(['/', '?', '#']).next().unwrap_or("");
+    authority.eq_ignore_ascii_case("api.github.com")
+}
+
+pub fn is_trusted_download_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    if url.bytes().any(|b| b <= 0x20 || b == 0x7F) {
+        return false;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.is_empty() || authority.contains('@') {
+        return false;
+    }
+    let host = match authority.rsplit_once(':') {
+        Some((h, "443")) => h,
+        Some(_) => return false,
+        None => authority,
+    }
+    .to_ascii_lowercase();
+
+    const ALLOWED_SUFFIXES: &[&str] = &[
+        "github.com",
+        "api.github.com",
+        "githubusercontent.com",
+        "amazonaws.com",
+        "blob.core.windows.net",
+        "adoptium.net",
+    ];
+    ALLOWED_SUFFIXES
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{d}")))
+}
+
+/// Implémentation FIPS 180-4 SHA-256 autonome (sans dépendance externe) pour vérifier l'intégrité des binaires.
+pub struct Sha256 {
+    state: [u32; 8],
+    buf: [u8; 64],
+    buf_len: usize,
+    total_bits: u64,
+}
+
+impl Sha256 {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ];
+
+    pub fn new() -> Self {
+        Self {
+            state: [
+                0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+            ],
+            buf: [0u8; 64],
+            buf_len: 0,
+            total_bits: 0,
+        }
+    }
+
+    fn compress(&mut self, block: &[u8; 64]) {
+        let mut w = [0u32; 64];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([
+                block[i * 4],
+                block[i * 4 + 1],
+                block[i * 4 + 2],
+                block[i * 4 + 3],
+            ]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = self.state;
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = h
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(Self::K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+
+            h = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+        self.state[0] = self.state[0].wrapping_add(a);
+        self.state[1] = self.state[1].wrapping_add(b);
+        self.state[2] = self.state[2].wrapping_add(c);
+        self.state[3] = self.state[3].wrapping_add(d);
+        self.state[4] = self.state[4].wrapping_add(e);
+        self.state[5] = self.state[5].wrapping_add(f);
+        self.state[6] = self.state[6].wrapping_add(g);
+        self.state[7] = self.state[7].wrapping_add(h);
+    }
+
+    pub fn update(&mut self, mut data: &[u8]) {
+        self.total_bits = self.total_bits.wrapping_add((data.len() as u64) * 8);
+        if self.buf_len > 0 {
+            let take = (64 - self.buf_len).min(data.len());
+            self.buf[self.buf_len..self.buf_len + take].copy_from_slice(&data[..take]);
+            self.buf_len += take;
+            data = &data[take..];
+            if self.buf_len == 64 {
+                let block = self.buf;
+                self.compress(&block);
+                self.buf_len = 0;
+            }
+        }
+        while data.len() >= 64 {
+            let mut block = [0u8; 64];
+            block.copy_from_slice(&data[..64]);
+            self.compress(&block);
+            data = &data[64..];
+        }
+        if !data.is_empty() {
+            self.buf[..data.len()].copy_from_slice(data);
+            self.buf_len = data.len();
+        }
+    }
+
+    pub fn finalize_hex(mut self) -> String {
+        let bit_len = self.total_bits;
+        self.buf[self.buf_len] = 0x80;
+        self.buf_len += 1;
+        if self.buf_len > 56 {
+            for b in &mut self.buf[self.buf_len..64] {
+                *b = 0;
+            }
+            let block = self.buf;
+            self.compress(&block);
+            self.buf = [0u8; 64];
+            self.buf_len = 0;
+        } else {
+            for b in &mut self.buf[self.buf_len..56] {
+                *b = 0;
+            }
+        }
+        self.buf[56..64].copy_from_slice(&bit_len.to_be_bytes());
+        let block = self.buf;
+        self.compress(&block);
+
+        let mut out = String::with_capacity(64);
+        for word in self.state {
+            use std::fmt::Write as _;
+            let _ = write!(&mut out, "{word:08x}");
+        }
+        out
+    }
+}
+
+pub fn sha256_file_hex(path: &Path) -> Result<String, String> {
+    let mut f = File::open(path).map_err(|e| format!("Lecture SHA-256 {}: {e}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 32 * 1024];
+    loop {
+        let n = f
+            .read(&mut buf)
+            .map_err(|e| format!("Calcul SHA-256 {}: {e}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finalize_hex())
+}
+
+pub fn parse_sha256sums(raw: &str) -> std::collections::BTreeMap<String, String> {
+    let mut map = std::collections::BTreeMap::new();
+    for line in raw.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let mut parts = t.split_whitespace();
+        let Some(hash) = parts.next() else { continue };
+        let Some(fname) = parts.next() else { continue };
+        let clean_name = fname.trim_start_matches('*');
+        if hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) && !clean_name.is_empty() {
+            map.insert(clean_name.to_ascii_lowercase(), hash.to_ascii_lowercase());
+        }
+    }
+    map
 }
 
 fn build_agents() -> Result<(ureq::Agent, ureq::Agent), String> {
@@ -236,46 +464,31 @@ fn build_agents() -> Result<(ureq::Agent, ureq::Agent), String> {
         .tls_connector(tls)
         .redirects(0)
         .timeout_connect(Duration::from_secs(10))
-        .timeout_read(Duration::from_secs(30))
+        .timeout_read(Duration::from_secs(90))
         .timeout_write(Duration::from_secs(10))
         .build();
     Ok((standard, no_redirect))
 }
 
-fn apply_gh_headers(req: ureq::Request, token: Option<&str>, accept: &str) -> ureq::Request {
-    let req = req
-        .set("Accept", accept)
+fn apply_gh_headers(req: ureq::Request, accept: &str) -> ureq::Request {
+    req.set("Accept", accept)
         .set("User-Agent", USER_AGENT)
-        .set("X-GitHub-Api-Version", GH_API_VERSION);
-    match token.map(str::trim).filter(|t| !t.is_empty()) {
-        Some(tok) => req.set("Authorization", &format!("Bearer {tok}")),
-        None => req,
-    }
+        .set("X-GitHub-Api-Version", GH_API_VERSION)
 }
 
-/// Interroge `GET /repos/{owner}/{repo}/releases/latest` et détermine si une mise à jour du `.jar` ou du `.exe` est disponible.
+/// Interroge `GET /repos/{owner}/{repo}/releases/latest` (API publique, sans jeton) et détermine si une mise à jour du `.jar` ou du `.exe` est disponible.
 pub fn check_for_updates(
     raw_repo: &str,
-    token: Option<&str>,
-    game_dir: &str,
-) -> Result<UpdateCheckOutcome, String> {
-    let has_token = token.map(str::trim).is_some_and(|t| !t.is_empty());
-    match check_for_updates_once(raw_repo, token, game_dir) {
-        Err(_) if has_token => check_for_updates_once(raw_repo, None, game_dir),
-        other => other,
-    }
-}
-
-fn check_for_updates_once(
-    raw_repo: &str,
-    token: Option<&str>,
     game_dir: &str,
 ) -> Result<UpdateCheckOutcome, String> {
     let repo = sanitize_repo(raw_repo)?;
     let (agent, _) = build_agents()?;
 
     let latest_url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let req = apply_gh_headers(agent.get(&latest_url), token, "application/vnd.github+json");
+    let req = apply_gh_headers(
+        agent.get(&latest_url),
+        "application/vnd.github+json",
+    );
 
     let rel: GhRelease = match req.call() {
         Ok(resp) => resp
@@ -283,12 +496,15 @@ fn check_for_updates_once(
             .map_err(|e| format!("Réponse GitHub Release illisible: {e}"))?,
         Err(ureq::Error::Status(404, _)) => {
             let repo_url = format!("https://api.github.com/repos/{repo}");
-            let repo_check =
-                apply_gh_headers(agent.get(&repo_url), token, "application/vnd.github+json").call();
+            let repo_check = apply_gh_headers(
+                agent.get(&repo_url),
+                "application/vnd.github+json",
+            )
+            .call();
             return match repo_check {
                 Ok(_) => Ok(UpdateCheckOutcome::NoReleaseYet { repo }),
                 Err(ureq::Error::Status(401 | 403, _)) => Err(
-                    "Accès à l'API GitHub refusé (HTTP 401/403).".to_owned(),
+                    "Accès à l'API publique GitHub refusé ou limité (HTTP 401/403).".to_owned(),
                 ),
                 Err(ureq::Error::Status(404, _)) => {
                     Err(format!("Dépôt GitHub '{repo}' introuvable ou inaccessible."))
@@ -296,15 +512,11 @@ fn check_for_updates_once(
                 Err(e) => Err(format!("Impossible de vérifier le dépôt GitHub: {e}")),
             };
         }
-        Err(ureq::Error::Status(401, _)) => {
-            return Err("Authentification GitHub refusée (HTTP 401).".to_owned());
-        }
         Err(ureq::Error::Status(403, _)) => {
-            return Err("Quota ou accès API GitHub limité (HTTP 403).".to_owned());
+            return Err("Quota API publique GitHub temporairement atteint (HTTP 403). Réessayez plus tard.".to_owned());
         }
-        Err(ureq::Error::Status(code, err_resp)) => {
-            let detail = err_resp.into_string().unwrap_or_default();
-            return Err(format!("Erreur GitHub API HTTP {code}: {detail}"));
+        Err(ureq::Error::Status(code, _)) => {
+            return Err(format!("Erreur GitHub API HTTP {code}."));
         }
         Err(e) => return Err(format!("Connexion à GitHub impossible: {e}")),
     };
@@ -365,6 +577,17 @@ fn check_for_updates_once(
             size: a.size,
         });
 
+    let checksums_asset = rel
+        .assets
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case("SHA256SUMS.txt"))
+        .map(|a| ReleaseAssetPlan {
+            name: a.name.clone(),
+            api_url: a.url.clone(),
+            browser_download_url: a.browser_download_url.clone(),
+            size: a.size,
+        });
+
     let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 0, 0));
     let mod_ver = installed_mod_version(game_dir);
 
@@ -390,67 +613,98 @@ fn check_for_updates_once(
         html_url: rel.html_url,
         jar_asset: if needs_jar { jar_asset } else { None },
         exe_asset: if needs_exe { exe_asset } else { None },
+        checksums_asset,
     }))
 }
 
+pub fn fetch_trusted_redirect_chain(
+    no_redirect_agent: &ureq::Agent,
+    initial_url: &str,
+) -> Result<ureq::Response, String> {
+    let mut current = initial_url.to_owned();
+    for _ in 0..5 {
+        if !is_trusted_download_url(&current) {
+            return Err(format!("URL de téléchargement refusée (domaine ou protocole non fiable) : {current}"));
+        }
+        match no_redirect_agent
+            .get(&current)
+            .set("User-Agent", USER_AGENT)
+            .call()
+        {
+            Ok(resp) if matches!(resp.status(), 301 | 302 | 303 | 307 | 308) => {
+                let loc = resp
+                    .header("Location")
+                    .ok_or_else(|| "Redirection HTTPS sans en-tête Location.".to_owned())?;
+                current = loc.to_owned();
+            }
+            Ok(resp) => return Ok(resp),
+            Err(ureq::Error::Status(301 | 302 | 303 | 307 | 308, redirect_resp)) => {
+                let loc = redirect_resp
+                    .header("Location")
+                    .ok_or_else(|| "Redirection HTTPS sans en-tête Location.".to_owned())?;
+                current = loc.to_owned();
+            }
+            Err(e) => return Err(format!("Téléchargement échoué: {e}")),
+        }
+    }
+    Err("Trop de redirections HTTPS lors du téléchargement.".to_owned())
+}
+
 fn open_github_asset_stream(
+    _standard_agent: &ureq::Agent,
+    no_redirect_agent: &ureq::Agent,
+    asset: &ReleaseAssetPlan,
+) -> Result<ureq::Response, String> {
+    if is_trusted_github_api_url(&asset.api_url) {
+        let api_req = apply_gh_headers(
+            no_redirect_agent.get(&asset.api_url),
+            "application/octet-stream",
+        );
+
+        match api_req.call() {
+            Ok(resp) => {
+                if matches!(resp.status(), 301 | 302 | 303 | 307 | 308) {
+                    if let Some(loc) = resp.header("Location") {
+                        // Valide strictement chaque redirection HTTPS
+                        return fetch_trusted_redirect_chain(no_redirect_agent, loc);
+                    }
+                }
+                return Ok(resp);
+            }
+            Err(ureq::Error::Status(code @ (301 | 302 | 303 | 307 | 308), redirect_resp)) => {
+                if let Some(loc) = redirect_resp.header("Location") {
+                    return fetch_trusted_redirect_chain(no_redirect_agent, loc);
+                }
+                return Err(format!(
+                    "Redirection GitHub HTTP {code} sans en-tête Location pour '{}'.",
+                    asset.name
+                ));
+            }
+            Err(_) => {}
+        }
+    }
+
+    // Repli direct via browser_download_url sur hôte HTTPS vérifié uniquement
+    if !asset.browser_download_url.is_empty() {
+        fetch_trusted_redirect_chain(no_redirect_agent, &asset.browser_download_url)
+            .map_err(|e2| format!("Téléchargement '{}' impossible: {e2}", asset.name))
+    } else {
+        Err(format!("URL API GitHub non fiable ou inaccessible pour '{}'.", asset.name))
+    }
+}
+
+fn fetch_release_checksums(
     standard_agent: &ureq::Agent,
     no_redirect_agent: &ureq::Agent,
     asset: &ReleaseAssetPlan,
-    token: Option<&str>,
-) -> Result<ureq::Response, String> {
-    let api_req = apply_gh_headers(
-        no_redirect_agent.get(&asset.api_url),
-        token,
-        "application/octet-stream",
-    );
-
-    match api_req.call() {
-        Ok(resp) => {
-            if matches!(resp.status(), 301 | 302 | 303 | 307 | 308) {
-                if let Some(loc) = resp.header("Location") {
-                    // Important : ne JAMAIS transmettre l'en-tête Authorization GitHub vers l'URL pré-signée S3 / Azure Blob !
-                    return standard_agent
-                        .get(loc)
-                        .set("User-Agent", USER_AGENT)
-                        .call()
-                        .map_err(|e| format!("Téléchargement du flux signé '{}' échoué: {e}", asset.name));
-                }
-            }
-            Ok(resp)
-        }
-        Err(ureq::Error::Status(code @ (301 | 302 | 303 | 307 | 308), redirect_resp)) => {
-            if let Some(loc) = redirect_resp.header("Location") {
-                standard_agent
-                    .get(loc)
-                    .set("User-Agent", USER_AGENT)
-                    .call()
-                    .map_err(|e| {
-                        format!(
-                            "Téléchargement après redirection HTTP {code} '{}' échoué: {e}",
-                            asset.name
-                        )
-                    })
-            } else {
-                Err(format!(
-                    "Redirection GitHub HTTP {code} sans en-tête Location pour '{}'.",
-                    asset.name
-                ))
-            }
-        }
-        Err(e) => {
-            // Repli direct via browser_download_url sur le dépôt public si l'API échoue ou si le jeton a expiré
-            if !asset.browser_download_url.is_empty() {
-                standard_agent
-                    .get(&asset.browser_download_url)
-                    .set("User-Agent", USER_AGENT)
-                    .call()
-                    .map_err(|e2| format!("Téléchargement '{}' impossible: {e2}", asset.name))
-            } else {
-                Err(format!("Téléchargement API GitHub '{}' refusé: {e}", asset.name))
-            }
-        }
-    }
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let resp = open_github_asset_stream(standard_agent, no_redirect_agent, asset)?;
+    let mut raw = String::new();
+    resp.into_reader()
+        .take(MAX_CHECKSUMS_BYTES)
+        .read_to_string(&mut raw)
+        .map_err(|e| format!("Lecture SHA256SUMS.txt impossible: {e}"))?;
+    Ok(parse_sha256sums(&raw))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -458,21 +712,25 @@ fn stream_asset_to_part_file(
     standard_agent: &ureq::Agent,
     no_redirect_agent: &ureq::Agent,
     asset: &ReleaseAssetPlan,
-    token: Option<&str>,
     part_path: &Path,
     expected_magic: &[u8],
     min_bytes: u64,
+    expected_sha256: Option<&str>,
     base_done: u64,
     total_plan_bytes: u64,
     proxy: &EventLoopProxy<AppEvent>,
 ) -> Result<u64, String> {
-    let resp = open_github_asset_stream(standard_agent, no_redirect_agent, asset, token)?;
+    if asset.size > MAX_UPDATE_ASSET_BYTES {
+        return Err(format!("Archive '{}' dépasse la taille maximale autorisée.", asset.name));
+    }
+    let resp = open_github_asset_stream(standard_agent, no_redirect_agent, asset)?;
     let mut reader = resp.into_reader();
     let mut out = File::create(part_path)
         .map_err(|e| format!("Création fichier temporaire {}: {e}", part_path.display()))?;
 
     let mut buf = [0u8; 32 * 1024];
     let mut header_probe = Vec::with_capacity(expected_magic.len());
+    let mut hasher = Sha256::new();
     let mut written: u64 = 0;
     let mut last_pct: u8 = 255;
 
@@ -483,13 +741,19 @@ fn stream_asset_to_part_file(
         if n == 0 {
             break;
         }
+        written = written.saturating_add(n as u64);
+        if written > MAX_UPDATE_ASSET_BYTES {
+            drop(out);
+            let _ = std::fs::remove_file(part_path);
+            return Err(format!("Téléchargement '{}' interrompu : taille maximale dépassée.", asset.name));
+        }
         if header_probe.len() < expected_magic.len() {
             let need = expected_magic.len() - header_probe.len();
             header_probe.extend_from_slice(&buf[..n.min(need)]);
         }
+        hasher.update(&buf[..n]);
         out.write_all(&buf[..n])
             .map_err(|e| format!("Écriture disque ({}): {e}", asset.name))?;
-        written += n as u64;
 
         let denom = total_plan_bytes.max(written + base_done).max(1);
         let pct = (((base_done + written) * 100) / denom).min(99) as u8;
@@ -505,12 +769,24 @@ fn stream_asset_to_part_file(
         .map_err(|e| format!("Validation écriture {}: {e}", asset.name))?;
     drop(out);
 
-    if written < min_bytes || header_probe.as_slice() != expected_magic {
+    let size_mismatch = asset.size > 0 && written != asset.size;
+    if written < min_bytes || size_mismatch || header_probe.as_slice() != expected_magic {
         let _ = std::fs::remove_file(part_path);
         return Err(format!(
             "Fichier téléchargé '{}' corrompu ou incomplet ({} octets).",
             asset.name, written
         ));
+    }
+
+    if let Some(expected_hash) = expected_sha256 {
+        let actual_hash = hasher.finalize_hex();
+        if !actual_hash.eq_ignore_ascii_case(expected_hash) {
+            let _ = std::fs::remove_file(part_path);
+            return Err(format!(
+                "Vérification d'intégrité SHA-256 échouée pour '{}' (fichier rejeté).",
+                asset.name
+            ));
+        }
     }
 
     Ok(written)
@@ -519,7 +795,6 @@ fn stream_asset_to_part_file(
 /// Télécharge et installe atomiquement les composants mis à jour (`.jar` du mod et/ou `.exe` du Launcher).
 pub fn download_and_install_update(
     plan: &PendingUpdate,
-    token: Option<&str>,
     game_dir: &str,
     proxy: &EventLoopProxy<AppEvent>,
 ) -> Result<InstallOutcome, String> {
@@ -528,6 +803,12 @@ pub fn download_and_install_update(
     std::fs::create_dir_all(&updates_dir)
         .map_err(|e| format!("Création dossier updates: {e}"))?;
 
+    let checksums = if let Some(ref sums_asset) = plan.checksums_asset {
+        fetch_release_checksums(&standard_agent, &no_redirect_agent, sums_asset)?
+    } else {
+        std::collections::BTreeMap::new()
+    };
+
     let total_bytes = plan.jar_asset.as_ref().map_or(0, |a| a.size)
         + plan.exe_asset.as_ref().map_or(0, |a| a.size);
     let mut completed_bytes: u64 = 0;
@@ -535,24 +816,26 @@ pub fn download_and_install_update(
     let mut jar_installed: Option<String> = None;
     let mut exe_staged_for_restart = false;
 
-    // 1. Mise à jour du mod Forge 1.8.9 (`purefps-X.Y.Z.jar`)
+    // 1. Mise à jour du mod Forge 1.8.9 (`purefps-X.Y.Z.jar` — nom généré uniquement depuis le SemVer validé)
     if let Some(ref jar) = plan.jar_asset {
-        let canonical_name = if jar.name.to_ascii_lowercase().starts_with("purefps-") {
-            jar.name.clone()
-        } else {
-            format!("purefps-{}.jar", plan.version)
-        };
+        let ver_tuple = parse_semver(&plan.version)
+            .ok_or_else(|| format!("Version de mise à jour invalide : '{}'", plan.version))?;
+        let canonical_name = format!("purefps-{}.jar", format_semver(ver_tuple));
         let part_path = updates_dir.join(format!("{canonical_name}.part"));
         let final_cache_path = updates_dir.join(&canonical_name);
+        let expected_jar_sha = checksums
+            .get(&jar.name.to_ascii_lowercase())
+            .or_else(|| checksums.get(&canonical_name.to_ascii_lowercase()))
+            .map(String::as_str);
 
         let dl_bytes = stream_asset_to_part_file(
             &standard_agent,
             &no_redirect_agent,
             jar,
-            token,
             &part_path,
             b"PK\x03\x04",
             4096,
+            expected_jar_sha,
             completed_bytes,
             total_bytes,
             proxy,
@@ -598,22 +881,26 @@ pub fn download_and_install_update(
         jar_installed = Some(canonical_name);
     }
 
-    // 2. Auto-remplacement atomique de l'exécutable Windows (`pureclient-launcher.exe`)
+    // 2. Auto-remplacement atomique de l'exécutable Windows (`MashClient.exe`)
     if let Some(ref exe) = plan.exe_asset {
         let current_exe = std::env::current_exe()
             .map_err(|e| format!("Chemin de l'exécutable courant inaccessible: {e}"))?;
         let new_exe = with_appended_ext(&current_exe, "new");
         let old_exe = with_appended_ext(&current_exe, "old");
+        let expected_exe_sha = checksums
+            .get(&exe.name.to_ascii_lowercase())
+            .or_else(|| checksums.get("mashclient.exe"))
+            .map(String::as_str);
 
         let _ = std::fs::remove_file(&new_exe);
         let _ = stream_asset_to_part_file(
             &standard_agent,
             &no_redirect_agent,
             exe,
-            token,
             &new_exe,
             b"MZ",
             32 * 1024,
+            expected_exe_sha,
             completed_bytes,
             total_bytes,
             proxy,

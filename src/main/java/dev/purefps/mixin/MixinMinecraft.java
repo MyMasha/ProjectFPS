@@ -14,6 +14,7 @@ import net.minecraft.client.renderer.EntityRenderer;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.stream.IStream;
+import net.minecraft.util.Session;
 import org.apache.logging.log4j.Logger;
 import org.lwjgl.LWJGLException;
 import org.lwjgl.opengl.Display;
@@ -21,6 +22,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.util.glu.GLU;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -30,7 +32,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.4.6) :
+ * Optimisations critiques de la boucle principale Minecraft 1.8.9 (MashClient 4.5.10) :
  * 1. Supprime les 2 appels bloquants GL11.glGetError() par frame dans checkGLError.
  * 2. Régule la file GPU sans spin (1-frame-in-flight GLSync) et maintient la composition DWM fenêtrée (+1 px)
  *    pour éliminer tout freeze des streams Discord, captures Win+Shift+S et pointeurs Windows personnalisés.
@@ -42,6 +44,11 @@ public abstract class MixinMinecraft {
     @Shadow
     @Final
     private static Logger logger;
+
+    @Shadow
+    @Final
+    @Mutable
+    private Session session;
 
     @Shadow
     public WorldClient theWorld;
@@ -119,6 +126,7 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "startGame", at = @At("HEAD"))
     private void purefps$onStartGameHead(CallbackInfo ci) {
+        this.session = dev.purefps.core.EphemeralSessionBridge.resolveSession(this.session);
         dev.purefps.core.VulkanBackendHelper.preloadZinkIfConfigured();
         SeamlessLaunchTransition.onStartGameHead((Minecraft) (Object) this);
     }
@@ -187,7 +195,7 @@ public abstract class MixinMinecraft {
         }
         PureFPSConfig.syncStartupGameSettingsIfNeeded();
         if (Display.isCreated()) {
-            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.9"));
+            Display.setTitle(dev.purefps.core.VulkanBackendHelper.getWindowTitle("4.5.10"));
         }
         BorderlessWindowHelper.ensureMenuCursorVisible();
     }

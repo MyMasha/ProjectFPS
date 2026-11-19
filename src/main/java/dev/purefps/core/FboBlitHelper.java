@@ -55,7 +55,7 @@ public final class FboBlitHelper {
             try {
                 ContextCapabilities caps = GLContext.getCapabilities();
                 gl30State = (caps != null && caps.OpenGL30) ? 1 : -1;
-            } catch (Throwable t) {
+            } catch (Exception | LinkageError t) {
                 gl30State = -1;
             }
         }
@@ -129,7 +129,7 @@ public final class FboBlitHelper {
             cachedVScale = -1.0F;
             opaqueShaderState = 1;
             return true;
-        } catch (Throwable t) {
+        } catch (Exception | LinkageError t) {
             opaqueShaderState = -1;
             return false;
         }

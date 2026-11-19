@@ -2,10 +2,12 @@ package dev.purefps.core;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509ExtendedTrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.io.InputStream;
@@ -33,7 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   Microsoft RSA Root Certificate Authority 2017) et Let's Encrypt (ISRG Root X1) au TrustManager par défaut,
  *   corrigeant l'erreur trompeuse "The authentication servers are currently down for maintenance" sur les JRE anciens.
  * - Combine le magasin cacerts du JRE, le bundle Mozilla embarqué et (sous Windows) WINDOWS-ROOT sans jamais
- *   affaiblir la vérification cryptographique X.509.
+ *   affaiblir la vérification cryptographique X.509 ni la vérification d'identité d'hôte (X509ExtendedTrustManager).
  * - Active automatiquement TLSv1.2 (et TLSv1.3 si supporté par le JRE) sur toutes les connexions HttpsURLConnection.
  */
 public final class ModernTlsTrustHelper {
@@ -53,7 +55,16 @@ public final class ModernTlsTrustHelper {
         try {
             try {
                 Security.setProperty("crypto.policy", "unlimited");
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
+            }
+            try {
+                if (System.getProperty("https.protocols") == null) {
+                    System.setProperty("https.protocols", "TLSv1.2,TLSv1.3");
+                }
+                if (System.getProperty("jdk.tls.client.protocols") == null) {
+                    System.setProperty("jdk.tls.client.protocols", "TLSv1.2,TLSv1.3");
+                }
+            } catch (Exception | LinkageError ignored) {
             }
 
             List<X509TrustManager> delegates = new ArrayList<X509TrustManager>(3);
@@ -65,7 +76,7 @@ public final class ModernTlsTrustHelper {
                         && jvmDefault.getAcceptedIssuers().length > 0) {
                     delegates.add(jvmDefault);
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
 
             X509TrustManager bundled = buildBundledRootsTrustManager();
@@ -84,7 +95,7 @@ public final class ModernTlsTrustHelper {
                             && winTm.getAcceptedIssuers().length > 0) {
                         delegates.add(winTm);
                     }
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
 
@@ -92,7 +103,7 @@ public final class ModernTlsTrustHelper {
                 return false;
             }
 
-            X509TrustManager composite = new CompositeX509TrustManager(delegates);
+            X509ExtendedTrustManager composite = new CompositeX509TrustManager(delegates);
             SSLContext sslContext = createBestTlsContext();
             sslContext.init(null, new TrustManager[]{composite}, new SecureRandom());
 
@@ -101,7 +112,7 @@ public final class ModernTlsTrustHelper {
             HttpsURLConnection.setDefaultSSLSocketFactory(modernFactory);
             active = true;
             return true;
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return false;
         }
     }
@@ -145,7 +156,7 @@ public final class ModernTlsTrustHelper {
                 ks.setCertificateEntry("mashclient-root-" + i, roots.get(i));
             }
             return buildTrustManagerFromKeyStore(ks);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return null;
         }
     }
@@ -167,12 +178,12 @@ public final class ModernTlsTrustHelper {
     private static SSLContext createBestTlsContext() throws Exception {
         try {
             return SSLContext.getInstance("TLSv1.2");
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return SSLContext.getInstance("TLS");
         }
     }
 
-    static final class CompositeX509TrustManager implements X509TrustManager {
+    static final class CompositeX509TrustManager extends X509ExtendedTrustManager {
         private final X509TrustManager[] delegates;
         private final X509Certificate[] acceptedIssuers;
 
@@ -188,20 +199,159 @@ public final class ModernTlsTrustHelper {
             this.acceptedIssuers = merged.toArray(new X509Certificate[0]);
         }
 
+        private static void requireNonEmptyChain(X509Certificate[] chain) throws CertificateException {
+            if (chain == null || chain.length == 0) {
+                throw new CertificateException("Empty X.509 certificate chain");
+            }
+        }
+
         @Override
         public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-            if (this.delegates.length == 0) {
-                throw new CertificateException("No X509TrustManager available");
+            requireNonEmptyChain(chain);
+            CertificateException firstError = null;
+            for (int i = 0; i < this.delegates.length; i++) {
+                try {
+                    this.delegates[i].checkClientTrusted(chain, authType);
+                    return;
+                } catch (CertificateException ex) {
+                    if (firstError == null) {
+                        firstError = ex;
+                    }
+                } catch (RuntimeException rex) {
+                    if (firstError == null) {
+                        firstError = new CertificateException(rex.getMessage(), rex);
+                    }
+                }
             }
-            this.delegates[0].checkClientTrusted(chain, authType);
+            if (firstError != null) {
+                throw firstError;
+            }
+            throw new CertificateException("Untrusted client certificate chain");
+        }
+
+        @Override
+        public void checkClientTrusted(X509Certificate[] chain, String authType, Socket socket) throws CertificateException {
+            requireNonEmptyChain(chain);
+            CertificateException firstError = null;
+            for (int i = 0; i < this.delegates.length; i++) {
+                try {
+                    X509TrustManager tm = this.delegates[i];
+                    if (tm instanceof X509ExtendedTrustManager) {
+                        ((X509ExtendedTrustManager) tm).checkClientTrusted(chain, authType, socket);
+                    } else {
+                        tm.checkClientTrusted(chain, authType);
+                    }
+                    return;
+                } catch (CertificateException ex) {
+                    if (firstError == null) {
+                        firstError = ex;
+                    }
+                } catch (RuntimeException rex) {
+                    if (firstError == null) {
+                        firstError = new CertificateException(rex.getMessage(), rex);
+                    }
+                }
+            }
+            if (firstError != null) {
+                throw firstError;
+            }
+            throw new CertificateException("Untrusted client certificate chain");
+        }
+
+        @Override
+        public void checkClientTrusted(X509Certificate[] chain, String authType, SSLEngine engine) throws CertificateException {
+            requireNonEmptyChain(chain);
+            CertificateException firstError = null;
+            for (int i = 0; i < this.delegates.length; i++) {
+                try {
+                    X509TrustManager tm = this.delegates[i];
+                    if (tm instanceof X509ExtendedTrustManager) {
+                        ((X509ExtendedTrustManager) tm).checkClientTrusted(chain, authType, engine);
+                    } else {
+                        tm.checkClientTrusted(chain, authType);
+                    }
+                    return;
+                } catch (CertificateException ex) {
+                    if (firstError == null) {
+                        firstError = ex;
+                    }
+                } catch (RuntimeException rex) {
+                    if (firstError == null) {
+                        firstError = new CertificateException(rex.getMessage(), rex);
+                    }
+                }
+            }
+            if (firstError != null) {
+                throw firstError;
+            }
+            throw new CertificateException("Untrusted client certificate chain");
         }
 
         @Override
         public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+            requireNonEmptyChain(chain);
             CertificateException firstError = null;
             for (int i = 0; i < this.delegates.length; i++) {
                 try {
                     this.delegates[i].checkServerTrusted(chain, authType);
+                    return;
+                } catch (CertificateException ex) {
+                    if (firstError == null) {
+                        firstError = ex;
+                    }
+                } catch (RuntimeException rex) {
+                    if (firstError == null) {
+                        firstError = new CertificateException(rex.getMessage(), rex);
+                    }
+                }
+            }
+            if (firstError != null) {
+                throw firstError;
+            }
+            throw new CertificateException("Untrusted server certificate chain");
+        }
+
+        @Override
+        public void checkServerTrusted(X509Certificate[] chain, String authType, Socket socket) throws CertificateException {
+            requireNonEmptyChain(chain);
+            CertificateException firstError = null;
+            for (int i = 0; i < this.delegates.length; i++) {
+                try {
+                    X509TrustManager tm = this.delegates[i];
+                    if (tm instanceof X509ExtendedTrustManager) {
+                        ((X509ExtendedTrustManager) tm).checkServerTrusted(chain, authType, socket);
+                    } else {
+                        tm.checkServerTrusted(chain, authType);
+                    }
+                    return;
+                } catch (CertificateException ex) {
+                    if (firstError == null) {
+                        firstError = ex;
+                    }
+                } catch (RuntimeException rex) {
+                    if (firstError == null) {
+                        firstError = new CertificateException(rex.getMessage(), rex);
+                    }
+                }
+            }
+            if (firstError != null) {
+                throw firstError;
+            }
+            throw new CertificateException("Untrusted server certificate chain");
+        }
+
+        @Override
+        public void checkServerTrusted(X509Certificate[] chain, String authType, SSLEngine engine) throws CertificateException {
+            requireNonEmptyChain(chain);
+            CertificateException firstError = null;
+            for (int i = 0; i < this.delegates.length; i++) {
+                try {
+                    X509TrustManager tm = this.delegates[i];
+                    if (tm instanceof X509ExtendedTrustManager) {
+                        ((X509ExtendedTrustManager) tm).checkServerTrusted(chain, authType, engine);
+                    } else {
+                        tm.checkServerTrusted(chain, authType);
+                    }
                     return;
                 } catch (CertificateException ex) {
                     if (firstError == null) {

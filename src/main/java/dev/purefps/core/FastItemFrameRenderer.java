@@ -131,14 +131,14 @@ public final class FastItemFrameRenderer {
         if (normalFrameDisplayList >= 0) {
             try {
                 GLAllocation.deleteDisplayLists(normalFrameDisplayList);
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
             normalFrameDisplayList = -1;
         }
         if (mapFrameDisplayList >= 0) {
             try {
                 GLAllocation.deleteDisplayLists(mapFrameDisplayList);
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
             mapFrameDisplayList = -1;
         }
