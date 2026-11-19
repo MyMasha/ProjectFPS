@@ -17,7 +17,7 @@ use tao::event_loop::EventLoopProxy;
 
 pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const OFFICIAL_GITHUB_REPO: &str = "MyMasha/ProjectFPS";
-const USER_AGENT: &str = "MashClient-Updater/4.5.10";
+const USER_AGENT: &str = "MashClient-Updater/4.5.11";
 const GH_API_VERSION: &str = "2022-11-28";
 const MAX_UPDATE_ASSET_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_CHECKSUMS_BYTES: u64 = 64 * 1024;

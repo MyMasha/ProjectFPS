@@ -845,7 +845,7 @@ impl PureClientSettings {
         map.insert("smartChunkUpdates".into(), self.smart_chunk_updates.to_string());
         map.insert("menuWorldUnload".into(), self.menu_world_unload.to_string());
 
-        let mut out = String::from("# MashClient 4.5.10 Configuration\n");
+        let mut out = String::from("# MashClient 4.5.11 Configuration\n");
         for (k, v) in &map {
             let clean_k: String = k
                 .chars()
@@ -952,7 +952,7 @@ impl PureClientSettings {
 pub fn empty_modules_json() -> serde_json::Value {
     serde_json::json!({
         "client": "MashClient",
-        "version": "4.5.10",
+        "version": "4.5.11",
         "modules": {}
     })
 }
@@ -967,7 +967,7 @@ pub fn load_modules_json(game_dir: &str) -> serde_json::Value {
 
     if let Some(obj) = root.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.5.10".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.11".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -985,7 +985,7 @@ pub fn save_modules_json(game_dir: &str, data: &serde_json::Value) -> Result<(),
     };
     if let Some(obj) = normalized.as_object_mut() {
         obj.insert("client".to_owned(), serde_json::Value::String("MashClient".to_owned()));
-        obj.insert("version".to_owned(), serde_json::Value::String("4.5.10".to_owned()));
+        obj.insert("version".to_owned(), serde_json::Value::String("4.5.11".to_owned()));
         if !obj.get("modules").is_some_and(serde_json::Value::is_object) {
             obj.insert("modules".to_owned(), serde_json::json!({}));
         }
@@ -1949,7 +1949,7 @@ pub fn export_profile_bundle_to_path(
 ) -> Result<(), String> {
     let bundle = ExportedProfileBundle {
         client: "MashClient".to_owned(),
-        version: "4.5.10".to_owned(),
+        version: "4.5.11".to_owned(),
         name: if name.trim().is_empty() {
             "Profil MashClient".to_owned()
         } else {
@@ -2146,7 +2146,7 @@ mod tests {
 
         save_all_client_configs(&dir_str, &cfg, &mods).unwrap();
         let reloaded_mods = load_modules_json(&dir_str);
-        assert_eq!(reloaded_mods["version"], "4.5.10");
+        assert_eq!(reloaded_mods["version"], "4.5.11");
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["enabled"], false);
         assert_eq!(reloaded_mods["modules"]["eng_item_frame_opt"]["settings"]["max_dist"], 72);
 

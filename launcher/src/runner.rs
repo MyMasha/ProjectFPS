@@ -1,5 +1,5 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.10 (OpenGL & Vulkan Bêta).
-//! - Synchronise automatiquement `purefps-4.5.10.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.11 (OpenGL & Vulkan Bêta).
+//! - Synchronise automatiquement `purefps-4.5.11.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Télécharge ou récupère automatiquement les bibliothèques Forge 1.8.9, `minecraft-1.8.9-client.jar` et l'index d'assets `1.8.json`
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
 //! - Isolat dédié pour le mode Vulkan (Bêta) via Mesa3D Zink (`javaw.exe.local` + `GALLIUM_DRIVER=zink`)
@@ -28,11 +28,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.10.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.11.jar";
 const MAX_LIBRARY_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_NATIVE_DLL_BYTES: u64 = 32 * 1024 * 1024;
 const EXPECTED_MC_189_CLIENT_SHA1: &str = "3870888a6c3d349d37e1a1e9d16c9bf5c076b9c8";
 const EXPECTED_ASSET_INDEX_18_SHA1: &str = "f6ad102bcaa53b1a58358f16e376d548d44933ec";
+const EXPECTED_LOG4J_API_FIXED_SHA1: &str = "b61eaf2e64d8b0277e188262a8b771bbfa1502b3";
+const EXPECTED_LOG4J_CORE_FIXED_SHA1: &str = "677991ea2d7426f76309a73739cecf609679492c";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashReportInfo {
@@ -352,9 +354,11 @@ fn is_valid_sha1_hex(s: &str) -> bool {
     s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// Vérifie qu'une archive `log4j-core` ne contient PAS la classe vulnérable `JndiLookup.class` (CVE-2021-44228).
-/// Retourne `true` (rejet par sécurité) si la classe est trouvée ou si l'archive ZIP est illisible.
-fn jar_contains_jndi_lookup(path: &Path) -> bool {
+/// Vérifie qu'une archive `log4j-core` ne contient PAS d'implémentation JNDI active dans `JndiLookup.class` (CVE-2021-44228).
+/// Les builds officiels corrigés MultiMC (`2.0-beta9-fixed`) conservent un stub inoffensif (`return null;`) sans aucune
+/// référence à `javax/naming/InitialContext`, contrairement au JAR vulnérable d'origine.
+/// Retourne `true` (rejet par sécurité) si `JndiLookup.class` référence JNDI ou si l'archive ZIP est illisible.
+fn jar_has_vulnerable_jndi_lookup(path: &Path) -> bool {
     let Ok(f) = File::open(path) else {
         return true;
     };
@@ -362,7 +366,7 @@ fn jar_contains_jndi_lookup(path: &Path) -> bool {
         return true;
     };
     for i in 0..archive.len() {
-        let Ok(entry) = archive.by_index_raw(i) else {
+        let Ok(entry) = archive.by_index(i) else {
             return true;
         };
         if entry
@@ -370,7 +374,21 @@ fn jar_contains_jndi_lookup(path: &Path) -> bool {
             .to_ascii_lowercase()
             .ends_with("jndilookup.class")
         {
-            return true;
+            if entry.size() > 64 * 1024 {
+                return true;
+            }
+            let mut bytes = Vec::new();
+            if entry.take(64 * 1024 + 1).read_to_end(&mut bytes).is_err() || bytes.len() > 64 * 1024
+            {
+                return true;
+            }
+            let has_jndi = bytes.windows(b"javax/naming".len()).any(|w| w == b"javax/naming")
+                || bytes
+                    .windows(b"InitialContext".len())
+                    .any(|w| w == b"InitialContext");
+            if has_jndi {
+                return true;
+            }
         }
     }
     false
@@ -384,7 +402,7 @@ fn is_valid_library_file(path: &Path, is_log4j_core: bool, expected_sha1: Option
     {
         return false;
     }
-    if is_log4j_core && jar_contains_jndi_lookup(path) {
+    if is_log4j_core && jar_has_vulnerable_jndi_lookup(path) {
         return false;
     }
     if let Some(want) = expected_sha1 {
@@ -415,19 +433,19 @@ fn download_file_to_path(
     expected_sha1: Option<&str>,
 ) -> Result<(), String> {
     if !url.starts_with("https://") {
-        return Err(format!("Protocole non sécurisé refusé pour {url}"));
+        return Err(format!("Refused non-HTTPS URL {url}"));
     }
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.10")
+        .set("User-Agent", "MashClient/4.5.11")
         .call()
-        .map_err(|e| format!("Échec téléchargement {url}: {e}"))?;
+        .map_err(|e| format!("Download failed for {url}: {e}"))?;
     if let Some(cl) = resp
         .header("Content-Length")
         .and_then(|s| s.parse::<u64>().ok())
     {
         if cl > MAX_LIBRARY_DOWNLOAD_BYTES {
-            return Err(format!("Fichier distant trop volumineux depuis {url}"));
+            return Err(format!("Remote file exceeds size limit for {url}"));
         }
     }
     if let Some(parent) = dst.parent() {
@@ -445,7 +463,7 @@ fn download_file_to_path(
 
     if written > MAX_LIBRARY_DOWNLOAD_BYTES {
         let _ = std::fs::remove_file(&tmp);
-        return Err(format!("Limite de taille dépassée lors du téléchargement de {url}"));
+        return Err(format!("Size limit exceeded while downloading {url}"));
     }
 
     let is_jar = dst
@@ -454,7 +472,7 @@ fn download_file_to_path(
         .is_some_and(|e| e.eq_ignore_ascii_case("jar"));
     if written == 0 || (is_jar && written < 64) {
         let _ = std::fs::remove_file(&tmp);
-        return Err(format!("Fichier téléchargé vide ou tronqué depuis {url}"));
+        return Err(format!("Empty or truncated download from {url}"));
     }
     if is_jar {
         let mut magic = [0u8; 4];
@@ -464,7 +482,7 @@ fn download_file_to_path(
             .unwrap_or(false);
         if !valid_zip {
             let _ = std::fs::remove_file(&tmp);
-            return Err(format!("Archive JAR invalide reçue depuis {url}"));
+            return Err(format!("Invalid JAR header received from {url}"));
         }
     }
     if let Some(want_sha1) = expected_sha1 {
@@ -472,7 +490,7 @@ fn download_file_to_path(
         if !got_sha1.eq_ignore_ascii_case(want_sha1) {
             let _ = std::fs::remove_file(&tmp);
             return Err(format!(
-                "Intégrité SHA-1 invalide pour {url} (attendu {want_sha1}, reçu {got_sha1})"
+                "SHA-1 integrity mismatch for {url} (expected {want_sha1}, got {got_sha1})"
             ));
         }
     }
@@ -536,6 +554,10 @@ pub fn ensure_standalone_189_files(
         let is_log4j_core = rel.to_ascii_lowercase().contains("log4j-core");
         let expected_sha1 = if rel.ends_with("minecraft-1.8.9-client.jar") {
             Some(EXPECTED_MC_189_CLIENT_SHA1)
+        } else if rel.ends_with("log4j-api-2.0-beta9-fixed.jar") {
+            Some(EXPECTED_LOG4J_API_FIXED_SHA1)
+        } else if rel.ends_with("log4j-core-2.0-beta9-fixed.jar") {
+            Some(EXPECTED_LOG4J_CORE_FIXED_SHA1)
         } else {
             None
         };
@@ -544,7 +566,7 @@ pub fn ensure_standalone_189_files(
             continue;
         }
         if dst.exists() {
-            // Purge tout cache corrompu ou vulnérable (ex: log4j-core contenant JndiLookup.class)
+            // Purge tout cache corrompu ou vulnérable (ex: log4j-core non patché)
             let _ = std::fs::remove_file(&dst);
         }
 
@@ -582,7 +604,7 @@ pub fn ensure_standalone_189_files(
             continue;
         }
 
-        // 2. Direct HTTPS download from official Mojang/Forge/Maven Central mirrors only
+        // 2. Direct HTTPS download from official Mojang/Forge/Maven Central/MultiMC mirrors only
         let agent = match &http_agent {
             Some(a) => a,
             None => {
@@ -610,6 +632,20 @@ pub fn ensure_standalone_189_files(
                 "https://launcher.mojang.com/v1/objects/3870888a6c3d349d37e1a1e9d16c9bf5c076b9c8/client.jar"
                     .to_owned(),
             );
+        } else if rel_url.ends_with("log4j-api-2.0-beta9-fixed.jar") {
+            // Release officielle MultiMC/log4j-beta9 vérifiée par empreinte SHA-1 épinglée
+            candidate_urls.push(
+                "https://github.com/MultiMC/log4j-beta9/releases/download/fixed/log4j-api-2.0-beta9-fixed.jar"
+                    .to_owned(),
+            );
+            candidate_urls.push(format!("https://files.multimc.org/maven/{rel_url}"));
+        } else if rel_url.ends_with("log4j-core-2.0-beta9-fixed.jar") {
+            // Release officielle MultiMC/log4j-beta9 (JndiLookup neutralisé) vérifiée par SHA-1 épinglée + contrôle bytecode
+            candidate_urls.push(
+                "https://github.com/MultiMC/log4j-beta9/releases/download/fixed/log4j-core-2.0-beta9-fixed.jar"
+                    .to_owned(),
+            );
+            candidate_urls.push(format!("https://files.multimc.org/maven/{rel_url}"));
         } else {
             // Uniquement les dépôts officiels Mojang / Forge / Maven Central (aucun miroir tiers ni repli Log4Shell non corrigé)
             candidate_urls.push(format!("https://libraries.minecraft.net/{rel_url}"));
@@ -622,10 +658,10 @@ pub fn ensure_standalone_189_files(
         for url in &candidate_urls {
             match download_file_to_path(agent, url, &dst, expected_sha1) {
                 Ok(()) => {
-                    if is_log4j_core && jar_contains_jndi_lookup(&dst) {
+                    if is_log4j_core && jar_has_vulnerable_jndi_lookup(&dst) {
                         let _ = std::fs::remove_file(&dst);
                         last_err = format!(
-                            "Archive log4j-core vulnérable (JndiLookup.class détecté) refusée depuis {url}"
+                            "Vulnerable log4j-core archive (active JndiLookup detected) rejected from {url}"
                         );
                         continue;
                     }
@@ -1417,7 +1453,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.10 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.11 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\
@@ -1913,6 +1949,46 @@ mod tests {
             detect_recent_crash_in_dirs(&[tmp.clone()], since, &[], Some(-1)).expect("doit détecter crash-report");
         assert_eq!(detected_rep.summary, "Initializing game");
         assert_eq!(detected_rep.exit_code, Some(-1));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_log4j_vulnerable_jndi_detection() {
+        let tmp = std::env::temp_dir().join("mashclient_log4j_jndi_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let make_jar = |name: &str, entry_name: Option<&str>, payload: &[u8]| -> PathBuf {
+            let p = tmp.join(name);
+            let f = File::create(&p).unwrap();
+            let mut z = zip::ZipWriter::new(f);
+            let opts = zip::write::SimpleFileOptions::default();
+            z.start_file("META-INF/MANIFEST.MF", opts).unwrap();
+            z.write_all(b"Manifest-Version: 1.0\n").unwrap();
+            if let Some(en) = entry_name {
+                z.start_file(en, opts).unwrap();
+                z.write_all(payload).unwrap();
+            }
+            z.finish().unwrap();
+            p
+        };
+
+        let vuln = make_jar(
+            "vuln.jar",
+            Some("org/apache/logging/log4j/core/lookup/JndiLookup.class"),
+            b"\xCA\xFE\xBA\xBE javax/naming/InitialContext java:comp/env/",
+        );
+        let patched_stub = make_jar(
+            "patched.jar",
+            Some("org/apache/logging/log4j/core/lookup/JndiLookup.class"),
+            b"\xCA\xFE\xBA\xBE org/apache/logging/log4j/core/lookup/JndiLookup java:comp/env/",
+        );
+        let stripped = make_jar("stripped.jar", None, b"");
+
+        assert!(jar_has_vulnerable_jndi_lookup(&vuln));
+        assert!(!jar_has_vulnerable_jndi_lookup(&patched_stub));
+        assert!(!jar_has_vulnerable_jndi_lookup(&stripped));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
