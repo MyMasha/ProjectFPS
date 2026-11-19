@@ -474,6 +474,9 @@ pub fn open_verification_browser(url: &str) {
 }
 
 pub fn copy_to_windows_clipboard(text: &str) {
+    if crate::win_compat::set_clipboard_unicode(text) {
+        return;
+    }
     let clip = windows_system_tool(r"System32\clip.exe");
     let mut cmd = Command::new(&clip);
     cmd.stdin(Stdio::piped())

@@ -191,10 +191,6 @@ public class MixinEntityRenderer {
         if (!PureFPSConfig.enabled) {
             return;
         }
-        if (dev.purefps.core.MenuUnloadManager.isWorldDimmedByMenu(this.mc)) {
-            ci.cancel();
-            return;
-        }
         if (MashFlags.weatherChangerEnabled && MashFlags.weatherMode == 0) {
             ci.cancel();
             return;

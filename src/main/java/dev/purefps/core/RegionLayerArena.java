@@ -29,6 +29,7 @@ public final class RegionLayerArena {
 
     public int vboId = -1;
     public int vaoId = -1;
+    private boolean vaoFailed = false;
     public int capacityVertices = 0;
     public final FreeRangeAllocator allocator = new FreeRangeAllocator();
 
@@ -73,13 +74,16 @@ public final class RegionLayerArena {
             GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, (long) cap * VERTEX_STRIDE_BYTES, GL15.GL_DYNAMIC_DRAW);
             OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
             capacityVertices = cap;
-            if (hasGL30Vao) {
+            if (hasGL30Vao && !vaoFailed) {
                 rebuildHardwareVao();
             }
             return;
         }
 
         if (requiredVertices <= capacityVertices || capacityVertices >= MAX_CAPACITY_VERTICES) {
+            if (hasGL30Vao && vaoId <= 0 && !vaoFailed) {
+                rebuildHardwareVao();
+            }
             return;
         }
 
@@ -111,7 +115,7 @@ public final class RegionLayerArena {
         OpenGlHelper.glDeleteBuffers(vboId);
         vboId = newVbo;
         capacityVertices = newCap;
-        if (hasGL30Vao) {
+        if (hasGL30Vao && !vaoFailed) {
             rebuildHardwareVao();
         }
     }
@@ -122,6 +126,7 @@ public final class RegionLayerArena {
                 vaoId = GL30.glGenVertexArrays();
             }
             if (vaoId <= 0) {
+                vaoFailed = true;
                 return;
             }
             GL30.glBindVertexArray(vaoId);
@@ -146,6 +151,7 @@ public final class RegionLayerArena {
             OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
         } catch (Exception | LinkageError ignored) {
             vaoId = -1;
+            vaoFailed = true;
         }
     }
 
@@ -168,6 +174,7 @@ public final class RegionLayerArena {
             }
             vaoId = -1;
         }
+        vaoFailed = false;
         if (vboId >= 0) {
             OpenGlHelper.glDeleteBuffers(vboId);
             vboId = -1;

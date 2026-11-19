@@ -30,6 +30,11 @@ public class MixinGuiPlayerTabOverlay {
             return;
         }
         int ping = info.getResponseTime();
+        if (ping <= 1 && this.mc.thePlayer != null
+                && info.getGameProfile() != null
+                && this.mc.thePlayer.getUniqueID().equals(info.getGameProfile().getId())) {
+            ping = dev.purefps.core.RealPingEstimator.resolveEffectivePing(this.mc, ping);
+        }
         if (ping <= 0) {
             return;
         }

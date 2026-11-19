@@ -48,6 +48,7 @@ public final class MenuUnloadManager {
         SmartChunkUpdateScheduler.clear();
         IslandCoreCuller.clearCurrentThread();
         OcclusionCuller.setActiveCamera(null);
+        RealPingEstimator.reset();
         PureFPSConfig.unloadedIslandCoresTotal = 0;
         PureFPSConfig.throttledStaticUpdatesTotal = 0;
     }

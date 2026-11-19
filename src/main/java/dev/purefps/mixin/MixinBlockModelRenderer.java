@@ -174,6 +174,17 @@ public abstract class MixinBlockModelRenderer {
 
     @Redirect(
             method = "renderModelAmbientOcclusion",
+            at = @At(value = "NEW", target = "(I)Ljava/util/BitSet;", remap = false)
+    )
+    private BitSet purefps$aoPooledBitSet(int nbits) {
+        if (PureFPSConfig.enabled && PureFPSConfig.zeroAllocSmoothLighting) {
+            return StandardModelContext.getAoBoundsFlags();
+        }
+        return new BitSet(nbits);
+    }
+
+    @Redirect(
+            method = "renderModelAmbientOcclusion",
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/block/Block;shouldSideBeRendered(Lnet/minecraft/world/IBlockAccess;Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"

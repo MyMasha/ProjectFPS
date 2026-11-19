@@ -1770,4 +1770,164 @@ public class PureFPSCoreTest {
         assertTrue("ModernTlsTrustHelper must remain active on idempotent calls", ModernTlsTrustHelper.installModernRootTrustIfNeeded());
         assertTrue(ModernTlsTrustHelper.isActive());
     }
+
+    @Test
+    public void testClientHangWatchdogPinpointAndDumpFormat() {
+        StackTraceElement[] sampleStack = new StackTraceElement[]{
+                new StackTraceElement("java.lang.Object", "wait", "Object.java", -2),
+                new StackTraceElement("sun.misc.Unsafe", "park", "Unsafe.java", -2),
+                new StackTraceElement("net.minecraft.client.renderer.texture.TextureMap", "loadTextureAtlas", "TextureMap.java", 184),
+                new StackTraceElement("net.minecraft.client.Minecraft", "startGame", "Minecraft.java", 512)
+        };
+
+        String pinpoint = ClientHangWatchdog.findPinpointFrame(sampleStack);
+        assertEquals(
+                "net.minecraft.client.renderer.texture.TextureMap.loadTextureAtlas(TextureMap.java:184)",
+                pinpoint
+        );
+
+        String dump = ClientHangWatchdog.formatHangDump(
+                "FML:init",
+                12L,
+                Thread.State.RUNNABLE,
+                sampleStack,
+                null,
+                1024L,
+                3072L
+        );
+        assertTrue(dump.contains("Phase: FML:init"));
+        assertTrue(dump.contains("FrozenSeconds: 12"));
+        assertTrue(dump.contains("ThreadState: RUNNABLE"));
+        assertTrue(dump.contains("PinpointLocation: net.minecraft.client.renderer.texture.TextureMap.loadTextureAtlas(TextureMap.java:184)"));
+        assertTrue(dump.contains("Memory: Used 1024 MB / Max 3072 MB"));
+        assertTrue(dump.contains("--- Client Thread Stack ---"));
+        assertTrue(dump.contains("at net.minecraft.client.Minecraft.startGame(Minecraft.java:512)"));
+    }
+
+    @Test
+    public void testRealPingEstimatorVarIntAndLoopbackSlp() throws Exception {
+        int[] samples = new int[]{0, 1, 47, 127, 128, 255, 16383, 16384, 25565, 2097151};
+        for (int v : samples) {
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            RealPingEstimator.writeVarInt(baos, v);
+            java.io.DataInputStream dis = new java.io.DataInputStream(
+                    new java.io.ByteArrayInputStream(baos.toByteArray())
+            );
+            assertEquals("VarInt round-trip mismatch for " + v, v, RealPingEstimator.readVarInt(dis));
+        }
+
+        // Mock Minecraft 1.8.9 Server List Ping (Handshake -> Status -> Ping -> Pong) sur loopback
+        final java.net.ServerSocket slpServer = new java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"));
+        final int slpPort = slpServer.getLocalPort();
+        Thread serverThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    java.net.Socket s = slpServer.accept();
+                    try {
+                        java.io.DataInputStream in = new java.io.DataInputStream(s.getInputStream());
+                        java.io.DataOutputStream out = new java.io.DataOutputStream(s.getOutputStream());
+
+                        // 1. Handshake
+                        int hsLen = RealPingEstimator.readVarInt(in);
+                        byte[] hsBytes = new byte[hsLen];
+                        in.readFully(hsBytes);
+
+                        // 2. Status request
+                        int reqLen = RealPingEstimator.readVarInt(in);
+                        byte[] reqBytes = new byte[reqLen];
+                        in.readFully(reqBytes);
+
+                        // 3. Status response (ID 0x00 + JSON string)
+                        byte[] jsonBytes = "{\"version\":{\"name\":\"1.8.9\",\"protocol\":47}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                        java.io.ByteArrayOutputStream resp = new java.io.ByteArrayOutputStream();
+                        RealPingEstimator.writeVarInt(resp, 0x00);
+                        RealPingEstimator.writeVarInt(resp, jsonBytes.length);
+                        resp.write(jsonBytes);
+                        byte[] respArr = resp.toByteArray();
+                        java.io.ByteArrayOutputStream respHdr = new java.io.ByteArrayOutputStream();
+                        RealPingEstimator.writeVarInt(respHdr, respArr.length);
+                        out.write(respHdr.toByteArray());
+                        out.write(respArr);
+                        out.flush();
+
+                        // 4. Ping -> 18ms controlled delay -> Pong
+                        int pingLen = RealPingEstimator.readVarInt(in);
+                        int pingId = RealPingEstimator.readVarInt(in);
+                        long pingPayload = in.readLong();
+                        if (pingLen > 0 && pingId == 0x01) {
+                            Thread.sleep(18L);
+                            java.io.ByteArrayOutputStream pong = new java.io.ByteArrayOutputStream();
+                            RealPingEstimator.writeVarInt(pong, 0x01);
+                            for (int shift = 56; shift >= 0; shift -= 8) {
+                                pong.write((int) ((pingPayload >>> shift) & 0xFFL));
+                            }
+                            byte[] pongArr = pong.toByteArray();
+                            java.io.ByteArrayOutputStream pongHdr = new java.io.ByteArrayOutputStream();
+                            RealPingEstimator.writeVarInt(pongHdr, pongArr.length);
+                            out.write(pongHdr.toByteArray());
+                            out.write(pongArr);
+                            out.flush();
+                        }
+                    } finally {
+                        s.close();
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    try {
+                        slpServer.close();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }, "TestSlpMockServer");
+        serverThread.setDaemon(true);
+        serverThread.start();
+
+        int measured = RealPingEstimator.measureServerPingMs("127.0.0.1", slpPort, 2000);
+        serverThread.join(2000L);
+        assertTrue("Expected SLP ping >= 10 ms on 18ms delayed loopback, got " + measured, measured >= 10 && measured < 1000);
+
+        // Vérifie que tabPing > 1 est retourné intact (0 trafic réseau)
+        assertEquals(42, RealPingEstimator.resolveEffectivePing(null, 42));
+        assertEquals(-1, RealPingEstimator.resolveEffectivePing(null, 1));
+    }
+
+    @Test
+    public void testWorkerRegionTrianglePrebakeEquivalence() {
+        int stride = RegionLayerArena.VERTEX_STRIDE_BYTES;
+        int quadVerts = 8;
+        int triVerts = 12;
+        ByteBuffer src = ByteBuffer.allocateDirect(quadVerts * stride).order(ByteOrder.nativeOrder());
+        for (int v = 0; v < quadVerts; v++) {
+            int off = v * stride;
+            src.putFloat(off, (float) (v + 1));
+            src.putFloat(off + 4, (float) (v * 2));
+            src.putFloat(off + 8, (float) (v * 3));
+            src.putLong(off + 12, 0xCAFE000000000000L + v);
+            src.putLong(off + 20, 0xBEEF000000000000L + v);
+        }
+        src.position(0);
+        src.limit(quadVerts * stride);
+
+        int posX = 272; // originX = 256, localX = 16
+        int posY = 64;  // localY = 64
+        int posZ = -16; // originZ = -256, localZ = 240
+
+        ByteBuffer workerBaked = ChunkRegionManager.bakeChunkToRegionTriangles(src, posX, posY, posZ);
+        assertNotNull(workerBaked);
+        assertEquals(triVerts * stride, workerBaked.limit());
+
+        ByteBuffer directExpected = ByteBuffer.allocateDirect(triVerts * stride).order(ByteOrder.nativeOrder());
+        ChunkRegionManager.transformBlockQuadsToTriangles(src, quadVerts, 16.0f, 64.0f, 240.0f, directExpected);
+
+        for (int b = 0; b < triVerts * stride; b++) {
+            assertEquals("Byte mismatch at offset " + b, directExpected.get(b), workerBaked.get(b));
+        }
+
+        ChunkRegionManager.releaseWorkerTriBuffer(workerBaked);
+        ByteBuffer recycled = ChunkRegionManager.acquireWorkerTriBuffer(triVerts * stride);
+        assertSame("Worker triangle buffer should be recycled from lock-free pool", workerBaked, recycled);
+        ChunkRegionManager.releaseWorkerTriBuffer(recycled);
+    }
 }

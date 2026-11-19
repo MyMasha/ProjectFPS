@@ -9,12 +9,14 @@
 
 mod auth;
 mod config;
+mod diagnostics;
 mod dialog;
 mod mods_manager;
 mod runner;
 mod runtimes;
 mod tray;
 mod updater;
+mod win_compat;
 #[cfg(all(target_os = "windows", not(target_env = "msvc")))]
 mod webview2_gnu_shim;
 
@@ -33,6 +35,7 @@ use config::{
     CustomProfileSummary, InstanceFlavor, LaunchMode, LauncherPrefs, MicrosoftAccount,
     PublicAccountView, PureClientSettings, PureProfile, QuickServerEntry,
 };
+use diagnostics::{LaunchProgressInfo, UiHangWatchdog};
 use mods_manager::InstalledModEntry;
 use runner::{
     auto_fetch_mod_jar_if_needed, focus_visible_lwjgl_window, has_visible_lwjgl_window,
@@ -43,9 +46,9 @@ use serde_json::json;
 use std::collections::VecDeque;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tao::dpi::{LogicalSize, Size};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopProxy, EventLoopBuilder};
@@ -115,7 +118,7 @@ fn is_unc_or_control_path(raw: &str) -> bool {
 }
 
 /// Vérifie qu'un rapport de crash ouvert par IPC appartient strictement au dossier Minecraft actif
-/// (`crash-reports/*.txt`, `logs/*.log`, ou `hs_err_pid*.log` à la racine).
+/// ou au dossier de diagnostics MashClient (`crash-reports/*.txt`, `logs/*.log`, ou `hs_err_pid*.log`).
 fn is_safe_crash_report_path(raw_path: &str, game_dir: &str) -> Option<PathBuf> {
     let clean = raw_path.trim();
     if clean.is_empty() || is_unc_or_control_path(clean) {
@@ -125,11 +128,7 @@ fn is_safe_crash_report_path(raw_path: &str, game_dir: &str) -> Option<PathBuf> 
     if !std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file()) {
         return None;
     }
-    let canon_game = std::fs::canonicalize(game_dir).ok()?;
     let canon_file = std::fs::canonicalize(p).ok()?;
-    if !canon_file.starts_with(&canon_game) {
-        return None;
-    }
     let ext = canon_file
         .extension()
         .and_then(|e| e.to_str())
@@ -137,20 +136,35 @@ fn is_safe_crash_report_path(raw_path: &str, game_dir: &str) -> Option<PathBuf> 
     if ext != "txt" && ext != "log" {
         return None;
     }
-    let rel = canon_file.strip_prefix(&canon_game).ok()?;
-    let comps: Vec<String> = rel
-        .components()
-        .filter_map(|c| match c {
-            Component::Normal(s) => Some(s.to_string_lossy().to_ascii_lowercase()),
-            _ => None,
-        })
-        .collect();
-    let allowed = match comps.as_slice() {
-        [dir, _file] if dir == "crash-reports" || dir == "logs" => true,
-        [file] if file.starts_with("hs_err_pid") && file.ends_with(".log") => true,
-        _ => false,
-    };
-    allowed.then_some(canon_file)
+
+    let allowed_roots = [PathBuf::from(game_dir), app_storage_dir()];
+    for root in allowed_roots {
+        let Ok(canon_root) = std::fs::canonicalize(&root) else {
+            continue;
+        };
+        if !canon_file.starts_with(&canon_root) {
+            continue;
+        }
+        let Ok(rel) = canon_file.strip_prefix(&canon_root) else {
+            continue;
+        };
+        let comps: Vec<String> = rel
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(s) => Some(s.to_string_lossy().to_ascii_lowercase()),
+                _ => None,
+            })
+            .collect();
+        let allowed = match comps.as_slice() {
+            [dir, _file] if dir == "crash-reports" || dir == "logs" => true,
+            [file] if file.starts_with("hs_err_pid") && file.ends_with(".log") => true,
+            _ => false,
+        };
+        if allowed {
+            return Some(canon_file);
+        }
+    }
+    None
 }
 
 fn validate_java_executable_path(raw: &str) -> Result<String, String> {
@@ -303,6 +317,17 @@ fn win32_restore_window_from_tray(window: &Window) {
     window.set_focus();
 }
 
+#[cfg(windows)]
+fn win32_window_hwnd_bits(window: &Window) -> usize {
+    use tao::platform::windows::WindowExtWindows;
+    window.hwnd() as usize
+}
+
+#[cfg(not(windows))]
+fn win32_window_hwnd_bits(_window: &Window) -> usize {
+    0
+}
+
 #[derive(Debug)]
 pub enum AppEvent {
     IpcRaw(String),
@@ -321,12 +346,16 @@ pub enum AppEvent {
     ModsImported(Result<usize, String>),
     ProfileImported(Result<CustomProfile, String>),
     PreLaunchModSynced,
+    LaunchProgress(LaunchProgressInfo),
     GameRunning(bool),
     GameCrashed(CrashReportInfo),
+    GameHangDetected(CrashReportInfo),
+    LauncherHangRecovered(CrashReportInfo),
     MinecraftMenuReady,
     RevealMinecraftNow(u64),
     CurtainSafetyTimeout(u64),
     LaunchAborted(String),
+    UiTick,
     TrayRestore,
     TrayQuit,
     LogLine(String),
@@ -398,6 +427,8 @@ enum IpcCommand {
     OpenCrashReport {
         path: String,
     },
+    ForceKillGame,
+    RequestHangDiagnostic,
     SetRam {
         ram_mb: u32,
     },
@@ -487,7 +518,9 @@ struct UiStateSnapshot<'a> {
     java_status_label: &'a str,
     java_needs_upgrade: bool,
     java_installing: bool,
+    os_compat_label: &'a str,
     game_running: bool,
+    launch_progress: &'a LaunchProgressInfo,
     device_code: Option<UiDeviceCodeView>,
     update: &'a UiUpdateView,
 }
@@ -579,8 +612,12 @@ struct Controller {
     java_status_label: String,
     java_needs_upgrade: bool,
     java_installing: bool,
+    os_compat_label: String,
     game_running: bool,
     prelaunch_syncing: bool,
+    launch_progress: LaunchProgressInfo,
+    active_game_pid: Arc<AtomicU32>,
+    manual_diag_flag: Arc<AtomicBool>,
     hidden_in_tray: bool,
     curtain_id: u64,
     curtain_active: bool,
@@ -593,6 +630,8 @@ struct Controller {
     pending_update: Option<PendingUpdate>,
     startup_update_checked: bool,
     deferred_logs: VecDeque<String>,
+    last_log_flush: Instant,
+    pending_prev_hang: Option<CrashReportInfo>,
 }
 
 impl Controller {
@@ -628,6 +667,8 @@ impl Controller {
         let java_needs_upgrade =
             !java_file.is_file() || !probe.is_64bit || !probe.is_java8 || probe.update_version < 250;
         let java_status_label = probe.label;
+        let os_compat_label = win_compat::detect_windows_version().display_name;
+        let pending_prev_hang = diagnostics::take_previous_session_ui_hang();
 
         let update_view = UiUpdateView::initial(&active_dir);
         Self {
@@ -643,8 +684,12 @@ impl Controller {
             java_status_label,
             java_needs_upgrade,
             java_installing: false,
+            os_compat_label,
             game_running: false,
             prelaunch_syncing: false,
+            launch_progress: LaunchProgressInfo::inactive(),
+            active_game_pid: Arc::new(AtomicU32::new(0)),
+            manual_diag_flag: Arc::new(AtomicBool::new(false)),
             hidden_in_tray: false,
             curtain_id: 0,
             curtain_active: false,
@@ -656,7 +701,9 @@ impl Controller {
             update_view,
             pending_update: None,
             startup_update_checked: false,
-            deferred_logs: VecDeque::with_capacity(200),
+            deferred_logs: VecDeque::with_capacity(240),
+            last_log_flush: Instant::now(),
+            pending_prev_hang,
         }
     }
 
@@ -764,7 +811,9 @@ impl Controller {
             java_status_label: &self.java_status_label,
             java_needs_upgrade: self.java_needs_upgrade,
             java_installing: self.java_installing,
+            os_compat_label: &self.os_compat_label,
             game_running: self.game_running,
+            launch_progress: &self.launch_progress,
             device_code: self.active_challenge.as_ref().map(|c| UiDeviceCodeView {
                 user_code: c.user_code.clone(),
                 verification_uri: c.verification_uri.clone(),
@@ -774,6 +823,19 @@ impl Controller {
         let msg = json!({
             "kind": "state",
             "data": snap
+        });
+        if let Ok(serialized) = serde_json::to_string(&msg) {
+            let _ = webview.evaluate_script(&format!("window.__purePush({serialized});"));
+        }
+    }
+
+    fn push_launch_progress(&self, webview: &wry::WebView) {
+        if self.hidden_in_tray {
+            return;
+        }
+        let msg = json!({
+            "kind": "launch_progress",
+            "progress": &self.launch_progress
         });
         if let Ok(serialized) = serde_json::to_string(&msg) {
             let _ = webview.evaluate_script(&format!("window.__purePush({serialized});"));
@@ -801,29 +863,41 @@ impl Controller {
         }
     }
 
+    /// Regroupe les lignes de log avant l'envoi vers WebView2 (max 1 appel JS / 90 ms)
+    /// afin d'éviter toute saturation du thread UI pendant le démarrage verbeux de Forge 1.8.9.
     fn append_or_buffer_log(&mut self, webview: &wry::WebView, line: String) {
-        if self.hidden_in_tray {
-            if self.deferred_logs.len() >= 200 {
-                self.deferred_logs.pop_front();
-            }
-            self.deferred_logs.push_back(line);
-        } else {
-            Self::push_log(webview, &line);
+        if self.deferred_logs.len() >= 240 {
+            self.deferred_logs.pop_front();
+        }
+        self.deferred_logs.push_back(line);
+        if !self.hidden_in_tray
+            && (self.deferred_logs.len() >= 40
+                || self.last_log_flush.elapsed() >= Duration::from_millis(90))
+        {
+            self.flush_deferred_logs(webview);
         }
     }
 
     fn flush_deferred_logs(&mut self, webview: &wry::WebView) {
-        if self.deferred_logs.is_empty() {
+        if self.hidden_in_tray || self.deferred_logs.is_empty() {
             return;
         }
         let mut combined = String::new();
-        while let Some(line) = self.deferred_logs.pop_front() {
+        let mut count = 0usize;
+        while count < 60 {
+            let Some(line) = self.deferred_logs.pop_front() else {
+                break;
+            };
             if !combined.is_empty() {
                 combined.push('\n');
             }
             combined.push_str(&line);
+            count += 1;
         }
-        Self::push_log(webview, &combined);
+        self.last_log_flush = Instant::now();
+        if !combined.is_empty() {
+            Self::push_log(webview, &combined);
+        }
     }
 
     fn push_log(webview: &wry::WebView, line: &str) {
@@ -860,16 +934,38 @@ impl Controller {
         self.plunge_darkness_reached = false;
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
+        self.manual_diag_flag.store(false, Ordering::Relaxed);
+        self.launch_progress = LaunchProgressInfo {
+            active: true,
+            percent: 2,
+            stage_index: 1,
+            total_steps: 7,
+            stage_title: if self.prefs.language == "fr" {
+                "Préparation du lancement".to_owned()
+            } else {
+                "Preparing launch".to_owned()
+            },
+            detail: if self.prefs.language == "fr" {
+                "Initialisation de MashClient 1.8.9...".to_owned()
+            } else {
+                "Initializing MashClient 1.8.9...".to_owned()
+            },
+            elapsed_secs: 0,
+            is_stalled: false,
+            stall_reason: None,
+            recent_steps: Vec::new(),
+        };
 
         Self::set_webview_suspended(webview, false);
 
-        // Maintient l'écran noir #000000 au premier plan pendant l'initialisation Forge 1.8.9
-        // sans appeler ShowCursor(FALSE) Win32 (le masquage visuel du curseur est géré en CSS).
+        // Maintient l'écran noir #000000 + barre de chargement au premier plan pendant l'initialisation Forge 1.8.9
         window.set_minimized(false);
         window.set_visible(true);
         window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+        win_compat::apply_window_win10_11_styling(win32_window_hwnd_bits(window), true);
         window.set_always_on_top(true);
         window.set_focus();
+        self.push_launch_progress(webview);
         Self::push_plunge_command(webview, "start");
     }
 
@@ -888,6 +984,7 @@ impl Controller {
         self.plunge_darkness_reached = false;
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
+        self.launch_progress = LaunchProgressInfo::inactive();
 
         Self::set_webview_suspended(webview, true);
         window.set_always_on_top(false);
@@ -921,9 +1018,11 @@ impl Controller {
         self.plunge_darkness_reached = false;
         self.mc_menu_ready = false;
         self.handoff_dispatched = false;
+        self.launch_progress = LaunchProgressInfo::inactive();
 
         Self::set_webview_suspended(webview, false);
         Self::push_plunge_command(webview, "reset");
+        self.push_launch_progress(webview);
         self.push_full_state(webview);
         self.flush_deferred_logs(webview);
         tray.set_game_running_mode(self.game_running);
@@ -931,6 +1030,7 @@ impl Controller {
         window.set_always_on_top(false);
         window.set_cursor_visible(true);
         win32_restore_window_from_tray(window);
+        win_compat::apply_window_win10_11_styling(win32_window_hwnd_bits(window), false);
     }
 
     fn try_schedule_seamless_handoff(
@@ -944,7 +1044,7 @@ impl Controller {
             && !self.handoff_dispatched
         {
             self.handoff_dispatched = true;
-            // Relâche `always_on_top` et place atomiquement la fenêtre OpenGL LWJGL #000000 devant le rideau #000000
+            // Relâche `always_on_top` et place de façon non-bloquante la fenêtre OpenGL LWJGL au premier plan
             window.set_always_on_top(false);
             allow_any_foreground_window();
             focus_visible_lwjgl_window();
@@ -986,6 +1086,9 @@ fn begin_singularity_launch_now(
     // tourné lors d'un lancement précédent.
     ctrl.refresh_accounts_cache();
 
+    let game_pid_arc = Arc::clone(&ctrl.active_game_pid);
+    let manual_diag_arc = Arc::clone(&ctrl.manual_diag_flag);
+
     match ctrl.prefs.launch_mode {
         LaunchMode::DirectMicrosoft => {
             let is_fr = ctrl.prefs.language == "fr";
@@ -1005,6 +1108,22 @@ fn begin_singularity_launch_now(
             let prefs_clone = ctrl.prefs.clone();
             let p = proxy.clone();
             std::thread::spawn(move || {
+                let _ = p.send_event(AppEvent::LaunchProgress(LaunchProgressInfo {
+                    active: true,
+                    percent: 3,
+                    stage_index: 1,
+                    total_steps: 7,
+                    stage_title: if is_fr {
+                        "Validation de la session Microsoft".to_owned()
+                    } else {
+                        "Validating Microsoft session".to_owned()
+                    },
+                    detail: format!("Vérification du jeton Xbox Live pour {}...", acc.username),
+                    elapsed_secs: 0,
+                    is_stalled: false,
+                    stall_reason: None,
+                    recent_steps: vec!["[AUTH] Rafraîchissement session Microsoft...".to_owned()],
+                }));
                 // Double tentative de rafraîchissement OAuth2 Xbox/Minecraft pour éviter toute session expirée sur Hypixel
                 let active_acc = match refresh_microsoft_session(&acc) {
                     Ok(fresh) => {
@@ -1052,6 +1171,8 @@ fn begin_singularity_launch_now(
                     screen_w,
                     screen_h,
                     p.clone(),
+                    game_pid_arc,
+                    manual_diag_arc,
                 ) {
                     let _ = p.send_event(AppEvent::LaunchAborted(e));
                 }
@@ -1073,6 +1194,8 @@ fn begin_singularity_launch_now(
                     screen_w,
                     screen_h,
                     p.clone(),
+                    game_pid_arc,
+                    manual_diag_arc,
                 ) {
                     let _ = p.send_event(AppEvent::LaunchAborted(e));
                 }
@@ -1126,6 +1249,23 @@ fn try_trigger_game_launch(
 
     if !mod_up_to_date {
         ctrl.prelaunch_syncing = true;
+        ctrl.launch_progress = LaunchProgressInfo {
+            active: true,
+            percent: 5,
+            stage_index: 1,
+            total_steps: 7,
+            stage_title: if ctrl.prefs.language == "fr" {
+                "Préparation du moteur MashClient".to_owned()
+            } else {
+                "Preparing MashClient engine".to_owned()
+            },
+            detail: "Synchronisation de purefps-*.jar...".to_owned(),
+            elapsed_secs: 0,
+            is_stalled: false,
+            stall_reason: None,
+            recent_steps: vec!["[MOD] Vérification du mod MashClient...".to_owned()],
+        };
+        ctrl.push_launch_progress(webview);
         Controller::push_toast(webview, "Préparation du moteur MashClient...", false);
         let prefs_clone = ctrl.prefs.clone();
         let p = proxy.clone();
@@ -1185,6 +1325,10 @@ fn handle_ipc(
     match cmd {
         IpcCommand::UiReady => {
             ctrl.push_full_state(webview);
+            ctrl.push_launch_progress(webview);
+            if let Some(prev_hang) = ctrl.pending_prev_hang.take() {
+                Controller::push_crash(webview, &prev_hang);
+            }
             if !ctrl.startup_update_checked {
                 ctrl.startup_update_checked = true;
                 if ctrl.prefs.auto_update_check {
@@ -1475,6 +1619,84 @@ fn handle_ipc(
                 }
             } else {
                 Controller::push_toast(webview, "Chemin de rapport de crash refusé par sécurité.", true);
+            }
+        }
+        IpcCommand::ForceKillGame => {
+            let pid = ctrl.active_game_pid.swap(0, Ordering::AcqRel);
+            if pid != 0 && win_compat::terminate_pid_forcefully(pid) {
+                ctrl.game_running = false;
+                ctrl.restore_normal_window(window, webview, tray);
+                Controller::push_toast(
+                    webview,
+                    &format!("Processus Minecraft (PID {pid}) arrêté de force."),
+                    false,
+                );
+            } else {
+                ctrl.game_running = false;
+                ctrl.restore_normal_window(window, webview, tray);
+                Controller::push_toast(webview, "Aucun processus Minecraft actif à arrêter.", false);
+            }
+        }
+        IpcCommand::RequestHangDiagnostic => {
+            let pid = ctrl.active_game_pid.load(Ordering::Relaxed);
+            if pid != 0 {
+                ctrl.manual_diag_flag.store(true, Ordering::Release);
+                Controller::push_toast(
+                    webview,
+                    "Collecte du diagnostic détaillé en cours...",
+                    false,
+                );
+            } else {
+                let hw = win_compat::collect_system_hardware_info();
+                let stage = ctrl.launch_progress.stage_title.clone();
+                let detail = ctrl.launch_progress.detail.clone();
+                let env_lines = vec![
+                    format!("Système : {}", hw.os_label),
+                    format!("Carte graphique : {}", hw.gpu_name),
+                    format!(
+                        "Mémoire RAM : {} Mo libres / {} Mo total",
+                        hw.avail_ram_mb, hw.total_ram_mb
+                    ),
+                    format!("Runtime Java : {}", ctrl.java_status_label),
+                ];
+                let steps = ctrl
+                    .launch_progress
+                    .recent_steps
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| runner::DiagnosticItem {
+                        time: format!("#{:02}", i + 1),
+                        level: "info".to_owned(),
+                        stage: "LAUNCH".to_owned(),
+                        message: s.clone(),
+                    })
+                    .collect();
+                let loc = if detail.is_empty() {
+                    stage.clone()
+                } else {
+                    format!("{stage} → {detail}")
+                };
+                ctrl.restore_normal_window(window, webview, tray);
+                Controller::push_crash(
+                    webview,
+                    &CrashReportInfo {
+                        title: "Diagnostic de lancement".to_owned(),
+                        summary: format!("Étape en cours au moment du diagnostic : {loc}"),
+                        details: format!(
+                            "Étape : {stage}\nDétail : {detail}\n\n{}",
+                            env_lines.join("\n")
+                        ),
+                        exit_code: None,
+                        report_path: None,
+                        suspected_mod_file: None,
+                        is_not_responding: true,
+                        crash_location: Some(loc),
+                        environment_lines: env_lines,
+                        diagnostic_steps: steps,
+                        thread_stack_lines: Vec::new(),
+                        can_force_kill: false,
+                    },
+                );
             }
         }
         IpcCommand::SetRam { ram_mb } => {
@@ -1782,15 +2004,6 @@ fn handle_ipc(
         IpcCommand::PlungeDarknessReached => {
             ctrl.plunge_darkness_reached = true;
             ctrl.try_schedule_seamless_handoff(window, proxy);
-
-            // Garde-fou matériel large (28s) : laisse le temps à Forge 1.8.9 d'ouvrir sa fenêtre OpenGL
-            // tout en garantissant que l'écran noir #000000 ne reste jamais bloqué si le lancement échoue
-            let expected_id = ctrl.curtain_id;
-            let p_safety = proxy.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(28_000));
-                let _ = p_safety.send_event(AppEvent::CurtainSafetyTimeout(expected_id));
-            });
         }
         IpcCommand::AbortLaunchCurtain => {
             ctrl.restore_normal_window(window, webview, tray);
@@ -1802,43 +2015,13 @@ fn handle_ipc(
     false
 }
 
-fn main() -> wry::Result<()> {
-    let after_update = std::env::args().any(|arg| arg == "--after-update");
-    let Some(mut single_instance) = SingleInstanceGuard::acquire(after_update) else {
-        // Une instance de MashClient est déjà ouverte en arrière-plan : elle a été réveillée et ramenée au premier plan.
-        return Ok(());
-    };
-
-    cleanup_old_launcher_binary();
-
-    if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none() {
-        std::env::set_var(
-            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-            "--autoplay-policy=no-user-gesture-required",
-        );
-    }
-
-    let event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
-    let proxy = event_loop.create_proxy();
-
-    let tray = SystemTray::new(proxy.clone());
-    let win_icon = Icon::from_rgba(WINDOW_ICON_64_RGBA.to_vec(), 64, 64).ok();
-
-    let window = WindowBuilder::new()
-        .with_title("MashClient")
-        .with_window_icon(win_icon)
-        .with_decorations(false)
-        .with_inner_size(Size::Logical(LogicalSize::new(1240.0, 780.0)))
-        .with_min_inner_size(Size::Logical(LogicalSize::new(1024.0, 680.0)))
-        .build(&event_loop)
-        .expect("Création fenêtre MashClient");
-
-    let webview_data_dir = app_storage_dir().join("webview2-cache");
-    let _ = std::fs::create_dir_all(&webview_data_dir);
-    let mut context = wry::WebContext::new(Some(webview_data_dir));
-
+fn build_mash_webview(
+    window: &Window,
+    context: &mut wry::WebContext,
+    proxy: &EventLoopProxy<AppEvent>,
+) -> wry::Result<wry::WebView> {
     let ipc_proxy = proxy.clone();
-    let builder = WebViewBuilder::new_with_web_context(&mut context)
+    let builder = WebViewBuilder::new_with_web_context(context)
         .with_autoplay(true)
         .with_devtools(false)
         .with_background_color((0, 0, 0, 255))
@@ -1865,14 +2048,122 @@ fn main() -> wry::Result<()> {
     let builder = builder
         .with_default_context_menus(false)
         .with_browser_accelerator_keys(false);
-    let webview = builder.build(&window)?;
+    builder.build(window)
+}
 
+fn main() -> wry::Result<()> {
+    // Active immédiatement la compatibilité DPI Per-Monitor V2 Windows 10/11 avant toute création de fenêtre
+    win_compat::enable_process_dpi_awareness();
+
+    let after_update = std::env::args().any(|arg| arg == "--after-update");
+    let Some(mut single_instance) = SingleInstanceGuard::acquire(after_update) else {
+        // Une instance de MashClient est déjà ouverte en arrière-plan : elle a été réveillée et ramenée au premier plan.
+        return Ok(());
+    };
+
+    cleanup_old_launcher_binary();
+
+    if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none() {
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "--autoplay-policy=no-user-gesture-required",
+        );
+    }
+
+    let event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
+    let proxy = event_loop.create_proxy();
+
+    let ui_watchdog = UiHangWatchdog::start(proxy.clone());
+    ui_watchdog.set_op("Initialisation du System Tray et de la fenêtre");
+
+    let tray = SystemTray::new(proxy.clone());
+    let win_icon = Icon::from_rgba(WINDOW_ICON_64_RGBA.to_vec(), 64, 64).ok();
+
+    let window = WindowBuilder::new()
+        .with_title("MashClient")
+        .with_window_icon(win_icon)
+        .with_decorations(false)
+        .with_visible(false)
+        .with_inner_size(Size::Logical(LogicalSize::new(1240.0, 780.0)))
+        .with_min_inner_size(Size::Logical(LogicalSize::new(1024.0, 680.0)))
+        .build(&event_loop)
+        .expect("Création fenêtre MashClient");
+
+    win_compat::apply_window_win10_11_styling(win32_window_hwnd_bits(&window), false);
+
+    ui_watchdog.set_op("Initialisation Microsoft Edge WebView2 (Windows 10/11)");
+    let webview_data_dir = app_storage_dir().join("webview2-cache");
+    let _ = std::fs::create_dir_all(&webview_data_dir);
+    let mut context = wry::WebContext::new(Some(webview_data_dir));
+    let mut fallback_context_holder: Option<wry::WebContext> = None;
+
+    let webview = match build_mash_webview(&window, &mut context, &proxy) {
+        Ok(wv) => wv,
+        Err(first_err) => {
+            // Repli Windows 10/11 : si le cache WebView2 principal est verrouillé ou corrompu, retente sur un dossier propre
+            let fallback_dir = std::env::temp_dir().join(format!(
+                "mashclient-webview2-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::create_dir_all(&fallback_dir);
+            let fallback_ctx = fallback_context_holder.insert(wry::WebContext::new(Some(fallback_dir)));
+            match build_mash_webview(&window, fallback_ctx, &proxy) {
+                Ok(wv) => wv,
+                Err(second_err) => {
+                    ui_watchdog.stop();
+                    let wv2_present = win_compat::is_webview2_runtime_installed();
+                    let os_name = win_compat::detect_windows_version().display_name;
+                    let msg = if !wv2_present {
+                        format!(
+                            "MashClient nécessite le composant Microsoft Edge WebView2 Runtime sur {os_name}.\n\n\
+                             Téléchargez et installez « Evergreen Standalone Installer (x64) » depuis :\n\
+                             https://developer.microsoft.com/microsoft-edge/webview2/\n\n\
+                             Détail technique : {first_err} / {second_err}"
+                        )
+                    } else {
+                        format!(
+                            "Impossible d'initialiser l'interface WebView2 de MashClient sur {os_name}.\n\n\
+                             Vérifiez qu'aucun antivirus ne bloque msedgewebview2.exe puis relancez.\n\n\
+                             Détail technique : {first_err} / {second_err}"
+                        )
+                    };
+                    win_compat::show_native_error_box("MashClient — Compatibilité Windows 10/11", &msg);
+                    return Err(second_err);
+                }
+            }
+        }
+    };
+    let _keep_fallback_ctx = &fallback_context_holder;
+
+    ui_watchdog.set_op("Chargement de la configuration et des mods");
     let mut ctrl = Controller::new();
+    ui_watchdog.set_op("Boucle principale UI prête");
+
+    window.set_visible(true);
+    window.set_focus();
+
+    let tick_stop = Arc::new(AtomicBool::new(false));
+    {
+        let p_tick = proxy.clone();
+        let stop_tick = Arc::clone(&tick_stop);
+        std::thread::spawn(move || {
+            while !stop_tick.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(250));
+                if stop_tick.load(Ordering::Relaxed) {
+                    break;
+                }
+                if p_tick.send_event(AppEvent::UiTick).is_err() {
+                    break;
+                }
+            }
+        });
+    }
 
     event_loop.run(move |event, _, control_flow| {
-        // Maintient `tray` et `single_instance` en vie pendant toute l'exécution de l'application
+        // Maintient `tray`, `single_instance` et `ui_watchdog` en vie pendant toute l'exécution de l'application
         let _keep_tray_alive = &tray;
         let _keep_single_instance = &single_instance;
+        ui_watchdog.heartbeat();
         *control_flow = ControlFlow::Wait;
 
         match event {
@@ -1880,6 +2171,8 @@ fn main() -> wry::Result<()> {
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
+                tick_stop.store(true, Ordering::Relaxed);
+                ui_watchdog.stop();
                 ctrl.auth_cancel.store(true, Ordering::Relaxed);
                 *control_flow = ControlFlow::Exit;
             }
@@ -1892,8 +2185,12 @@ fn main() -> wry::Result<()> {
                 }
             }
             Event::UserEvent(app_evt) => match app_evt {
+                AppEvent::UiTick => {
+                    ctrl.flush_deferred_logs(&webview);
+                }
                 AppEvent::IpcRaw(raw) => {
                     if let Ok(cmd) = serde_json::from_str::<IpcCommand>(&raw) {
+                        ui_watchdog.set_op(format!("IPC {:?}", std::mem::discriminant(&cmd)));
                         if handle_ipc(
                             cmd,
                             &mut ctrl,
@@ -1903,8 +2200,11 @@ fn main() -> wry::Result<()> {
                             &mut single_instance,
                             &proxy,
                         ) {
+                            tick_stop.store(true, Ordering::Relaxed);
+                            ui_watchdog.stop();
                             *control_flow = ControlFlow::Exit;
                         }
+                        ui_watchdog.set_op("Boucle principale UI active");
                     }
                 }
                 AppEvent::PreLaunchModSynced => {
@@ -2173,10 +2473,15 @@ fn main() -> wry::Result<()> {
                     }
                     ctrl.push_full_state(&webview);
                 }
+                AppEvent::LaunchProgress(info) => {
+                    ctrl.launch_progress = info;
+                    ctrl.push_launch_progress(&webview);
+                }
                 AppEvent::GameRunning(running) => {
                     ctrl.game_running = running;
                     tray.set_game_running_mode(running);
                     if !running {
+                        ctrl.launch_progress = LaunchProgressInfo::inactive();
                         ctrl.refresh_accounts_cache();
                         ctrl.pull_newer_watched_configs_and_reload();
                         if ctrl.curtain_active
@@ -2191,6 +2496,7 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::GameCrashed(report) => {
                     ctrl.game_running = false;
+                    ctrl.launch_progress = LaunchProgressInfo::inactive();
                     ctrl.refresh_accounts_cache();
                     ctrl.pull_newer_watched_configs_and_reload();
                     ctrl.restore_normal_window(&window, &webview, &tray);
@@ -2198,6 +2504,26 @@ fn main() -> wry::Result<()> {
                     Controller::push_log(
                         &webview,
                         &format!("[ERREUR] {} : {}", report.title, report.summary),
+                    );
+                    Controller::push_crash(&webview, &report);
+                }
+                AppEvent::GameHangDetected(report) => {
+                    ctrl.restore_normal_window(&window, &webview, &tray);
+                    ctrl.push_full_state(&webview);
+                    Controller::push_log(
+                        &webview,
+                        &format!("[NOT RESPONDING] {} : {}", report.title, report.summary),
+                    );
+                    Controller::push_crash(&webview, &report);
+                }
+                AppEvent::LauncherHangRecovered(report) => {
+                    diagnostics::clear_pending_ui_hang_marker();
+                    if ctrl.curtain_active || ctrl.hidden_in_tray {
+                        ctrl.restore_normal_window(&window, &webview, &tray);
+                    }
+                    Controller::push_log(
+                        &webview,
+                        &format!("[UI-WATCHDOG] {} : {}", report.title, report.summary),
                     );
                     Controller::push_crash(&webview, &report);
                 }
@@ -2235,10 +2561,21 @@ fn main() -> wry::Result<()> {
                 }
                 AppEvent::LaunchAborted(err_msg) => {
                     ctrl.game_running = false;
+                    ctrl.launch_progress = LaunchProgressInfo::inactive();
                     ctrl.refresh_accounts_cache();
                     ctrl.restore_normal_window(&window, &webview, &tray);
                     ctrl.push_full_state(&webview);
                     let is_fr = ctrl.prefs.language == "fr";
+                    let hw = win_compat::collect_system_hardware_info();
+                    let env_lines = vec![
+                        format!("Système : {}", hw.os_label),
+                        format!("Carte graphique : {}", hw.gpu_name),
+                        format!(
+                            "Mémoire RAM : {} Mo libres / {} Mo total",
+                            hw.avail_ram_mb, hw.total_ram_mb
+                        ),
+                        format!("Runtime Java : {}", ctrl.java_status_label),
+                    ];
                     Controller::push_log(
                         &webview,
                         &format!(
@@ -2255,10 +2592,21 @@ fn main() -> wry::Result<()> {
                                 "Minecraft Launch Aborted".to_owned()
                             },
                             summary: err_msg.clone(),
-                            details: err_msg,
+                            details: err_msg.clone(),
                             exit_code: None,
                             report_path: None,
                             suspected_mod_file: None,
+                            is_not_responding: false,
+                            crash_location: Some(err_msg.chars().take(160).collect()),
+                            environment_lines: env_lines,
+                            diagnostic_steps: vec![runner::DiagnosticItem {
+                                time: "+ABORT".to_owned(),
+                                level: "error".to_owned(),
+                                stage: "LAUNCH".to_owned(),
+                                message: err_msg,
+                            }],
+                            thread_stack_lines: Vec::new(),
+                            can_force_kill: false,
                         },
                     );
                 }
@@ -2266,6 +2614,8 @@ fn main() -> wry::Result<()> {
                     ctrl.restore_normal_window(&window, &webview, &tray);
                 }
                 AppEvent::TrayQuit => {
+                    tick_stop.store(true, Ordering::Relaxed);
+                    ui_watchdog.stop();
                     ctrl.auth_cancel.store(true, Ordering::Relaxed);
                     *control_flow = ControlFlow::Exit;
                 }

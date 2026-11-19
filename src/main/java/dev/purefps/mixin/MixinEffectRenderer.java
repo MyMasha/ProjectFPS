@@ -1,7 +1,6 @@
 package dev.purefps.mixin;
 
 import dev.purefps.config.PureFPSConfig;
-import dev.purefps.core.MenuUnloadManager;
 import dev.purefps.core.OcclusionCuller;
 import net.minecraft.block.Block;
 import net.minecraft.block.state.IBlockState;
@@ -86,9 +85,6 @@ public abstract class MixinEffectRenderer {
     @Overwrite
     public void renderParticles(Entity entityIn, float partialTicks) {
         if (PureFPSConfig.enabled) {
-            if (MenuUnloadManager.isWorldDimmedByMenu()) {
-                return;
-            }
             boolean anyParticles = false;
             for (int i = 0; i < 3 && !anyParticles; i++) {
                 if (!this.fxLayers[i][0].isEmpty() || !this.fxLayers[i][1].isEmpty()) {
@@ -182,8 +178,7 @@ public abstract class MixinEffectRenderer {
      */
     @Overwrite
     public void renderLitParticles(Entity entityIn, float partialTick) {
-        if (MenuUnloadManager.isWorldDimmedByMenu()
-                || (this.fxLayers[3][0].isEmpty() && this.fxLayers[3][1].isEmpty())) {
+        if (this.fxLayers[3][0].isEmpty() && this.fxLayers[3][1].isEmpty()) {
             return;
         }
         float rad = 0.017453292F;

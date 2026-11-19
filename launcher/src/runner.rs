@@ -1,50 +1,40 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.12 (OpenGL & Vulkan Bêta).
-//! - Synchronise automatiquement `purefps-4.5.12.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.13 (OpenGL & Vulkan Bêta).
+//! - Synchronise automatiquement `purefps-4.5.13.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Télécharge ou récupère automatiquement les bibliothèques Forge 1.8.9, `minecraft-1.8.9-client.jar` et l'index d'assets `1.8.json`
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
 //! - Isolat dédié pour le mode Vulkan (Bêta) via Mesa3D Zink (`javaw.exe.local` + `GALLIUM_DRIVER=zink`)
-//! - Détecte instantanément l'ouverture de la fenêtre (`DISPLAY_CREATED` / `.purefps_display_ready`)
-//!   pour réduire le Launcher en bas à droite (System Tray) à l'instant exact où Minecraft prend sa place.
+//! - Émet une progression granulaire en 7 étapes (barre de chargement) et surveille tout blocage « Not Responding »
+//!   via `IsHungAppWindow` + `ClientHangWatchdog.java` + chronologie de diagnostic détaillée.
 
 use crate::config::{
     app_storage_dir, prepare_seamless_launch_files, resolve_user_appdata,
     split_server_host_port, write_or_clear_quick_server_file, InstanceFlavor, LauncherPrefs,
     PureClientSettings,
 };
+pub use crate::diagnostics::{CrashReportInfo, DiagnosticItem, DiagnosticTimeline, LaunchProgressInfo};
 use crate::runtimes::{ensure_vulkan_instance_initialized, prepare_isolated_vulkan_jre};
 use crate::updater::{
     check_for_updates, download_and_install_update, extract_purefps_jar_semver,
     installed_mod_version, parse_semver, UpdateCheckOutcome, LAUNCHER_VERSION,
 };
 use crate::AppEvent;
-use serde::Serialize;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.12.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.13.jar";
 const MAX_LIBRARY_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_NATIVE_DLL_BYTES: u64 = 32 * 1024 * 1024;
 const EXPECTED_MC_189_CLIENT_SHA1: &str = "3870888a6c3d349d3771a3e9d16c9bf5e076b908";
 const EXPECTED_ASSET_INDEX_18_SHA1: &str = "f6ad102bcaa53b1a58358f16e376d548d44933ec";
 const EXPECTED_LOG4J_API_FIXED_SHA1: &str = "b61eaf2e64d8b0277e188262a8b771bbfa1502b3";
 const EXPECTED_LOG4J_CORE_FIXED_SHA1: &str = "677991ea2d7426f76309a73739cecf609679492c";
-
-#[derive(Debug, Clone, Serialize)]
-pub struct CrashReportInfo {
-    pub title: String,
-    pub summary: String,
-    pub details: String,
-    pub exit_code: Option<i32>,
-    pub report_path: Option<String>,
-    pub suspected_mod_file: Option<String>,
-}
 
 const REQUIRED_LIBRARIES_189_FORGE: &[&str] = &[
     r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar",
@@ -437,7 +427,7 @@ fn download_file_to_path(
     }
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.12")
+        .set("User-Agent", "MashClient/4.5.13")
         .call()
         .map_err(|e| format!("Download failed for {url}: {e}"))?;
     if let Some(cl) = resp
@@ -528,6 +518,7 @@ pub fn ensure_standalone_189_files(
     libraries_dir: &str,
     assets_dir: &str,
     proxy: &EventLoopProxy<AppEvent>,
+    timeline: &Arc<DiagnosticTimeline>,
 ) -> Result<(), String> {
     let lib_root = Path::new(libraries_dir);
     std::fs::create_dir_all(lib_root)
@@ -545,12 +536,30 @@ pub fn ensure_standalone_189_files(
         .chain(NATIVE_JARS_64.iter())
         .copied()
         .collect();
+    let total_libs = all_required.len().max(1);
+    let mut downloaded_libs = 0usize;
+    let mut cached_libs = 0usize;
+
+    timeline.emit_progress(
+        proxy,
+        2,
+        12,
+        format!("Vérification des bibliothèques (0/{total_libs})"),
+        "Contrôle des archives Minecraft 1.8.9 + Forge...",
+        true,
+    );
 
     let mut http_agent: Option<ureq::Agent> = None;
 
-    for rel in all_required {
+    for (lib_idx, rel) in all_required.iter().enumerate() {
         let rel_os = rel.replace('\\', std::path::MAIN_SEPARATOR_STR);
         let dst = lib_root.join(&rel_os);
+        let file_label = Path::new(&rel_os)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| rel.to_string());
+        let lib_pct = (12 + ((lib_idx + 1) * 30) / total_libs).min(42) as u8;
+
         let is_log4j_core = rel.to_ascii_lowercase().contains("log4j-core");
         let expected_sha1 = if rel.ends_with("minecraft-1.8.9-client.jar") {
             Some(EXPECTED_MC_189_CLIENT_SHA1)
@@ -563,6 +572,15 @@ pub fn ensure_standalone_189_files(
         };
 
         if is_valid_library_file(&dst, is_log4j_core, expected_sha1) {
+            cached_libs += 1;
+            timeline.emit_progress(
+                proxy,
+                2,
+                lib_pct,
+                format!("Vérification des bibliothèques ({}/{total_libs})", lib_idx + 1),
+                &file_label,
+                false,
+            );
             continue;
         }
         if dst.exists() {
@@ -601,6 +619,15 @@ pub fn ensure_standalone_189_files(
             }
         }
         if copied_locally {
+            cached_libs += 1;
+            timeline.emit_progress(
+                proxy,
+                2,
+                lib_pct,
+                format!("Copie locale des bibliothèques ({}/{total_libs})", lib_idx + 1),
+                &file_label,
+                false,
+            );
             continue;
         }
 
@@ -614,10 +641,14 @@ pub fn ensure_standalone_189_files(
         };
 
         let rel_url = rel.replace('\\', "/");
-        let file_label = Path::new(&rel_os)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| rel_url.clone());
+        timeline.emit_progress(
+            proxy,
+            2,
+            lib_pct.saturating_sub(1).max(12),
+            format!("Téléchargement des bibliothèques ({}/{total_libs})", lib_idx + 1),
+            format!("Téléchargement de {file_label}..."),
+            true,
+        );
         let _ = proxy.send_event(AppEvent::LogLine(format!(
             "[MashClient] Downloading {file_label}..."
         )));
@@ -672,11 +703,42 @@ pub fn ensure_standalone_189_files(
             }
         }
         if !downloaded {
+            timeline.record(
+                "error",
+                "DOWNLOAD",
+                format!("Échec téléchargement bibliothèque {file_label}: {last_err}"),
+            );
             return Err(format!(
                 "Failed to download required library {file_label} ({last_err})"
             ));
         }
+        downloaded_libs += 1;
+        timeline.emit_progress(
+            proxy,
+            2,
+            lib_pct,
+            format!("Téléchargement des bibliothèques ({}/{total_libs})", lib_idx + 1),
+            format!("{file_label} prêt"),
+            false,
+        );
     }
+
+    timeline.record(
+        "ok",
+        "DOWNLOAD",
+        format!(
+            "Bibliothèques 1.8.9 prêtes ({total_libs} au total : {downloaded_libs} téléchargée(s), {cached_libs} en cache)"
+        ),
+    );
+
+    timeline.emit_progress(
+        proxy,
+        3,
+        43,
+        "Vérification des assets Minecraft 1.8",
+        "Contrôle de l'index assets/indexes/1.8.json...",
+        true,
+    );
 
     let assets_root = Path::new(assets_dir);
     let local_asset_caches = [
@@ -715,6 +777,14 @@ pub fn ensure_standalone_189_files(
             let _ = proxy.send_event(AppEvent::LogLine(
                 "[MashClient] Downloading asset index 1.8.json...".to_owned(),
             ));
+            timeline.emit_progress(
+                proxy,
+                3,
+                44,
+                "Téléchargement de l'index 1.8.json",
+                "Récupération depuis piston-meta.mojang.com...",
+                true,
+            );
             if download_file_to_path(
                 agent,
                 "https://piston-meta.mojang.com/v1/packages/f6ad102bcaa53b1a58358f16e376d548d44933ec/1.8.json",
@@ -742,6 +812,14 @@ pub fn ensure_standalone_189_files(
         for asset_cache in &local_asset_caches {
             let src_objects = asset_cache.join("objects");
             if src_objects != dst_objects && src_objects.is_dir() {
+                timeline.emit_progress(
+                    proxy,
+                    3,
+                    46,
+                    "Copie des assets locaux Minecraft 1.8",
+                    "Réutilisation du cache .minecraft/assets/objects...",
+                    true,
+                );
                 copy_dir_tree_missing(&src_objects, &dst_objects);
                 break;
             }
@@ -794,6 +872,19 @@ pub fn ensure_standalone_189_files(
 
                 if !missing_hashes.is_empty() {
                     let total_missing = missing_hashes.len();
+                    timeline.record(
+                        "info",
+                        "ASSETS",
+                        format!("Téléchargement de {total_missing} assets Minecraft 1.8.9 manquants..."),
+                    );
+                    timeline.emit_progress(
+                        proxy,
+                        3,
+                        46,
+                        format!("Téléchargement des assets (0/{total_missing})"),
+                        "Téléchargement des sons et langues Minecraft 1.8.9...",
+                        true,
+                    );
                     let _ = proxy.send_event(AppEvent::LogLine(format!(
                         "[MashClient] Downloading {total_missing} Minecraft 1.8.9 sound/lang assets..."
                     )));
@@ -805,6 +896,7 @@ pub fn ensure_standalone_189_files(
                         let done = Arc::clone(&done_count);
                         let objs_root = dst_objects.clone();
                         let p_log = proxy.clone();
+                        let tl_worker = Arc::clone(timeline);
                         handles.push(std::thread::spawn(move || {
                             let Ok(worker_agent) = build_download_agent() else {
                                 return;
@@ -820,6 +912,17 @@ pub fn ensure_standalone_189_files(
                                 let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
                                 let _ = download_file_to_path(&worker_agent, &url, &target, Some(&hash));
                                 let cur = done.fetch_add(1, Ordering::Relaxed) + 1;
+                                let asset_pct = (46 + ((cur * 22) / total_missing)).min(68) as u8;
+                                if cur % 6 == 0 || cur == total_missing {
+                                    tl_worker.emit_progress(
+                                        &p_log,
+                                        3,
+                                        asset_pct,
+                                        format!("Téléchargement des assets ({cur}/{total_missing})"),
+                                        format!("Objet SHA-1 {sub}/{}...", &hash[..8]),
+                                        cur == total_missing,
+                                    );
+                                }
                                 if cur % 100 == 0 || cur == total_missing {
                                     let _ = p_log.send_event(AppEvent::LogLine(format!(
                                         "[MashClient] Assets 1.8.9: {cur}/{total_missing}..."
@@ -831,11 +934,26 @@ pub fn ensure_standalone_189_files(
                     for h in handles {
                         let _ = h.join();
                     }
+                    timeline.record(
+                        "ok",
+                        "ASSETS",
+                        format!("{total_missing} assets Minecraft 1.8.9 téléchargés"),
+                    );
+                } else {
+                    timeline.record("ok", "ASSETS", "Tous les assets Minecraft 1.8.9 sont déjà présents");
                 }
             }
         }
     }
 
+    timeline.emit_progress(
+        proxy,
+        3,
+        68,
+        "Assets Minecraft 1.8 vérifiés",
+        "Préparation des bibliothèques natives 64-bit...",
+        true,
+    );
     Ok(())
 }
 
@@ -1040,100 +1158,16 @@ fn detect_new_lwjgl_window(existing_hwnd: usize) -> Option<usize> {
     None
 }
 
+/// Active la fenêtre LWJGL de Minecraft sans JAMAIS bloquer le thread UI de MashClient.exe
+/// (n'utilise ni `AttachThreadInput` ni `SetWindowPos` synchrone, et ignore immédiatement toute fenêtre figée).
 #[cfg(windows)]
 fn promote_and_focus_lwjgl_window(existing_hwnd: usize) -> Option<usize> {
-    use core::ffi::c_void;
-    const GCLP_HCURSOR: i32 = -12;
-    const IDC_ARROW_ID: usize = 32512;
-    const HWND_TOPMOST: *mut c_void = -1isize as *mut c_void;
-    const HWND_NOTOPMOST: *mut c_void = -2isize as *mut c_void;
-    const SWP_NOMOVE: u32 = 0x0002;
-    const SWP_NOSIZE: u32 = 0x0001;
-    const SWP_SHOWWINDOW: u32 = 0x0040;
-
-    #[link(name = "user32")]
-    extern "system" {
-        fn FindWindowExW(
-            hWndParent: *mut c_void,
-            hWndChildAfter: *mut c_void,
-            lpszClass: *const u16,
-            lpszWindow: *const u16,
-        ) -> *mut c_void;
-        fn IsWindowVisible(hWnd: *mut c_void) -> i32;
-        fn GetForegroundWindow() -> *mut c_void;
-        fn GetWindowThreadProcessId(hWnd: *mut c_void, lpdwProcessId: *mut u32) -> u32;
-        fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: i32) -> i32;
-        fn SetWindowPos(
-            hWnd: *mut c_void,
-            hWndInsertAfter: *mut c_void,
-            X: i32,
-            Y: i32,
-            cx: i32,
-            cy: i32,
-            uFlags: u32,
-        ) -> i32;
-        fn BringWindowToTop(hWnd: *mut c_void) -> i32;
-        fn SetForegroundWindow(hWnd: *mut c_void) -> i32;
-        fn SetFocus(hWnd: *mut c_void) -> *mut c_void;
-        fn LoadCursorW(hInstance: *mut c_void, lpCursorName: *const u16) -> *mut c_void;
-        fn SetCursor(hCursor: *mut c_void) -> *mut c_void;
-        fn SetClassLongPtrW(hWnd: *mut c_void, nIndex: i32, dwNewLong: isize) -> usize;
+    let hwnd = detect_new_lwjgl_window(existing_hwnd)?;
+    if crate::win_compat::focus_window_nonblocking(hwnd) {
+        Some(hwnd)
+    } else {
+        None
     }
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetCurrentThreadId() -> u32;
-    }
-
-    let cls: [u16; 6] = [b'L' as u16, b'W' as u16, b'J' as u16, b'G' as u16, b'L' as u16, 0];
-    unsafe {
-        let mut cur: *mut c_void = core::ptr::null_mut();
-        loop {
-            cur = FindWindowExW(core::ptr::null_mut(), cur, cls.as_ptr(), core::ptr::null());
-            if cur.is_null() {
-                break;
-            }
-            let addr = cur as usize;
-            if addr != existing_hwnd && IsWindowVisible(cur) != 0 {
-                let fg = GetForegroundWindow();
-                let cur_tid = GetCurrentThreadId();
-                let fg_tid = if !fg.is_null() {
-                    GetWindowThreadProcessId(fg, core::ptr::null_mut())
-                } else {
-                    0
-                };
-                let target_tid = GetWindowThreadProcessId(cur, core::ptr::null_mut());
-
-                if fg_tid != 0 && fg_tid != cur_tid {
-                    let _ = AttachThreadInput(cur_tid, fg_tid, 1);
-                }
-                if target_tid != 0 && target_tid != cur_tid {
-                    let _ = AttachThreadInput(cur_tid, target_tid, 1);
-                }
-
-                let arrow = LoadCursorW(core::ptr::null_mut(), IDC_ARROW_ID as *const u16);
-                if !arrow.is_null() {
-                    let _ = SetClassLongPtrW(cur, GCLP_HCURSOR, arrow as isize);
-                    let _ = SetCursor(arrow);
-                }
-
-                let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW;
-                let _ = SetWindowPos(cur, HWND_TOPMOST, 0, 0, 0, 0, flags);
-                let _ = SetWindowPos(cur, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
-                let _ = BringWindowToTop(cur);
-                let _ = SetForegroundWindow(cur);
-                let _ = SetFocus(cur);
-
-                if target_tid != 0 && target_tid != cur_tid {
-                    let _ = AttachThreadInput(cur_tid, target_tid, 0);
-                }
-                if fg_tid != 0 && fg_tid != cur_tid {
-                    let _ = AttachThreadInput(cur_tid, fg_tid, 0);
-                }
-                return Some(addr);
-            }
-        }
-    }
-    None
 }
 
 #[cfg(windows)]
@@ -1171,13 +1205,15 @@ pub fn has_visible_lwjgl_window() -> bool {
 
 fn spawn_display_ready_watcher(
     watched_game_dirs: Vec<PathBuf>,
+    child_pid: u32,
     proxy: EventLoopProxy<AppEvent>,
     stop_flag: Arc<AtomicBool>,
+    menu_ready_flag: Arc<AtomicBool>,
 ) {
     let pre_existing_lwjgl = current_visible_lwjgl_hwnd();
     std::thread::spawn(move || {
         let start = Instant::now();
-        let timeout = Duration::from_secs(28);
+        let timeout = Duration::from_secs(90);
         while !stop_flag.load(Ordering::Relaxed) && start.elapsed() < timeout {
             for dir in &watched_game_dirs {
                 let cfg = dir.join("config");
@@ -1185,25 +1221,143 @@ fn spawn_display_ready_watcher(
                 if menu_ready.is_file() {
                     let _ = std::fs::remove_file(cfg.join(".purefps_display_ready"));
                     let _ = std::fs::remove_file(&menu_ready);
+                    menu_ready_flag.store(true, Ordering::Relaxed);
                     stop_flag.store(true, Ordering::Relaxed);
                     let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
                     return;
                 }
             }
-            // Fallback tardif (14s) uniquement si une vraie nouvelle fenêtre LWJGL est visible
-            if start.elapsed() >= Duration::from_secs(14)
-                && detect_new_lwjgl_window(pre_existing_lwjgl).is_some()
-            {
-                stop_flag.store(true, Ordering::Relaxed);
-                let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
-                return;
+            // Fallback tardif (20s) uniquement si la fenêtre LWJGL de ce PID est visible ET répond normalement
+            if start.elapsed() >= Duration::from_secs(20) {
+                let target_hwnd = crate::win_compat::find_visible_window_for_pid(child_pid)
+                    .or_else(|| detect_new_lwjgl_window(pre_existing_lwjgl));
+                if let Some(hwnd) = target_hwnd {
+                    if !crate::win_compat::is_hwnd_hung(hwnd) {
+                        menu_ready_flag.store(true, Ordering::Relaxed);
+                        stop_flag.store(true, Ordering::Relaxed);
+                        let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
+                        return;
+                    }
+                }
             }
-            std::thread::sleep(Duration::from_millis(20));
+            std::thread::sleep(Duration::from_millis(40));
         }
-        if !stop_flag.load(Ordering::Relaxed)
-            && detect_new_lwjgl_window(pre_existing_lwjgl).is_some()
-        {
-            let _ = proxy.send_event(AppEvent::MinecraftMenuReady);
+    });
+}
+
+/// Surveille la fenêtre LWJGL de `javaw.exe` (`IsHungAppWindow`), le fichier `.purefps_hang_dump.txt`
+/// produit par `ClientHangWatchdog.java` et l'absence prolongée d'activité au démarrage.
+/// Dès qu'un vrai blocage « Not Responding » est détecté, envoie une longue liste diagnostique précise à l'UI.
+fn spawn_game_hang_watchdog(
+    child_pid: u32,
+    game_dir: PathBuf,
+    launch_time: SystemTime,
+    timeline: Arc<DiagnosticTimeline>,
+    proxy: EventLoopProxy<AppEvent>,
+    stop_flag: Arc<AtomicBool>,
+    menu_ready_flag: Arc<AtomicBool>,
+    manual_diag_flag: Arc<AtomicBool>,
+) {
+    std::thread::spawn(move || {
+        let mut consecutive_hung_secs: u64 = 0;
+        let mut reported_for_current_stall = false;
+        let mut warned_slow_startup = false;
+        let hang_dump_path = game_dir.join("config").join(".purefps_hang_dump.txt");
+
+        while !stop_flag.load(Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_secs(1));
+            if stop_flag.load(Ordering::Relaxed) {
+                break;
+            }
+
+            // 1. Demande manuelle depuis le bouton « Diagnostic » de la barre de chargement
+            if manual_diag_flag.swap(false, Ordering::AcqRel) {
+                let silent = timeline.seconds_since_last_activity();
+                let report = timeline.build_not_responding_report(
+                    Some(child_pid),
+                    "Diagnostic détaillé demandé pendant le chargement",
+                    consecutive_hung_secs.max(silent),
+                    true,
+                );
+                let _ = proxy.send_event(AppEvent::GameHangDetected(report));
+                reported_for_current_stall = true;
+                continue;
+            }
+
+            // 2. Surveillance directe Win32 IsHungAppWindow sur la fenêtre du processus javaw.exe
+            if let Some(hwnd) = crate::win_compat::find_visible_window_for_pid(child_pid) {
+                if crate::win_compat::is_hwnd_hung(hwnd) {
+                    consecutive_hung_secs += 1;
+                    if consecutive_hung_secs == 4 && !menu_ready_flag.load(Ordering::Relaxed) {
+                        timeline.emit_stall_warning(
+                            &proxy,
+                            "Fenêtre Minecraft momentanément occupée — analyse en cours...".to_owned(),
+                        );
+                    }
+                    if consecutive_hung_secs >= 8 && !reported_for_current_stall {
+                        reported_for_current_stall = true;
+                        let report = timeline.build_not_responding_report(
+                            Some(child_pid),
+                            "Fenêtre Minecraft ne répond plus (Windows IsHungAppWindow)",
+                            consecutive_hung_secs,
+                            true,
+                        );
+                        let _ = proxy.send_event(AppEvent::GameHangDetected(report));
+                    }
+                    continue;
+                } else if consecutive_hung_secs > 0 {
+                    consecutive_hung_secs = 0;
+                    reported_for_current_stall = false;
+                }
+            }
+
+            // 3. Surveillance du dump produit en temps réel par ClientHangWatchdog.java dans la JVM
+            if !reported_for_current_stall {
+                if let Ok(meta) = std::fs::metadata(&hang_dump_path) {
+                    let is_fresh = meta
+                        .modified()
+                        .map(|m| m >= launch_time)
+                        .unwrap_or(false);
+                    if is_fresh && meta.len() > 32 {
+                        reported_for_current_stall = true;
+                        let report = timeline.build_not_responding_report(
+                            Some(child_pid),
+                            "Thread principal Minecraft (Client thread) figé — pile JVM capturée",
+                            consecutive_hung_secs.max(8),
+                            true,
+                        );
+                        let _ = proxy.send_event(AppEvent::GameHangDetected(report));
+                        continue;
+                    }
+                }
+            }
+
+            // 4. Surveillance d'un blocage silencieux avant l'apparition du menu principal
+            if !menu_ready_flag.load(Ordering::Relaxed) {
+                let silent_secs = timeline.seconds_since_last_activity();
+                if silent_secs >= 14 && !warned_slow_startup {
+                    warned_slow_startup = true;
+                    timeline.emit_stall_warning(
+                        &proxy,
+                        format!(
+                            "Étape lente ({silent_secs}s sans nouvelle sortie Forge) — cliquez sur Diagnostic si le jeu semble bloqué"
+                        ),
+                    );
+                }
+                if silent_secs >= 30 && !reported_for_current_stall {
+                    reported_for_current_stall = true;
+                    let report = timeline.build_not_responding_report(
+                        Some(child_pid),
+                        "Démarrage Minecraft bloqué (aucune progression Forge depuis 30s)",
+                        silent_secs,
+                        true,
+                    );
+                    let _ = proxy.send_event(AppEvent::GameHangDetected(report));
+                }
+                if silent_secs < 5 {
+                    warned_slow_startup = false;
+                }
+            }
         }
     });
 }
@@ -1328,6 +1482,8 @@ pub fn detect_recent_crash_in_dirs(
             let suspected_mod_file = dirs.iter().find_map(|d| {
                 crate::mods_manager::identify_suspected_crash_mod(&d.to_string_lossy(), &text)
             });
+            let crash_location = crate::diagnostics::extract_crash_location_from_text(&text);
+            let thread_stack_lines = crate::diagnostics::extract_stack_lines_from_text(&text);
             return Some(CrashReportInfo {
                 title: "Minecraft a planté".to_owned(),
                 summary,
@@ -1335,6 +1491,12 @@ pub fn detect_recent_crash_in_dirs(
                 exit_code,
                 report_path: Some(report_path.to_string_lossy().to_string()),
                 suspected_mod_file,
+                is_not_responding: false,
+                crash_location,
+                environment_lines: Vec::new(),
+                diagnostic_steps: Vec::new(),
+                thread_stack_lines,
+                can_force_kill: false,
             });
         }
     }
@@ -1387,6 +1549,8 @@ pub fn detect_recent_crash_in_dirs(
                     &dir.to_string_lossy(),
                     &tail_text,
                 );
+                let crash_location = crate::diagnostics::extract_crash_location_from_text(&snippet);
+                let thread_stack_lines = crate::diagnostics::extract_stack_lines_from_text(&snippet);
                 return Some(CrashReportInfo {
                     title: "Erreur au lancement de Minecraft".to_owned(),
                     summary,
@@ -1394,6 +1558,12 @@ pub fn detect_recent_crash_in_dirs(
                     exit_code,
                     report_path: Some(log_path.to_string_lossy().to_string()),
                     suspected_mod_file,
+                    is_not_responding: false,
+                    crash_location,
+                    environment_lines: Vec::new(),
+                    diagnostic_steps: Vec::new(),
+                    thread_stack_lines,
+                    can_force_kill: false,
                 });
             }
         }
@@ -1447,6 +1617,8 @@ pub fn detect_recent_crash_in_dirs(
         let suspected_mod_file = dirs.iter().find_map(|d| {
             crate::mods_manager::identify_suspected_crash_mod(&d.to_string_lossy(), &details)
         });
+        let crash_location = crate::diagnostics::extract_crash_location_from_text(&details);
+        let thread_stack_lines = crate::diagnostics::extract_stack_lines_from_text(&details);
 
         return Some(CrashReportInfo {
             title: "Minecraft s'est fermé avec une erreur".to_owned(),
@@ -1455,6 +1627,12 @@ pub fn detect_recent_crash_in_dirs(
             exit_code,
             report_path: fallback_log,
             suspected_mod_file,
+            is_not_responding: false,
+            crash_location,
+            environment_lines: Vec::new(),
+            diagnostic_steps: Vec::new(),
+            thread_stack_lines,
+            can_force_kill: false,
         });
     }
 
@@ -1462,7 +1640,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.12 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.13 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\
@@ -1517,7 +1695,84 @@ pub fn run_direct_jvm_blocking(
     screen_w: u32,
     screen_h: u32,
     proxy: EventLoopProxy<AppEvent>,
+    active_game_pid: Arc<AtomicU32>,
+    manual_diag_flag: Arc<AtomicBool>,
 ) -> Result<(), String> {
+    let is_vulkan = prefs.instance_flavor == InstanceFlavor::VulkanBeta;
+    let initial_dir = crate::runtimes::resolve_active_game_dir(&prefs);
+    let timeline = Arc::new(DiagnosticTimeline::new(
+        PathBuf::from(&initial_dir),
+        PathBuf::from(&prefs.java_path),
+        prefs.ram_mb,
+        is_vulkan,
+    ));
+
+    let res = run_direct_jvm_inner(
+        &mut prefs,
+        username,
+        uuid,
+        access_token,
+        user_type,
+        screen_w,
+        screen_h,
+        &proxy,
+        &active_game_pid,
+        &manual_diag_flag,
+        &timeline,
+    );
+
+    active_game_pid.store(0, Ordering::Relaxed);
+    let _ = proxy.send_event(AppEvent::LaunchProgress(LaunchProgressInfo::inactive()));
+
+    if let Err(err_msg) = res {
+        let is_fr = prefs.language == "fr";
+        let base_report = CrashReportInfo {
+            title: if is_fr {
+                "Échec du lancement de Minecraft".to_owned()
+            } else {
+                "Minecraft Launch Aborted".to_owned()
+            },
+            summary: err_msg.clone(),
+            details: err_msg,
+            exit_code: None,
+            report_path: None,
+            suspected_mod_file: None,
+            is_not_responding: false,
+            crash_location: None,
+            environment_lines: Vec::new(),
+            diagnostic_steps: Vec::new(),
+            thread_stack_lines: Vec::new(),
+            can_force_kill: false,
+        };
+        let enriched = timeline.enrich_crash_report(base_report);
+        let _ = proxy.send_event(AppEvent::GameCrashed(enriched));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_direct_jvm_inner(
+    prefs: &mut LauncherPrefs,
+    username: String,
+    uuid: String,
+    access_token: String,
+    user_type: String,
+    screen_w: u32,
+    screen_h: u32,
+    proxy: &EventLoopProxy<AppEvent>,
+    active_game_pid: &Arc<AtomicU32>,
+    manual_diag_flag: &Arc<AtomicBool>,
+    timeline: &Arc<DiagnosticTimeline>,
+) -> Result<(), String> {
+    timeline.emit_progress(
+        proxy,
+        1,
+        4,
+        "Vérification du runtime Java 8",
+        "Contrôle de la version Java 64-bit...",
+        true,
+    );
+
     let java_exists = Path::new(&prefs.java_path).is_file();
     let cur_probe = crate::runtimes::probe_java8_executable(Path::new(&prefs.java_path));
     let outdated_tls_java = java_exists
@@ -1525,6 +1780,23 @@ pub fn run_direct_jvm_blocking(
             || !cur_probe.is_64bit);
 
     if !java_exists || outdated_tls_java {
+        timeline.record(
+            "info",
+            "JAVA",
+            if !java_exists {
+                "Java 8 absent — installation automatique d'Eclipse Temurin JRE 8 x64"
+            } else {
+                "Java 8 ancien détecté — mise à niveau automatique vers Eclipse Temurin JRE 8 x64"
+            },
+        );
+        timeline.emit_progress(
+            proxy,
+            1,
+            6,
+            "Installation d'Eclipse Temurin Java 8 (64-bit)",
+            "Téléchargement et extraction du runtime Java 8 sécurisé...",
+            true,
+        );
         let _ = proxy.send_event(AppEvent::LogLine(
             if !java_exists {
                 "[MashClient] Java 8 not found on this PC — automatically installing Eclipse Temurin Java 8 x64...".to_owned()
@@ -1535,14 +1807,16 @@ pub fn run_direct_jvm_blocking(
                 )
             },
         ));
-        match crate::runtimes::install_temurin_jre8(&proxy) {
+        match crate::runtimes::install_temurin_jre8(proxy) {
             Ok((installed_javaw, label)) => {
                 prefs.java_path = installed_javaw.clone();
-                let _ = crate::config::save_launcher_prefs(&prefs);
+                let _ = crate::config::save_launcher_prefs(prefs);
+                timeline.record("ok", "JAVA", format!("Runtime configuré : {label}"));
                 let _ = proxy.send_event(AppEvent::TemurinInstalled(Ok((installed_javaw, label))));
             }
             Err(e) => {
                 if java_exists {
+                    timeline.record("warn", "JAVA", format!("Mise à niveau Temurin ignorée ({e})"));
                     let _ = proxy.send_event(AppEvent::LogLine(format!(
                         "[MashClient] Temurin JRE 8 download unavailable ({e}); continuing with existing Java + embedded ModernTlsTrustHelper."
                     )));
@@ -1551,27 +1825,48 @@ pub fn run_direct_jvm_blocking(
                 }
             }
         }
+    } else {
+        timeline.record("ok", "JAVA", format!("Runtime Java 8 prêt : {}", cur_probe.label));
     }
 
     let is_vulkan = prefs.instance_flavor == InstanceFlavor::VulkanBeta;
     let active_game_dir = if is_vulkan {
-        ensure_vulkan_instance_initialized(&prefs)?
+        ensure_vulkan_instance_initialized(prefs)?
     } else {
         prefs.game_dir.clone()
     };
 
+    timeline.emit_progress(
+        proxy,
+        1,
+        9,
+        "Synchronisation du mod MashClient",
+        "Vérification de purefps-*.jar dans mods/...",
+        true,
+    );
+
     let effective_java: PathBuf = if is_vulkan {
-        prepare_isolated_vulkan_jre(Path::new(&prefs.java_path), &prefs, &proxy)?
+        timeline.record("info", "VULKAN", "Préparation du JRE isolé pour Mesa3D Zink...");
+        prepare_isolated_vulkan_jre(Path::new(&prefs.java_path), prefs, proxy)?
     } else {
         PathBuf::from(&prefs.java_path)
     };
 
-    auto_fetch_mod_jar_if_needed(&prefs, &active_game_dir, &proxy);
+    auto_fetch_mod_jar_if_needed(prefs, &active_game_dir, proxy);
 
     let jar_msg = sync_pureclient_jar(&active_game_dir)?;
+    timeline.record("ok", "MOD", jar_msg.clone());
     let _ = proxy.send_event(AppEvent::LogLine(format!("[MashClient] {jar_msg}")));
 
     prepare_seamless_launch_files(&active_game_dir);
+
+    // Nettoie un éventuel ancien dump watchdog avant le démarrage
+    let stale_hang_dump = Path::new(&active_game_dir)
+        .join("config")
+        .join(".purefps_hang_dump.txt");
+    if stale_hang_dump.exists() {
+        let _ = std::fs::remove_file(&stale_hang_dump);
+    }
 
     let client_settings = PureClientSettings::load_from_game_dir(&active_game_dir);
     let use_quick_bridge_file = client_settings.enabled && client_settings.custom_main_menu;
@@ -1581,11 +1876,33 @@ pub fn run_direct_jvm_blocking(
         write_or_clear_quick_server_file(&active_game_dir, None);
     }
 
-    ensure_standalone_189_files(&prefs.libraries_dir, &prefs.assets_dir, &proxy)?;
+    ensure_standalone_189_files(&prefs.libraries_dir, &prefs.assets_dir, proxy, timeline)?;
+
+    timeline.emit_progress(
+        proxy,
+        4,
+        70,
+        "Extraction des bibliothèques natives 64-bit",
+        "Extraction de lwjgl64.dll, OpenAL64.dll et jinput...",
+        true,
+    );
 
     let natives_dir = extract_natives_if_needed_for_flavor(&prefs.libraries_dir, is_vulkan)?;
     let vulkan_dll_in_natives = if is_vulkan {
-        let dll_path = crate::runtimes::deploy_vulkan_zink_dlls_to_dir(&natives_dir, &prefs, &proxy)?;
+        timeline.emit_progress(
+            proxy,
+            4,
+            73,
+            "Déploiement Vulkan Bêta (Mesa3D Zink)",
+            "Installation de opengl32.dll Zink auprès de lwjgl64.dll...",
+            true,
+        );
+        let dll_path = crate::runtimes::deploy_vulkan_zink_dlls_to_dir(&natives_dir, prefs, proxy)?;
+        timeline.record(
+            "ok",
+            "VULKAN",
+            format!("Mesa3D Zink déployé : {}", dll_path.display()),
+        );
         let _ = proxy.send_event(AppEvent::LogLine(format!(
             "[Vulkan Beta] Mesa3D Zink (opengl32.dll) deployed next to lwjgl64.dll: {}",
             dll_path.display()
@@ -1594,16 +1911,38 @@ pub fn run_direct_jvm_blocking(
     } else {
         None
     };
+    timeline.record(
+        "ok",
+        "NATIVES",
+        format!("DLL natives 64-bit prêtes : {}", natives_dir.display()),
+    );
     let _ = proxy.send_event(AppEvent::LogLine(format!(
         "[MashClient] 64-bit natives ready: {}",
         natives_dir.display()
     )));
+
+    timeline.emit_progress(
+        proxy,
+        5,
+        76,
+        "Construction du classpath Forge 1.8.9",
+        "Validation des 49 archives du classpath JVM...",
+        true,
+    );
 
     let classpath = build_classpath(&prefs.libraries_dir)?;
     let game_dir_path = Path::new(&active_game_dir);
     let alsoft_ini = ensure_low_latency_alsoft_ini(game_dir_path);
     let (win_w, win_h) = compute_launch_window_dimensions(game_dir_path, screen_w, screen_h);
     let flavor_tag = if is_vulkan { "Vulkan Beta" } else { "OpenGL" };
+    timeline.record(
+        "info",
+        "JVM",
+        format!(
+            "Lancement javaw.exe [{flavor_tag}] ({} Mo, {}x{}, joueur: {username})",
+            prefs.ram_mb, win_w, win_h
+        ),
+    );
     let _ = proxy.send_event(AppEvent::LogLine(format!(
         "[MashClient] Starting Minecraft 1.8.9 [{}] ({} MB, {}x{}, {})...",
         flavor_tag, prefs.ram_mb, screen_w, screen_h, username
@@ -1660,17 +1999,19 @@ pub fn run_direct_jvm_blocking(
         .arg("-XX:+UnlockExperimentalVMOptions")
         .arg("-XX:+UseG1GC")
         .arg(format!("-XX:ConcGCThreads={conc_gc_threads}"))
-        .arg("-XX:G1NewSizePercent=5")
-        .arg("-XX:G1MaxNewSizePercent=10")
+        .arg("-XX:G1NewSizePercent=20")
+        .arg("-XX:G1MaxNewSizePercent=40")
         .arg("-XX:MaxGCPauseMillis=20")
         .arg("-XX:InitiatingHeapOccupancyPercent=35")
         .arg("-XX:G1MixedGCCountTarget=8")
         .arg("-XX:G1MixedGCLiveThresholdPercent=65")
         .arg("-XX:G1HeapWastePercent=5")
-        .arg("-XX:G1ReservePercent=15")
+        .arg("-XX:G1ReservePercent=20")
         .arg(format!("-XX:G1HeapRegionSize={region_size_mb}M"))
+        .arg("-XX:+AlwaysPreTouch")
         .arg("-XX:+DisableExplicitGC")
         .arg("-XX:+ParallelRefProcEnabled")
+        .arg("-Dsun.java2d.dpiaware=true")
         .arg("-Djava.net.preferIPv4Stack=true")
         .arg("-Dlog4j2.formatMsgNoLookups=true")
         .arg("-Dfml.ignoreInvalidMinecraftCertificates=true")
@@ -1785,18 +2126,54 @@ pub fn run_direct_jvm_blocking(
 
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
+    timeline.emit_progress(
+        proxy,
+        5,
+        80,
+        "Démarrage de la JVM Minecraft 1.8.9",
+        "Lancement du processus javaw.exe...",
+        true,
+    );
+
     let launch_time = SystemTime::now();
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Impossible de lancer javaw.exe : {e}"))?;
+    let child_pid = child.id();
+    active_game_pid.store(child_pid, Ordering::Relaxed);
+    timeline.record("ok", "JVM", format!("Processus javaw.exe démarré (PID {child_pid})"));
+    timeline.emit_progress(
+        proxy,
+        6,
+        82,
+        "Chargement de Forge 1.8.9 & Mods",
+        format!("JVM active (PID {child_pid}) — initialisation de FML..."),
+        true,
+    );
 
     let _ = proxy.send_event(AppEvent::GameRunning(true));
 
     let stop_watcher = Arc::new(AtomicBool::new(false));
+    let stop_hang_watchdog = Arc::new(AtomicBool::new(false));
+    let menu_ready_flag = Arc::new(AtomicBool::new(false));
+
     spawn_display_ready_watcher(
         vec![PathBuf::from(&active_game_dir)],
+        child_pid,
         proxy.clone(),
         Arc::clone(&stop_watcher),
+        Arc::clone(&menu_ready_flag),
+    );
+
+    spawn_game_hang_watchdog(
+        child_pid,
+        PathBuf::from(&active_game_dir),
+        launch_time,
+        Arc::clone(timeline),
+        proxy.clone(),
+        Arc::clone(&stop_hang_watchdog),
+        Arc::clone(&menu_ready_flag),
+        Arc::clone(manual_diag_flag),
     );
 
     let console_tail: Arc<Mutex<VecDeque<String>>> =
@@ -1805,11 +2182,29 @@ pub fn run_direct_jvm_blocking(
     let out_handle = child.stdout.take().map(|stdout| {
         let p_out = proxy.clone();
         let stop_on_ready = Arc::clone(&stop_watcher);
+        let ready_flag = Arc::clone(&menu_ready_flag);
         let tail_out = Arc::clone(&console_tail);
+        let tl_out = Arc::clone(timeline);
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
+                if let Some((pct, _stage, label)) = tl_out.observe_game_log_line(&line) {
+                    let st_idx = if pct >= 99 { 7 } else { 6 };
+                    tl_out.emit_progress(
+                        &p_out,
+                        st_idx,
+                        pct,
+                        if pct >= 99 {
+                            "Ouverture de MashClient"
+                        } else {
+                            "Chargement de Forge 1.8.9 & Mods"
+                        },
+                        label,
+                        true,
+                    );
+                }
                 if line.contains("[PureClient-Ready] MENU_ACTIVE") {
+                    ready_flag.store(true, Ordering::Relaxed);
                     stop_on_ready.store(true, Ordering::Relaxed);
                     let _ = p_out.send_event(AppEvent::MinecraftMenuReady);
                 }
@@ -1827,10 +2222,12 @@ pub fn run_direct_jvm_blocking(
     let err_handle = child.stderr.take().map(|stderr| {
         let p_err = proxy.clone();
         let tail_err = Arc::clone(&console_tail);
+        let tl_err = Arc::clone(timeline);
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().map_while(Result::ok) {
                 let tagged = format!("[STDERR] {line}");
+                let _ = tl_err.observe_game_log_line(&tagged);
                 if let Ok(mut guard) = tail_err.lock() {
                     if guard.len() >= 180 {
                         guard.pop_front();
@@ -1844,6 +2241,7 @@ pub fn run_direct_jvm_blocking(
 
     let status = child.wait().map_err(|e| e.to_string())?;
     stop_watcher.store(true, Ordering::Relaxed);
+    stop_hang_watchdog.store(true, Ordering::Relaxed);
     if let Some(h) = out_handle {
         let _ = h.join();
     }
@@ -1871,7 +2269,8 @@ pub fn run_direct_jvm_blocking(
         &tail_lines,
         if status.success() { None } else { exit_code },
     ) {
-        let _ = proxy.send_event(AppEvent::GameCrashed(crash_info));
+        let enriched = timeline.enrich_crash_report(crash_info);
+        let _ = proxy.send_event(AppEvent::GameCrashed(enriched));
     } else {
         let _ = proxy.send_event(AppEvent::GameRunning(false));
     }

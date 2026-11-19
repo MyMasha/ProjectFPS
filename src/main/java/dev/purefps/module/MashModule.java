@@ -62,6 +62,7 @@ public final class MashModule {
     public final MashSetting.ColorSetting hudAccentColor;
 
     private final List<MashSetting> settings = new ArrayList<>();
+    private final java.util.HashMap<String, MashSetting> settingsById = new java.util.HashMap<>(16);
 
     public MashModule(
             String id,
@@ -150,6 +151,9 @@ public final class MashModule {
 
     public <T extends MashSetting> T addSetting(T setting) {
         this.settings.add(setting);
+        if (setting != null && setting.getId() != null) {
+            this.settingsById.put(setting.getId(), setting);
+        }
         return setting;
     }
 
@@ -260,13 +264,10 @@ public final class MashModule {
     }
 
     public MashSetting findSetting(String settingId) {
-        for (int i = 0; i < settings.size(); i++) {
-            MashSetting s = settings.get(i);
-            if (s.getId().equals(settingId)) {
-                return s;
-            }
+        if (settingId == null) {
+            return null;
         }
-        return null;
+        return this.settingsById.get(settingId);
     }
 
     public boolean matchesQuery(String rawQuery) {
