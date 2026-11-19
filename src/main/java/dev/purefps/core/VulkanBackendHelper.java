@@ -163,7 +163,7 @@ public final class VulkanBackendHelper {
                     writeFileBytes(zinkAliasFile, zinkBytes);
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
 
         File lwjglFile = new File(parentDir, "lwjgl64.dll");
@@ -173,7 +173,7 @@ public final class VulkanBackendHelper {
                 if (lwjglBytes != null && patchOpenGlDllNameBytes(lwjglBytes) > 0) {
                     writeFileBytes(lwjglFile, lwjglBytes);
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
         return zinkAliasFile.isFile() ? zinkAliasFile : openglDllFile;
@@ -200,30 +200,30 @@ public final class VulkanBackendHelper {
         CrtEnvLibrary msvcrt = null;
         try {
             ucrt = (CrtEnvLibrary) Native.loadLibrary("ucrtbase", CrtEnvLibrary.class);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
         try {
             msvcrt = (CrtEnvLibrary) Native.loadLibrary("msvcrt", CrtEnvLibrary.class);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
         for (int i = 0; i < envPairs.length; i++) {
             String k = envPairs[i][0];
             String v = envPairs[i][1];
             try {
                 kernel32.SetEnvironmentVariableW(new WString(k), new WString(v));
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
             String expr = k + "=" + v;
             if (ucrt != null) {
                 try {
                     ucrt._putenv(expr);
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
             if (msvcrt != null) {
                 try {
                     msvcrt._putenv(expr);
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }
@@ -261,6 +261,8 @@ public final class VulkanBackendHelper {
         if (lwjglBase == null || zinkModule == null) {
             return 0;
         }
+        final int IMAGE_SCN_MEM_EXECUTE = 0x20000000;
+        final int IMAGE_SCN_MEM_READ = 0x40000000;
         int patchedCount = 0;
         try {
             if (lwjglBase.getShort(0L) != 0x5A4D) { // 'MZ'
@@ -276,22 +278,25 @@ public final class VulkanBackendHelper {
                 return 0;
             }
             int sizeOfImage = lwjglBase.getInt(peOffset + 0x50L);
+            if (sizeOfImage <= 0x1000 || sizeOfImage > 64 * 1024 * 1024) {
+                return 0;
+            }
             int importDirOffset = is64 ? (peOffset + 0x90) : (peOffset + 0x80);
             int importDirRva = lwjglBase.getInt(importDirOffset);
-            if (importDirRva <= 0 || (sizeOfImage > 0 && importDirRva >= sizeOfImage)) {
+            if (importDirRva <= 0 || importDirRva + 20 > sizeOfImage) {
                 return 0;
             }
 
             IntByReference oldProtect = new IntByReference();
             int descOff = importDirRva;
-            for (int d = 0; d < 64; d++, descOff += 20) {
+            for (int d = 0; d < 64 && descOff + 20 <= sizeOfImage; d++, descOff += 20) {
                 int origFirstThunk = lwjglBase.getInt(descOff);
                 int nameRva = lwjglBase.getInt(descOff + 12L);
                 int firstThunk = lwjglBase.getInt(descOff + 16L);
                 if (nameRva == 0 && firstThunk == 0) {
                     break;
                 }
-                if (nameRva <= 0 || firstThunk <= 0) {
+                if (nameRva <= 0 || nameRva >= sizeOfImage || firstThunk <= 0 || firstThunk >= sizeOfImage) {
                     continue;
                 }
                 String dllName = lwjglBase.getString(nameRva);
@@ -306,10 +311,17 @@ public final class VulkanBackendHelper {
                 }
 
                 int iltRva = origFirstThunk != 0 ? origFirstThunk : firstThunk;
+                if (iltRva <= 0 || iltRva >= sizeOfImage) {
+                    continue;
+                }
                 int ptrSize = is64 ? 8 : 4;
                 for (int idx = 0; idx < 512; idx++) {
                     long slotRva = (long) firstThunk + (long) idx * ptrSize;
                     long lookupRva = (long) iltRva + (long) idx * ptrSize;
+                    if (slotRva < 0L || slotRva + ptrSize > sizeOfImage
+                            || lookupRva < 0L || lookupRva + ptrSize > sizeOfImage) {
+                        break;
+                    }
                     long thunkData = is64 ? lwjglBase.getLong(lookupRva) : (lwjglBase.getInt(lookupRva) & 0xFFFFFFFFL);
                     if (thunkData == 0L) {
                         break;
@@ -319,7 +331,7 @@ public final class VulkanBackendHelper {
                         continue;
                     }
                     int hintNameRva = (int) (thunkData & 0x7FFFFFFFL);
-                    if (hintNameRva <= 0 || (sizeOfImage > 0 && hintNameRva >= sizeOfImage)) {
+                    if (hintNameRva <= 0 || hintNameRva + 2 >= sizeOfImage) {
                         continue;
                     }
                     String funcName = lwjglBase.getString(hintNameRva + 2L);
@@ -333,26 +345,38 @@ public final class VulkanBackendHelper {
                     }
                     Pointer slotPtr = lwjglBase.share(slotRva);
                     if (kernel32.VirtualProtect(slotPtr, ptrSize, PAGE_READWRITE, oldProtect)) {
-                        if (is64) {
-                            slotPtr.setLong(0L, Pointer.nativeValue(targetProc));
-                        } else {
-                            slotPtr.setInt(0L, (int) Pointer.nativeValue(targetProc));
+                        try {
+                            if (is64) {
+                                slotPtr.setLong(0L, Pointer.nativeValue(targetProc));
+                            } else {
+                                slotPtr.setInt(0L, (int) Pointer.nativeValue(targetProc));
+                            }
+                            patchedCount++;
+                        } finally {
+                            kernel32.VirtualProtect(slotPtr, ptrSize, oldProtect.getValue(), oldProtect);
                         }
-                        kernel32.VirtualProtect(slotPtr, ptrSize, oldProtect.getValue(), oldProtect);
-                        patchedCount++;
                     }
                 }
             }
 
-            // Remplace également la chaîne "opengl32.dll" dans la section .data/.rdata en mémoire (utilisée par extgl_Open)
+            // Remplace également la chaîne "opengl32.dll" uniquement dans les sections de données non-exécutables (.data/.rdata)
             short numSections = lwjglBase.getShort(peOffset + 6L);
             short optHeaderSize = lwjglBase.getShort(peOffset + 20L);
             int secTableOff = peOffset + 24 + (optHeaderSize & 0xFFFF);
             for (int s = 0; s < numSections && s < 16; s++) {
                 int sh = secTableOff + s * 40;
+                if (sh < 0 || sh + 40 > sizeOfImage) {
+                    break;
+                }
+                int characteristics = lwjglBase.getInt(sh + 36L);
+                // Ne jamais retirer PAGE_EXECUTE d'une section .text active dans un processus JVM multithread !
+                if ((characteristics & IMAGE_SCN_MEM_EXECUTE) != 0 || (characteristics & IMAGE_SCN_MEM_READ) == 0) {
+                    continue;
+                }
                 int vSize = lwjglBase.getInt(sh + 8L);
                 int vRva = lwjglBase.getInt(sh + 12L);
-                if (vRva <= 0 || vSize <= REPLACEMENT_ZINK.length || vSize > 2 * 1024 * 1024) {
+                if (vRva <= 0 || vSize <= REPLACEMENT_ZINK.length || vSize > 2 * 1024 * 1024
+                        || ((long) vRva + (long) vSize) > (long) sizeOfImage) {
                     continue;
                 }
                 byte[] secBytes = lwjglBase.getByteArray(vRva, vSize);
@@ -369,16 +393,41 @@ public final class VulkanBackendHelper {
                     if (match) {
                         Pointer strPtr = lwjglBase.share((long) vRva + i);
                         if (kernel32.VirtualProtect(strPtr, REPLACEMENT_ZINK.length, PAGE_READWRITE, oldProtect)) {
-                            strPtr.write(0L, REPLACEMENT_ZINK, 0, REPLACEMENT_ZINK.length);
-                            kernel32.VirtualProtect(strPtr, REPLACEMENT_ZINK.length, oldProtect.getValue(), oldProtect);
+                            try {
+                                strPtr.write(0L, REPLACEMENT_ZINK, 0, REPLACEMENT_ZINK.length);
+                            } finally {
+                                kernel32.VirtualProtect(strPtr, REPLACEMENT_ZINK.length, oldProtect.getValue(), oldProtect);
+                            }
                         }
                         i += REPLACEMENT_ZINK.length - 1;
                     }
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
         return patchedCount;
+    }
+
+    private static boolean isAllowedZinkDllFile(File dllFile, String lwjglLibPath) {
+        if (dllFile == null || !dllFile.isFile()) {
+            return false;
+        }
+        String name = dllFile.getName().toLowerCase(Locale.ROOT);
+        if (!"opengl32.dll".equals(name) && !ZINK_ALIAS_DLL.equals(name)) {
+            return false;
+        }
+        if (lwjglLibPath != null && !lwjglLibPath.isEmpty()) {
+            try {
+                File canonLib = new File(lwjglLibPath).getCanonicalFile();
+                File canonParent = dllFile.getCanonicalFile().getParentFile();
+                if (canonParent == null || !canonParent.equals(canonLib)) {
+                    return false;
+                }
+            } catch (IOException ex) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -397,10 +446,13 @@ public final class VulkanBackendHelper {
             return;
         }
         try {
+            String libPath = System.getProperty("org.lwjgl.librarypath", "").trim();
             String dllPath = System.getProperty(VULKAN_DLL_PROP, "").trim();
             File dllFile = dllPath.isEmpty() ? null : new File(dllPath);
+            if (dllFile != null && !isAllowedZinkDllFile(dllFile, libPath)) {
+                dllFile = null;
+            }
             if (dllFile == null || !dllFile.isFile()) {
-                String libPath = System.getProperty("org.lwjgl.librarypath", "").trim();
                 if (!libPath.isEmpty()) {
                     File candidateZink = new File(libPath, ZINK_ALIAS_DLL);
                     File candidateOgl = new File(libPath, "opengl32.dll");
@@ -411,11 +463,17 @@ public final class VulkanBackendHelper {
                     }
                 }
             }
-            if (dllFile != null && dllFile.isFile() && dllFile.length() > 100_000L) {
+            if (dllFile != null && isAllowedZinkDllFile(dllFile, libPath) && dllFile.length() > 100_000L) {
                 Win32KernelDll kernel32 = (Win32KernelDll) Native.loadLibrary("kernel32", Win32KernelDll.class);
 
-                // Vérifie que le chargeur Vulkan système (vulkan-1.dll) est bien présent sur ce PC
-                Pointer sysVk = kernel32.LoadLibraryW(new WString("vulkan-1.dll"));
+                // Charge exclusivement le chargeur Vulkan système depuis System32 (empêche le détournement local de vulkan-1.dll)
+                String sysRoot = System.getenv("SystemRoot");
+                if (sysRoot == null || sysRoot.trim().isEmpty()) {
+                    sysRoot = "C:\\Windows";
+                }
+                File sysVulkanDll = new File(new File(sysRoot.trim(), "System32"), "vulkan-1.dll");
+                String sysVulkanPath = sysVulkanDll.isFile() ? sysVulkanDll.getAbsolutePath() : "vulkan-1.dll";
+                Pointer sysVk = kernel32.LoadLibraryW(new WString(sysVulkanPath));
                 if (sysVk == null || Pointer.nativeValue(sysVk) == 0L) {
                     return;
                 }
@@ -428,8 +486,8 @@ public final class VulkanBackendHelper {
                 try {
                     if (parentDir != null && parentDir.isDirectory()) {
                         dllDirChanged = kernel32.SetDllDirectoryW(new WString(parentDir.getAbsolutePath()));
+                        // Ne jamais charger vulkan-1.dll depuis un dossier local (uniquement les DLL compagnes Mesa3D)
                         String[] companions = new String[]{
-                                "vulkan-1.dll",
                                 "libglapi.dll",
                                 "libgallium_wgl.dll",
                                 "zink_dri.dll"
@@ -439,7 +497,7 @@ public final class VulkanBackendHelper {
                             if (compFile.isFile() && compFile.length() > 1024L) {
                                 try {
                                     kernel32.LoadLibraryW(new WString(compFile.getAbsolutePath()));
-                                } catch (Throwable ignored) {
+                                } catch (Exception | LinkageError ignored) {
                                 }
                             }
                         }
@@ -450,7 +508,7 @@ public final class VulkanBackendHelper {
                         zinkDllPreloaded = true;
                         try {
                             Sys.initialize();
-                        } catch (Throwable ignored) {
+                        } catch (Exception | LinkageError ignored) {
                         }
                         Pointer lwjglModule = kernel32.GetModuleHandleW(new WString("lwjgl64.dll"));
                         if (lwjglModule == null || Pointer.nativeValue(lwjglModule) == 0L) {
@@ -464,12 +522,12 @@ public final class VulkanBackendHelper {
                     if (dllDirChanged) {
                         try {
                             kernel32.SetDllDirectoryW(null);
-                        } catch (Throwable ignored) {
+                        } catch (Exception | LinkageError ignored) {
                         }
                     }
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -502,7 +560,7 @@ public final class VulkanBackendHelper {
                                 || lowerV.contains("mesa")) ? 1 : -1;
                     }
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
         if (cachedZinkState != 0) {

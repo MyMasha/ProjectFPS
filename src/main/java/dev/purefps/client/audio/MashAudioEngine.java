@@ -95,7 +95,7 @@ public final class MashAudioEngine {
     private static boolean isOpenALReady() {
         try {
             return AL.isCreated();
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return false;
         }
     }
@@ -114,7 +114,7 @@ public final class MashAudioEngine {
                             AL10.alSourceStop(src);
                             AL10.alSourcei(src, AL10.AL_BUFFER, 0);
                             AL10.alDeleteSources(src);
-                        } catch (Throwable ignored) {
+                        } catch (Exception | LinkageError ignored) {
                         }
                     }
                 }
@@ -123,7 +123,7 @@ public final class MashAudioEngine {
                         AL10.alSourceStop(alAmbientSource);
                         AL10.alSourcei(alAmbientSource, AL10.AL_BUFFER, 0);
                         AL10.alDeleteSources(alAmbientSource);
-                    } catch (Throwable ignored) {
+                    } catch (Exception | LinkageError ignored) {
                     }
                 }
                 for (int i = 0; i < CLIP_COUNT; i++) {
@@ -131,7 +131,7 @@ public final class MashAudioEngine {
                     if (buf != 0) {
                         try {
                             AL10.alDeleteBuffers(buf);
-                        } catch (Throwable ignored) {
+                        } catch (Exception | LinkageError ignored) {
                         }
                     }
                 }
@@ -215,7 +215,7 @@ public final class MashAudioEngine {
                     if (AL10.alIsSource(alAmbientSource)) {
                         AL10.alSourceStop(alAmbientSource);
                     }
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }
@@ -226,7 +226,7 @@ public final class MashAudioEngine {
             try {
                 activeAmbientClip.stop();
                 activeAmbientClip.close();
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
             activeAmbientClip = null;
         }
@@ -259,7 +259,7 @@ public final class MashAudioEngine {
             clip.open(STEREO_16, data, 0, data.length);
             clip.loop(Clip.LOOP_CONTINUOUSLY);
             activeAmbientClip = clip;
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             activeAmbientClip = null;
         }
     }
@@ -289,7 +289,7 @@ public final class MashAudioEngine {
                 AL10.alSourcei(alAmbientSource, AL10.AL_LOOPING, AL10.AL_TRUE);
                 AL10.alSourcePlay(alAmbientSource);
                 return true;
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
                 return false;
             }
         }
@@ -461,7 +461,7 @@ public final class MashAudioEngine {
                 AL10.alSourcef(src, AL10.AL_GAIN, 1.0F);
                 AL10.alSourcePlay(src);
                 return true;
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
                 return false;
             }
         }
@@ -529,13 +529,13 @@ public final class MashAudioEngine {
                 if (evt.getType() == LineEvent.Type.STOP) {
                     try {
                         clip.close();
-                    } catch (Throwable ignored) {
+                    } catch (Exception | LinkageError ignored) {
                     }
                 }
             });
             clip.open(STEREO_16, pcm, 0, pcm.length);
             clip.start();
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 

@@ -406,7 +406,7 @@ public final class NanoUiRenderer {
             programId = prog;
             shaderState = 1;
             return true;
-        } catch (Throwable t) {
+        } catch (Exception | LinkageError t) {
             shaderState = -1;
             return false;
         }

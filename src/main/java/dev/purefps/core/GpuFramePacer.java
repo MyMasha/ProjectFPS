@@ -48,7 +48,7 @@ public final class GpuFramePacer {
             } else {
                 syncBackend = -1;
             }
-        } catch (Throwable t) {
+        } catch (Exception | LinkageError t) {
             syncBackend = -1;
         }
         return syncBackend;
@@ -135,7 +135,7 @@ public final class GpuFramePacer {
             } else {
                 previousFrameFence = ARBSync.glFenceSync(ARBSync.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
             }
-        } catch (Throwable t) {
+        } catch (Exception | LinkageError t) {
             oldestFrameFence = null;
             previousFrameFence = null;
             syncBackend = -1;
@@ -158,7 +158,7 @@ public final class GpuFramePacer {
                     ARBSync.glDeleteSync(previousFrameFence);
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         } finally {
             oldestFrameFence = null;
             previousFrameFence = null;

@@ -43,8 +43,26 @@ struct OAuthTokenSuccess {
 struct OAuthTokenError {
     #[serde(default)]
     error: String,
-    #[serde(default)]
-    error_description: String,
+}
+
+fn sanitize_oauth_error_code(raw: &str) -> String {
+    let clean: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .take(40)
+        .collect();
+    if clean.is_empty() {
+        "unknown_error".to_owned()
+    } else {
+        clean
+    }
+}
+
+fn format_http_failure(service: &str, err: ureq::Error) -> String {
+    match err {
+        ureq::Error::Status(code, _) => format!("{service} indisponible (HTTP {code})."),
+        ureq::Error::Transport(_) => format!("Impossible de joindre {service} (erreur réseau/TLS)."),
+    }
 }
 
 #[derive(Deserialize)]
@@ -95,14 +113,21 @@ pub fn start_device_code_flow() -> Result<DeviceCodeChallenge, String> {
     {
         Ok(r) => r,
         Err(ureq::Error::Status(code, err_resp)) => {
-            let detail = err_resp.into_string().unwrap_or_default();
-            return Err(format!("Microsoft OAuth2 HTTP {code}: {detail}"));
+            let err_code = err_resp
+                .into_json::<OAuthTokenError>()
+                .ok()
+                .map(|p| sanitize_oauth_error_code(&p.error))
+                .filter(|s| s != "unknown_error");
+            return match err_code {
+                Some(ec) => Err(format!("Service Microsoft OAuth2 refusé (HTTP {code}, {ec}).")),
+                None => Err(format!("Service Microsoft OAuth2 indisponible (HTTP {code}).")),
+            };
         }
-        Err(e) => return Err(format!("Impossible de joindre Microsoft OAuth2: {e}")),
+        Err(e) => return Err(format_http_failure("Microsoft OAuth2", e)),
     };
 
     resp.into_json::<DeviceCodeChallenge>()
-        .map_err(|e| format!("Réponse Device Code invalide: {e}"))
+        .map_err(|_| "Réponse Device Code Microsoft invalide.".to_owned())
 }
 
 pub fn poll_device_code_until_complete(
@@ -143,7 +168,7 @@ pub fn poll_device_code_until_complete(
             Ok(ok_resp) => {
                 let tok = ok_resp
                     .into_json::<OAuthTokenSuccess>()
-                    .map_err(|e| format!("Jeton OAuth2 illisible: {e}"))?;
+                    .map_err(|_| "Jeton OAuth2 Microsoft illisible.".to_owned())?;
                 return complete_xbox_and_mc_chain(&agent, &tok.access_token, tok.refresh_token);
             }
             Err(ureq::Error::Status(_code, err_resp)) => {
@@ -151,7 +176,6 @@ pub fn poll_device_code_until_complete(
                     .into_json::<OAuthTokenError>()
                     .unwrap_or(OAuthTokenError {
                         error: String::new(),
-                        error_description: String::new(),
                     });
                 match parsed.error.as_str() {
                     "authorization_pending" => continue,
@@ -166,9 +190,9 @@ pub fn poll_device_code_until_complete(
                         return Err("Le code Microsoft a expiré. Relancez la connexion.".to_owned());
                     }
                     other => {
+                        let safe_code = sanitize_oauth_error_code(other);
                         return Err(format!(
-                            "Erreur Microsoft ({other}): {}",
-                            parsed.error_description
+                            "Erreur d'authentification Microsoft ({safe_code}). Réessayez la connexion."
                         ));
                     }
                 }
@@ -213,7 +237,6 @@ pub fn refresh_microsoft_session(existing: &MicrosoftAccount) -> Result<Microsof
                 .into_json::<OAuthTokenError>()
                 .unwrap_or(OAuthTokenError {
                     error: String::new(),
-                    error_description: String::new(),
                 });
             if parsed.error.is_empty() {
                 return Err(
@@ -221,24 +244,17 @@ pub fn refresh_microsoft_session(existing: &MicrosoftAccount) -> Result<Microsof
                         .to_owned(),
                 );
             }
+            let safe_code = sanitize_oauth_error_code(&parsed.error);
             return Err(format!(
-                "Session Microsoft expirée ({}) : cliquez sur votre compte en haut à droite pour vous reconnecter.",
-                parsed.error
+                "Session Microsoft expirée ({safe_code}) : cliquez sur votre compte en haut à droite pour vous reconnecter."
             ));
         }
-        Err(ureq::Error::Status(code, _)) => {
-            return Err(format!(
-                "Serveur Microsoft OAuth2 indisponible (HTTP {code})."
-            ));
-        }
-        Err(e) => {
-            return Err(format!("Impossible de joindre Microsoft OAuth2 : {e}"));
-        }
+        Err(e) => return Err(format_http_failure("Serveur Microsoft OAuth2", e)),
     };
 
     let tok = resp
         .into_json::<OAuthTokenSuccess>()
-        .map_err(|e| format!("Réponse refresh invalide: {e}"))?;
+        .map_err(|_| "Réponse de rafraîchissement Microsoft invalide.".to_owned())?;
 
     let next_refresh = if tok.refresh_token.is_empty() {
         existing.refresh_token.clone()
@@ -330,12 +346,12 @@ fn complete_xbox_and_mc_chain(
             };
             return Err(msg.to_owned());
         }
-        Err(e) => return Err(format!("Erreur réseau XSTS Xbox: {e}")),
+        Err(e) => return Err(format_http_failure("Xbox XSTS", e)),
     };
 
     let xsts: XblAuthResp = xsts_resp
         .into_json()
-        .map_err(|e| format!("JSON XSTS illisible: {e}"))?;
+        .map_err(|_| "Réponse Xbox XSTS illisible.".to_owned())?;
 
     // 3. Minecraft Services Login
     let mc_login_resp = agent
@@ -345,11 +361,11 @@ fn complete_xbox_and_mc_chain(
         .send_json(json!({
             "identityToken": format!("XBL3.0 x={};{}", uhs, xsts.token)
         }))
-        .map_err(|e| format!("Erreur connexion Minecraft Services: {e}"))?;
+        .map_err(|e| format_http_failure("Minecraft Services", e))?;
 
     let mc_login: McLoginResp = mc_login_resp
         .into_json()
-        .map_err(|e| format!("JSON Minecraft Services illisible: {e}"))?;
+        .map_err(|_| "Réponse Minecraft Services illisible.".to_owned())?;
 
     // 4. Profil Minecraft Java (Pseudo + UUID)
     let profile_resp = agent
@@ -363,7 +379,7 @@ fn complete_xbox_and_mc_chain(
 
     let profile: McProfileResp = profile_resp
         .into_json()
-        .map_err(|e| format!("Profil Minecraft illisible: {e}"))?;
+        .map_err(|_| "Profil Minecraft illisible.".to_owned())?;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -395,10 +411,10 @@ fn request_xbl_token(agent: &ureq::Agent, ticket: &str) -> Result<XblAuthResp, S
         .set("Content-Type", "application/json")
         .set("Accept", "application/json")
         .send_json(payload)
-        .map_err(|e| format!("Refus Xbox Live: {e}"))?;
+        .map_err(|e| format_http_failure("Xbox Live", e))?;
 
     resp.into_json::<XblAuthResp>()
-        .map_err(|e| format!("JSON Xbox Live invalide: {e}"))
+        .map_err(|_| "Réponse Xbox Live invalide.".to_owned())
 }
 
 fn http_agent() -> Result<ureq::Agent, String> {
@@ -412,16 +428,54 @@ fn http_agent() -> Result<ureq::Agent, String> {
         .build())
 }
 
+pub fn is_trusted_ms_verification_uri(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    if url.bytes().any(|b| b <= 0x20 || b == 0x7F) {
+        return false;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.is_empty() || authority.contains('@') {
+        return false;
+    }
+    let host = match authority.rsplit_once(':') {
+        Some((h, "443")) => h,
+        Some(_) => return false,
+        None => authority,
+    }
+    .to_ascii_lowercase();
+
+    const ALLOWED_MS_HOSTS: &[&str] = &["microsoft.com", "microsoftonline.com", "live.com"];
+    ALLOWED_MS_HOSTS
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{d}")))
+}
+
+fn windows_system_tool(relative: &str) -> std::path::PathBuf {
+    let root = std::env::var("SystemRoot")
+        .or_else(|_| std::env::var("WINDIR"))
+        .unwrap_or_else(|_| r"C:\Windows".to_owned());
+    std::path::Path::new(&root).join(relative)
+}
+
 pub fn open_verification_browser(url: &str) {
+    let safe_url = if is_trusted_ms_verification_uri(url) {
+        url
+    } else {
+        "https://www.microsoft.com/link"
+    };
     // Ouverture propre via API ShellExecute Windows (`webbrowser`), sans troncature de caractères `&`
-    if webbrowser::open(url).is_ok() {
+    if webbrowser::open(safe_url).is_ok() {
         return;
     }
-    let _ = Command::new("explorer.exe").arg(url).spawn();
+    let explorer = windows_system_tool("explorer.exe");
+    let _ = Command::new(&explorer).arg(safe_url).spawn();
 }
 
 pub fn copy_to_windows_clipboard(text: &str) {
-    let mut cmd = Command::new("clip.exe");
+    let clip = windows_system_tool(r"System32\clip.exe");
+    let mut cmd = Command::new(&clip);
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());

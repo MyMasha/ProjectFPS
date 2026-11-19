@@ -156,7 +156,7 @@ public abstract class MixinEffectRenderer {
 
                     try {
                         entityfx.renderParticle(worldrenderer, entityIn, partialTicks, rotX, rotXZ, rotZ, rotYZ, rotXY);
-                    } catch (Throwable throwable) {
+                    } catch (Exception | LinkageError throwable) {
                         CrashReport report = CrashReport.makeCrashReport(throwable, "Rendering Particle");
                         report.makeCategory("Particle being rendered");
                         throw new ReportedException(report);

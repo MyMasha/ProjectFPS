@@ -177,7 +177,7 @@ public final class BorderlessWindowHelper {
                     u32.SetClassLongW(hwnd, index, value == null ? 0 : (int) Pointer.nativeValue(value));
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -196,29 +196,29 @@ public final class BorderlessWindowHelper {
                     Method gh = cls.getDeclaredMethod("getHwnd");
                     gh.setAccessible(true);
                     getHwndMethod = gh;
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
                 try {
                     Field cc = cls.getDeclaredField("current_cursor");
                     cc.setAccessible(true);
                     currentCursorField = cc;
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
                 try {
                     Field mf = cls.getDeclaredField("mouse");
                     mf.setAccessible(true);
                     windowsMouseField = mf;
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
                 try {
                     Method uc = cls.getDeclaredMethod("updateCursor");
                     uc.setAccessible(true);
                     updateCursorMethod = uc;
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
             return impl;
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return null;
         }
     }
@@ -327,7 +327,7 @@ public final class BorderlessWindowHelper {
                     }
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -386,7 +386,7 @@ public final class BorderlessWindowHelper {
                         }
                     }
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
 
@@ -430,7 +430,7 @@ public final class BorderlessWindowHelper {
                         u32.SetWindowLongW(hwnd, Win32Borderless.GWL_EXSTYLE, exStyle & ~Win32Borderless.WS_EX_LAYERED);
                     }
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
             try {
                 Win32Dwm dwm = dwmapi();
@@ -444,9 +444,9 @@ public final class BorderlessWindowHelper {
                     dwmBlurBuffer.setInt(4, 0); // fEnable = FALSE
                     dwm.DwmEnableBlurBehindWindow(hwnd, dwmBlurBuffer);
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -477,7 +477,7 @@ public final class BorderlessWindowHelper {
                 setClassPointer(new Pointer(hwndVal), Win32Borderless.GCLP_HCURSOR, cachedArrowCursor);
                 u32.SetCursor(cachedArrowCursor);
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -501,7 +501,7 @@ public final class BorderlessWindowHelper {
             u32.ShowWindow(hwnd, 5);
             u32.BringWindowToTop(hwnd);
             u32.SetForegroundWindow(hwnd);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -557,7 +557,7 @@ public final class BorderlessWindowHelper {
                     int vh = u32.GetSystemMetrics(Win32Borderless.SM_CYVIRTUALSCREEN);
                     return resolveDwmSafeBorderlessBounds(w, h, vx, vy, vw, vh);
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
         return new int[]{0, 0, w, h + 1};
@@ -571,7 +571,7 @@ public final class BorderlessWindowHelper {
             int[] bounds = computeDwmSafeBorderlessBounds(deskW, deskH);
             Display.setLocation(bounds[0], bounds[1]);
             Display.setResizable(false);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -604,7 +604,7 @@ public final class BorderlessWindowHelper {
             Display.setResizable(false);
             currentlyBorderless = true;
             return true;
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return false;
         }
     }
@@ -679,7 +679,7 @@ public final class BorderlessWindowHelper {
                 mc.updateDisplay();
             }
             return true;
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return false;
         }
     }
@@ -737,7 +737,7 @@ public final class BorderlessWindowHelper {
                 u32.BringWindowToTop(hwnd);
                 u32.SetForegroundWindow(hwnd);
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -751,7 +751,7 @@ public final class BorderlessWindowHelper {
             if (val instanceof Long) {
                 return (Long) val;
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
         return 0L;
     }

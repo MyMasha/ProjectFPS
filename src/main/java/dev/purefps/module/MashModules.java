@@ -272,7 +272,7 @@ public final class MashModules {
                     }
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         } finally {
             suppressCallbacks = false;
         }
@@ -283,12 +283,12 @@ public final class MashModules {
             }
             dirty = true;
         }
-        if (loadedVersion == null || (!"4.5.8".equals(loadedVersion) && !"4.5.9".equals(loadedVersion))) {
+        if (loadedVersion == null || (!"4.5.8".equals(loadedVersion) && !"4.5.9".equals(loadedVersion) && !"4.5.10".equals(loadedVersion))) {
             setSilent("hyp_chat_tabs", true);
             setBoolSilent("hyp_chat_tabs", "filter_chat", true);
             dirty = true;
         }
-        if (!"4.5.9".equals(loadedVersion)) {
+        if (!"4.5.10".equals(loadedVersion)) {
             dirty = true;
         }
 
@@ -312,7 +312,7 @@ public final class MashModules {
         ensureRegistered();
         JsonObject root = new JsonObject();
         root.addProperty("client", "MashClient");
-        root.addProperty("version", "4.5.9");
+        root.addProperty("version", "4.5.10");
         JsonObject mods = new JsonObject();
         for (int i = 0; i < ALL_MODULES.size(); i++) {
             MashModule m = ALL_MODULES.get(i);
@@ -344,7 +344,7 @@ public final class MashModules {
     private static void writeStringToFile(File file, String content) {
         try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
             writer.write(content);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 
@@ -533,7 +533,7 @@ public final class MashModules {
             if (mc != null && mc.renderGlobal != null && mc.theWorld != null) {
                 mc.renderGlobal.loadRenderers();
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
     }
 

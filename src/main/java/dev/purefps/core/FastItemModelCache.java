@@ -185,13 +185,13 @@ public final class FastItemModelCache {
             if (entry.baseWhiteList >= 0) {
                 try {
                     GLAllocation.deleteDisplayLists(entry.baseWhiteList);
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
             if (entry.glintList >= 0) {
                 try {
                     GLAllocation.deleteDisplayLists(entry.glintList);
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }

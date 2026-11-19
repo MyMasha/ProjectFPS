@@ -82,7 +82,7 @@ public final class ChunkRegionManager {
                 boolean ok = caps != null && caps.OpenGL15 && OpenGlHelper.useVbo();
                 hasGL31Copy = caps != null && caps.OpenGL31;
                 capabilityState = ok ? 1 : -1;
-            } catch (Throwable t) {
+            } catch (Exception | LinkageError t) {
                 capabilityState = -1;
             }
         }
@@ -96,7 +96,7 @@ public final class ChunkRegionManager {
                 boolean ok = caps != null && caps.OpenGL15 && caps.OpenGL14 && OpenGlHelper.useVbo();
                 hasGL31Copy = caps != null && caps.OpenGL31;
                 multiDrawState = ok ? 1 : -1;
-            } catch (Throwable t) {
+            } catch (Exception | LinkageError t) {
                 multiDrawState = -1;
             }
         }

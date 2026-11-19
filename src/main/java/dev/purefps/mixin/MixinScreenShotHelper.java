@@ -88,7 +88,7 @@ public class MixinScreenShotHelper {
                     targetFile, rawCopy, texW, texH, viewW, viewH, fboMode
             );
             cir.setReturnValue(msg);
-        } catch (Throwable t) {
+        } catch (Exception | LinkageError t) {
             logger.warn("Async screenshot capture failed", t);
             cir.setReturnValue(new ChatComponentTranslation("screenshot.failure", t.getMessage()));
         }

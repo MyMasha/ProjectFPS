@@ -89,7 +89,7 @@ public final class FastResourcePackReload {
                 if (serverPack.resourceExists(MC_SOUNDS_JSON)) {
                     hash = mixString(hash, "server:sounds.json");
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
         return hash;
@@ -109,7 +109,7 @@ public final class FastResourcePackReload {
                 if (fallbackPack.resourceExists(MC_SOUNDS_JSON)) {
                     return mixString(FNV_OFFSET_BASIS, fallbackPack.getPackName());
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
         }
         return 0L;
@@ -133,7 +133,7 @@ public final class FastResourcePackReload {
                     h = mixLong(h, ze.getCrc());
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
             return mixString(FNV_OFFSET_BASIS, zipPath.getName() + ":" + zipPath.lastModified());
         }
         return foundAudio ? (h == 0L ? 1L : h) : 0L;

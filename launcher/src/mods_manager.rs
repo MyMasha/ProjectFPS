@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledModEntry {
@@ -39,13 +39,48 @@ pub fn is_core_mashclient_jar(file_name: &str) -> bool {
 }
 
 fn is_safe_single_filename(file_name: &str) -> bool {
-    let trimmed = file_name.trim();
-    !trimmed.is_empty()
-        && !trimmed.contains('/')
-        && !trimmed.contains('\\')
-        && !trimmed.contains("..")
-        && (trimmed.to_ascii_lowercase().ends_with(".jar")
-            || trimmed.to_ascii_lowercase().ends_with(".jar.disabled"))
+    if file_name.is_empty()
+        || file_name != file_name.trim()
+        || file_name.bytes().any(|b| b < 0x20 || b == 0x7F)
+        || file_name.contains('/')
+        || file_name.contains('\\')
+        || file_name.contains(':')
+        || file_name.contains("..")
+    {
+        return false;
+    }
+    let mut comps = Path::new(file_name).components();
+    let is_single_normal = matches!(comps.next(), Some(Component::Normal(_))) && comps.next().is_none();
+    if !is_single_normal {
+        return false;
+    }
+    let low = file_name.to_ascii_lowercase();
+    low.ends_with(".jar") || low.ends_with(".jar.disabled")
+}
+
+fn has_valid_zip_magic(path: &Path) -> bool {
+    let mut magic = [0u8; 4];
+    File::open(path)
+        .and_then(|mut f| f.read_exact(&mut magic))
+        .map(|_| &magic == b"PK\x03\x04")
+        .unwrap_or(false)
+}
+
+fn resolve_confined_mod_file(mods_dir: &Path, file_name: &str) -> Result<PathBuf, String> {
+    let target = mods_dir.join(file_name);
+    let meta = std::fs::symlink_metadata(&target)
+        .map_err(|_| format!("Mod introuvable : {file_name}"))?;
+    if !meta.file_type().is_file() {
+        return Err("Opération refusée : seuls les fichiers réguliers dans mods/ sont autorisés.".to_owned());
+    }
+    let canon_dir = std::fs::canonicalize(mods_dir)
+        .map_err(|e| format!("Dossier mods invalide : {e}"))?;
+    let canon_target = std::fs::canonicalize(&target)
+        .map_err(|e| format!("Chemin mod invalide : {e}"))?;
+    if canon_target.parent() != Some(canon_dir.as_path()) {
+        return Err("Chemin mod hors du dossier mods/ refusé par sécurité.".to_owned());
+    }
+    Ok(canon_target)
 }
 
 fn humanize_jar_stem(file_name: &str) -> String {
@@ -233,21 +268,31 @@ pub fn import_mod_jars(game_dir: &str, source_paths: &[PathBuf]) -> Result<usize
 
     let mut imported = 0usize;
     for src in source_paths {
-        if !src.is_file() {
+        let is_regular = std::fs::symlink_metadata(src)
+            .map(|m| m.file_type().is_file())
+            .unwrap_or(false);
+        if !is_regular {
             continue;
         }
         let Some(fname_os) = src.file_name() else {
             continue;
         };
         let fname = fname_os.to_string_lossy().to_string();
-        if !fname.to_ascii_lowercase().ends_with(".jar") {
+        if !is_safe_single_filename(&fname) || !fname.to_ascii_lowercase().ends_with(".jar") {
             continue;
         }
         if is_core_mashclient_jar(&fname) {
             return Err("Le moteur principal PureFPS est déjà géré automatiquement par MashClient.".to_owned());
         }
+        if !has_valid_zip_magic(src) {
+            return Err(format!("Le fichier '{fname}' n'est pas une archive JAR/ZIP valide."));
+        }
         let dst = mods_dir.join(&fname);
-        if src.as_path() != dst.as_path() {
+        let same_file = match (std::fs::canonicalize(src), std::fs::canonicalize(&dst)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => src.as_path() == dst.as_path(),
+        };
+        if !same_file {
             std::fs::copy(src, &dst)
                 .map_err(|e| format!("Impossible de copier '{fname}' dans mods/ : {e}"))?;
         }
@@ -265,10 +310,7 @@ pub fn toggle_mod_file(game_dir: &str, file_name: &str) -> Result<(String, bool)
     }
 
     let mods_dir = Path::new(game_dir).join("mods");
-    let src = mods_dir.join(file_name);
-    if !src.is_file() {
-        return Err(format!("Mod introuvable : {file_name}"));
-    }
+    let src = resolve_confined_mod_file(&mods_dir, file_name)?;
 
     let (new_name, now_enabled) = if let Some(stripped) = file_name
         .strip_suffix(".disabled")
@@ -279,9 +321,15 @@ pub fn toggle_mod_file(game_dir: &str, file_name: &str) -> Result<(String, bool)
         (format!("{file_name}.disabled"), false)
     };
 
+    if !is_safe_single_filename(&new_name) {
+        return Err("Nom de fichier cible invalide.".to_owned());
+    }
+
     let dst = mods_dir.join(&new_name);
-    if dst.exists() {
-        let _ = std::fs::remove_file(&dst);
+    if std::fs::symlink_metadata(&dst).is_ok() {
+        return Err(format!(
+            "Un fichier nommé '{new_name}' existe déjà dans mods/ (opération annulée par sécurité)."
+        ));
     }
     std::fs::rename(&src, &dst).map_err(|e| format!("Impossible de renommer '{file_name}' : {e}"))?;
     Ok((new_name, now_enabled))
@@ -295,11 +343,14 @@ pub fn delete_mod_file(game_dir: &str, file_name: &str) -> Result<(), String> {
         return Err("Le moteur principal MashClient ne peut pas être supprimé.".to_owned());
     }
 
-    let target = Path::new(game_dir).join("mods").join(file_name);
-    if target.is_file() {
-        std::fs::remove_file(&target)
-            .map_err(|e| format!("Impossible de supprimer '{file_name}' : {e}"))?;
+    let mods_dir = Path::new(game_dir).join("mods");
+    let raw_target = mods_dir.join(file_name);
+    if std::fs::symlink_metadata(&raw_target).is_err() {
+        return Ok(());
     }
+    let safe_target = resolve_confined_mod_file(&mods_dir, file_name)?;
+    std::fs::remove_file(&safe_target)
+        .map_err(|e| format!("Impossible de supprimer '{file_name}' : {e}"))?;
     Ok(())
 }
 

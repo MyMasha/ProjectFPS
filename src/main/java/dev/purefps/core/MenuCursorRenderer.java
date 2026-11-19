@@ -192,7 +192,7 @@ public final class MenuCursorRenderer {
                     GL20.glUseProgram(0);
                     programChanged = true;
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
 
             try {
@@ -201,7 +201,7 @@ public final class MenuCursorRenderer {
                     GL13.glActiveTexture(GL13.GL_TEXTURE0);
                     activeTexChanged = true;
                 }
-            } catch (Throwable ignored) {
+            } catch (Exception | LinkageError ignored) {
             }
 
             prevTex2D = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
@@ -279,18 +279,18 @@ public final class MenuCursorRenderer {
             }
 
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex2D);
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         } finally {
             if (activeTexChanged) {
                 try {
                     GL13.glActiveTexture(prevActiveTex);
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
             if (programChanged) {
                 try {
                     GL20.glUseProgram(prevProgram);
-                } catch (Throwable ignored) {
+                } catch (Exception | LinkageError ignored) {
                 }
             }
         }

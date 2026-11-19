@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish (e.g. v4.5.9)"
+        description: "Release tag to publish (e.g. v4.5.10)"
         required: true
-        default: "v4.5.9"
+        default: "v4.5.10"
 
 permissions:
   contents: read
@@ -24,10 +24,10 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Temurin JDK 8 & JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           cache: gradle
@@ -38,9 +38,16 @@ jobs:
       - name: Compile & Test MashClient Forge 1.8.9 Mod
         id: meta
         shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          RAW_TAG="${INPUT_TAG:-$REF_NAME}"
+          if [[ ! "$RAW_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Invalid release tag format: $RAW_TAG" >&2
+            exit 1
+          fi
           CLEAN_VER="${RAW_TAG#v}"
           echo "tag=${RAW_TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
@@ -52,7 +59,7 @@ jobs:
           test -s "build/libs/purefps-${CLEAN_VER}.jar"
 
       - name: Upload Mod JAR Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mod-jar
           path: build/libs/purefps-${{ steps.meta.outputs.version }}.jar
@@ -64,38 +71,42 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Rust Stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
 
       - name: Cache Cargo Build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: launcher
           prefix-key: "v1-release"
 
-      - name: Verify Microsoft OAuth2 Secret & Sync Version
+      - name: Verify Microsoft OAuth2 Client ID & Sync Version
         shell: pwsh
         env:
           MASHCLIENT_MS_CLIENT_ID: ${{ secrets.MASHCLIENT_MS_CLIENT_ID }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           $ErrorActionPreference = "Stop"
           if ([string]::IsNullOrWhiteSpace($env:MASHCLIENT_MS_CLIENT_ID)) {
             throw "CRITICAL: GitHub Actions secret MASHCLIENT_MS_CLIENT_ID is empty or missing! Refusing to build an unauthenticated MashClient.exe."
           }
-          $rawTag = if ("${{ github.event.inputs.tag }}" -ne "") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
+          $rawTag = if (-not [string]::IsNullOrWhiteSpace($env:INPUT_TAG)) { $env:INPUT_TAG } else { $env:REF_NAME }
+          if ($rawTag -notmatch '^v?\d+\.\d+\.\d+$') {
+            throw "CRITICAL: Invalid release tag format: $rawTag"
+          }
           $cleanVer = $rawTag.TrimStart('v')
           $cargoPath = "launcher/Cargo.toml"
           $content = Get-Content $cargoPath -Raw
           $updated = [regex]::Replace($content, '(?m)^version\s*=\s*"[^"]+"', "version = `"$cleanVer`"", 1)
           Set-Content -Path $cargoPath -Value $updated -NoNewline
 
-      - name: Test & Build MashClient.exe (with Embedded Microsoft OAuth2 & Updater Secrets)
+      - name: Test & Build MashClient.exe (Public OAuth2 Client ID Only, No Embedded PAT)
         working-directory: launcher
         shell: pwsh
         env:
-          PURECLIENT_GITHUB_TOKEN: ${{ secrets.PURECLIENT_UPDATER_TOKEN }}
           MASHCLIENT_MS_CLIENT_ID: ${{ secrets.MASHCLIENT_MS_CLIENT_ID }}
         run: |
           $ErrorActionPreference = "Stop"
@@ -110,38 +121,29 @@ jobs:
           if (-not $exeAscii.Contains($env:MASHCLIENT_MS_CLIENT_ID.Trim())) {
             throw "CRITICAL: Compiled MashClient.exe does not contain embedded MASHCLIENT_MS_CLIENT_ID!"
           }
-          Write-Host "Verified: MashClient.exe built and contains embedded Microsoft OAuth2 Client ID."
+          Write-Host "Verified: MashClient.exe built with OAuth2 Client ID and zero embedded GitHub PAT."
 
-      - name: Stage Mesa3D Zink x64 Bundle & Release Artifacts
+      - name: Stage Verified Mesa3D Zink x64 Bundle & Release Artifacts
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_ZINK_SHA256: "d3f71e2ef11c032a6d7b507ee2f6bab6ca3fb20543944af70982fc24b92604cb"
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path "artifact-stage" | Out-Null
           Copy-Item "launcher/target/release/MashClient.exe" -Destination "artifact-stage/MashClient.exe" -Force
-          $outZip = "artifact-stage/mashclient-vulkan-zink-win64.zip"
-          if ((Test-Path "dist/mashclient-vulkan-zink-win64.zip") -and ((Get-Item "dist/mashclient-vulkan-zink-win64.zip").Length -gt 65536)) {
-            Copy-Item "dist/mashclient-vulkan-zink-win64.zip" -Destination $outZip -Force
-            Write-Host "Staged tracked dist/mashclient-vulkan-zink-win64.zip."
-          } else {
-            New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\mesa-zink\extracted" | Out-Null
-            $relJson = gh api repos/mmozeiko/build-mesa/releases/latest | ConvertFrom-Json
-            $asset = $relJson.assets | Where-Object { $_.name -like "mesa-zink-x64-*.7z" } | Select-Object -First 1
-            if (-not $asset) {
-              throw "Asset mesa-zink-x64-*.7z introuvable sur mmozeiko/build-mesa."
-            }
-            $archivePath = "$env:RUNNER_TEMP\mesa-zink\$($asset.name)"
-            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath
-            7z x -y $archivePath "opengl32.dll" "-o$env:RUNNER_TEMP\mesa-zink\extracted" | Out-Null
-            if (-not (Test-Path "$env:RUNNER_TEMP\mesa-zink\extracted\opengl32.dll")) {
-              throw "opengl32.dll absent après extraction de $($asset.name)."
-            }
-            Compress-Archive -Path "$env:RUNNER_TEMP\mesa-zink\extracted\opengl32.dll" -DestinationPath $outZip -Force
+          $trackedZip = "dist/mashclient-vulkan-zink-win64.zip"
+          if (-not (Test-Path $trackedZip)) {
+            throw "CRITICAL: Tracked $trackedZip missing; refusing unverified external binary download."
           }
+          $actualHash = (Get-FileHash -Path $trackedZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:EXPECTED_ZINK_SHA256) {
+            throw "CRITICAL: SHA-256 mismatch for $trackedZip (got $actualHash, expected $($env:EXPECTED_ZINK_SHA256))."
+          }
+          Copy-Item $trackedZip -Destination "artifact-stage/mashclient-vulkan-zink-win64.zip" -Force
+          Write-Host "Verified & staged $trackedZip (SHA-256: $actualHash)."
 
       - name: Upload Windows Launcher & Zink Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: launcher-win64
           path: |
@@ -158,26 +160,31 @@ jobs:
       contents: write
     steps:
       - name: Download Mod JAR Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: mod-jar
           path: release-assets
 
       - name: Download Windows Launcher & Zink Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: launcher-win64
           path: release-assets
 
-      - name: Publish All Release Assets Atomically
+      - name: Publish All Release Assets & SHA256SUMS Atomically
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.build-mod.outputs.tag }}
+          RELEASE_VER: ${{ needs.build-mod.outputs.version }}
+          TARGET_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG="${{ needs.build-mod.outputs.tag }}"
-          VER="${{ needs.build-mod.outputs.version }}"
-          JAR_FILE="$(find release-assets -type f -name "purefps-${VER}.jar" | head -n 1)"
+          if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ! "$RELEASE_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Invalid release metadata" >&2
+            exit 1
+          fi
+          JAR_FILE="$(find release-assets -type f -name "purefps-${RELEASE_VER}.jar" | head -n 1)"
           EXE_FILE="$(find release-assets -type f -name "MashClient.exe" | head -n 1)"
           ZINK_FILE="$(find release-assets -type f -name "mashclient-vulkan-zink-win64.zip" | head -n 1)"
 
@@ -185,11 +192,19 @@ jobs:
           test -n "$EXE_FILE" && test -s "$EXE_FILE"
           test -n "$ZINK_FILE" && test -s "$ZINK_FILE"
 
-          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" --clobber --repo "${{ github.repository }}"
+          SUMS_FILE="release-assets/SHA256SUMS.txt"
+          {
+            printf "%s  %s\n" "$(sha256sum "$JAR_FILE" | awk '{print $1}')" "$(basename "$JAR_FILE")"
+            printf "%s  %s\n" "$(sha256sum "$EXE_FILE" | awk '{print $1}')" "$(basename "$EXE_FILE")"
+            printf "%s  %s\n" "$(sha256sum "$ZINK_FILE" | awk '{print $1}')" "$(basename "$ZINK_FILE")"
+          } > "$SUMS_FILE"
+          test -s "$SUMS_FILE"
+
+          if gh release view "$RELEASE_TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" "$SUMS_FILE" --clobber --repo "$TARGET_REPO"
           else
-            gh release create "$TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" \
-              --repo "${{ github.repository }}" \
-              --title "MashClient ${TAG}" \
+            gh release create "$RELEASE_TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" "$SUMS_FILE" \
+              --repo "$TARGET_REPO" \
+              --title "MashClient ${RELEASE_TAG}" \
               --generate-notes
           fi

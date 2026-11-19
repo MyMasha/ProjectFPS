@@ -42,7 +42,7 @@ public class MixinSplashProgressThread {
                     ratio = (float) top.getStep() / (float) top.getSteps();
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Exception | LinkageError ignored) {
         }
         BlackHoleEmergenceRenderer.renderSplashThreadFrame(ratio);
     }
