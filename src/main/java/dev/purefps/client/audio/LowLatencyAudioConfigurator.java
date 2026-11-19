@@ -58,7 +58,7 @@ public final class LowLatencyAudioConfigurator {
 
     public static String buildAlsoftIniContent(String preferredDevice) {
         StringBuilder sb = new StringBuilder(256);
-        sb.append("# MashClient 4.5.11 — Profil OpenAL Soft WASAPI Basse Latence\n")
+        sb.append("# MashClient 4.5.12 — Profil OpenAL Soft WASAPI Basse Latence\n")
                 .append("[general]\n")
                 .append("drivers = mmdevapi,dsound\n")
                 .append("periods = 3\n")
