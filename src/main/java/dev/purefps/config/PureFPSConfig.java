@@ -737,7 +737,7 @@ public final class PureFPSConfig {
         props.setProperty("lastServerName", lastServerName != null ? lastServerName : "");
 
         try (FileOutputStream out = new FileOutputStream(configFile)) {
-            props.store(out, "MashClient 4.5.13 Configuration");
+            props.store(out, "MashClient 4.5.14 Configuration");
         } catch (IOException ignored) {
         }
     }

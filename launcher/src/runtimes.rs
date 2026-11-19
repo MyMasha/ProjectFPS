@@ -1,4 +1,4 @@
-//! Gestionnaire des runtimes MashClient 4.5.13 :
+//! Gestionnaire des runtimes MashClient 4.5.14 :
 //! 1. Détection, classement et installation automatique d'Eclipse Temurin Java 8 x64 récent (`8u400+`)
 //! 2. Déploiement du traducteur OpenGL -> Vulkan **Mesa3D Zink** (`opengl32.dll` + `javaw.exe.local`)
 //!    tout en conservant le même dossier `.minecraft` unifié (resourcepacks, mondes, serveurs, configs).
@@ -25,7 +25,7 @@ pub const VULKAN_OPTIONAL_COMPANION_DLLS: &[&str] = &[
     "zink_dri.dll",
 ];
 
-const USER_AGENT: &str = "MashClient-Runtimes/4.5.13";
+const USER_AGENT: &str = "MashClient-Runtimes/4.5.14";
 const MAX_RUNTIME_DOWNLOAD_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_ZIP_ENTRY_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_ZIP_TOTAL_BYTES: u64 = 512 * 1024 * 1024;

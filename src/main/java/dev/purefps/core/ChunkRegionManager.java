@@ -30,7 +30,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Moteur GPU Ultra-Haute-Fréquence d'Arènes Régionales MultiDraw + VAO GL 3.0 (MashClient 4.5.13) :
+ * Moteur GPU Ultra-Haute-Fréquence d'Arènes Régionales MultiDraw + VAO GL 3.0 (MashClient 4.5.14) :
  * - Fusionne jusqu'à 256+ sections de chunks par région 256x256 blocs dans un unique tampon VRAM contigu
  *   (RegionLayerArena) avec VAO matériel OpenGL 3.0 (1 seul glBindVertexArray + 1 seul glMultiDrawArrays par région).
  * - Déporte la conversion quads -> triangles + translation régionale sur les threads workers ChunkRenderWorker

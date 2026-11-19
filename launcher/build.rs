@@ -44,7 +44,7 @@ fn embed_windows_exe_resources() {
         return;
     }
 
-    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "4.5.13".to_owned());
+    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "4.5.14".to_owned());
     let mut parts = pkg_ver.split('.').map(|p| p.parse::<u16>().unwrap_or(0));
     let v_maj = parts.next().unwrap_or(4);
     let v_min = parts.next().unwrap_or(5);
@@ -59,7 +59,7 @@ fn embed_windows_exe_resources() {
         let out_manifest = out_path.join("mashclient.manifest");
         let manifest_content = std::fs::read_to_string(&manifest_path)
             .unwrap_or_default()
-            .replace("version=\"4.5.13.0\"", &format!("version=\"{v_maj}.{v_min}.{v_pat}.0\""));
+            .replace("version=\"4.5.14.0\"", &format!("version=\"{v_maj}.{v_min}.{v_pat}.0\""));
         let _ = std::fs::write(&out_manifest, manifest_content);
         let manifest_escaped = out_manifest.to_string_lossy().replace('\\', "/");
         format!("1 24 \"{manifest_escaped}\"\r\n")

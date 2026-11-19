@@ -107,6 +107,9 @@ public final class FastFontBatcher {
         int rgba = packRgba(r, g, b, a);
         ByteBuffer buf = ensureBuffer();
         int off = batchedVertices * VERTEX_STRIDE_BYTES;
+        if (batchedVertices == 0 || buf.limit() < off + (6 * VERTEX_STRIDE_BYTES)) {
+            buf.clear();
+        }
 
         // Triangle 1 : TL, BL, TR (identique au 1er triangle du GL_TRIANGLE_STRIP Vanilla)
         putVertex(buf, off, x0Top, y0, u0, v0, rgba);
@@ -151,14 +154,31 @@ public final class FastFontBatcher {
         }
     }
 
+    static ByteBuffer prepareFlushSliceForTest() {
+        int verts = batchedVertices;
+        batchedVertices = 0;
+        ByteBuffer buf = ensureBuffer();
+        buf.position(0);
+        buf.limit(verts * VERTEX_STRIDE_BYTES);
+        return buf;
+    }
+
+    static void finishFlushReset() {
+        if (vertexBuffer != null) {
+            vertexBuffer.clear();
+        }
+    }
+
     public static void flush() {
         int verts = batchedVertices;
         if (verts <= 0) {
+            finishFlushReset();
             return;
         }
         batchedVertices = 0;
         int texId = activeTexId;
         if (texId <= 0) {
+            finishFlushReset();
             return;
         }
 
@@ -167,43 +187,48 @@ public final class FastFontBatcher {
         buf.position(0);
         buf.limit(byteLen);
 
-        GlStateManager.bindTexture(texId);
-        OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
+        try {
+            GlStateManager.bindTexture(texId);
+            OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
 
-        GL11.glEnableClientState(GL11.GL_VERTEX_ARRAY);
-        GL11.glEnableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
-        GL11.glEnableClientState(GL11.GL_COLOR_ARRAY);
+            GL11.glEnableClientState(GL11.GL_VERTEX_ARRAY);
+            GL11.glEnableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
+            GL11.glEnableClientState(GL11.GL_COLOR_ARRAY);
 
-        boolean useVbo = OpenGlHelper.vboSupported;
-        if (useVbo) {
-            if (streamingVboId <= 0) {
-                streamingVboId = OpenGlHelper.glGenBuffers();
-            }
-            if (streamingVboId > 0) {
-                OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, streamingVboId);
-                // Orphaning VRAM exact (1 seul appel JNI) : zéro stall CPU<->GPU et zéro sur-allocation
-                OpenGlHelper.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, buf, GL15.GL_STREAM_DRAW);
+            boolean useVbo = OpenGlHelper.vboSupported;
+            if (useVbo) {
+                if (streamingVboId <= 0) {
+                    streamingVboId = OpenGlHelper.glGenBuffers();
+                }
+                if (streamingVboId > 0) {
+                    OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, streamingVboId);
+                    // Orphaning VRAM exact (1 seul appel JNI) : zéro stall CPU<->GPU et zéro sur-allocation
+                    OpenGlHelper.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, buf, GL15.GL_STREAM_DRAW);
 
-                GL11.glVertexPointer(3, GL11.GL_FLOAT, VERTEX_STRIDE_BYTES, 0L);
-                GL11.glTexCoordPointer(2, GL11.GL_FLOAT, VERTEX_STRIDE_BYTES, 12L);
-                GL11.glColorPointer(4, GL11.GL_UNSIGNED_BYTE, VERTEX_STRIDE_BYTES, 20L);
-                GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, verts);
+                    GL11.glVertexPointer(3, GL11.GL_FLOAT, VERTEX_STRIDE_BYTES, 0L);
+                    GL11.glTexCoordPointer(2, GL11.GL_FLOAT, VERTEX_STRIDE_BYTES, 12L);
+                    GL11.glColorPointer(4, GL11.GL_UNSIGNED_BYTE, VERTEX_STRIDE_BYTES, 20L);
+                    GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, verts);
 
-                OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
+                    OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
+                } else {
+                    drawClientArrays(buf, verts);
+                }
             } else {
                 drawClientArrays(buf, verts);
             }
-        } else {
-            drawClientArrays(buf, verts);
+
+            GL11.glDisableClientState(GL11.GL_COLOR_ARRAY);
+            GL11.glDisableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
+            GL11.glDisableClientState(GL11.GL_VERTEX_ARRAY);
+
+            // Restaure l'état couleur exact attendu par Vanilla après glColorPointer
+            GlStateManager.resetColor();
+            GlStateManager.color(lastColorR, lastColorG, lastColorB, lastColorA);
+        } finally {
+            // Critique : restaure limit = capacity et position = 0 pour la chaîne suivante !
+            buf.clear();
         }
-
-        GL11.glDisableClientState(GL11.GL_COLOR_ARRAY);
-        GL11.glDisableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
-        GL11.glDisableClientState(GL11.GL_VERTEX_ARRAY);
-
-        // Restaure l'état couleur exact attendu par Vanilla après glColorPointer
-        GlStateManager.resetColor();
-        GlStateManager.color(lastColorR, lastColorG, lastColorB, lastColorA);
     }
 
     private static void drawClientArrays(ByteBuffer buf, int verts) {
@@ -222,5 +247,6 @@ public final class FastFontBatcher {
     public static void invalidateGlState() {
         flushIfPending();
         activeTexId = -1;
+        finishFlushReset();
     }
 }

@@ -1930,4 +1930,27 @@ public class PureFPSCoreTest {
         assertSame("Worker triangle buffer should be recycled from lock-free pool", workerBaked, recycled);
         ChunkRegionManager.releaseWorkerTriBuffer(recycled);
     }
+
+    @Test
+    public void testFastFontBatcherBufferLimitResetAcrossVariableLengths() {
+        // Régression v4.5.14 : une chaîne courte (2 glyphes -> limit=288) suivie d'une chaîne longue (64 glyphes)
+        // ne doit JAMAIS lever IndexOutOfBoundsException sur ByteBuffer.putFloat !
+        FastFontBatcher.finishFlushReset();
+        for (int i = 0; i < 2; i++) {
+            FastFontBatcher.appendAsciiGlyph(7, i * 6.0F, 10.0F, 8, 16, 5.99F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F);
+        }
+        ByteBuffer shortSlice = FastFontBatcher.prepareFlushSliceForTest();
+        assertEquals(2 * 6 * 24, shortSlice.limit());
+
+        // Même si limit reste réduit à 288 avant finishFlushReset, appendAsciiGlyph doit restaurer la limite
+        for (int i = 0; i < 64; i++) {
+            FastFontBatcher.appendAsciiGlyph(7, i * 6.0F, 20.0F, 8, 16, 5.99F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F);
+        }
+        ByteBuffer longSlice = FastFontBatcher.prepareFlushSliceForTest();
+        assertEquals(64 * 6 * 24, longSlice.limit());
+
+        FastFontBatcher.finishFlushReset();
+        assertEquals(longSlice.capacity(), longSlice.limit());
+        assertEquals(0, longSlice.position());
+    }
 }

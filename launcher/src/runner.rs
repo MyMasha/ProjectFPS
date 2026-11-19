@@ -1,5 +1,5 @@
-//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.13 (OpenGL & Vulkan Bêta).
-//! - Synchronise automatiquement `purefps-4.5.13.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
+//! Exécuteur autonome JVM 1.8.9 + Forge 11.15.1.2318 + MashClient 4.5.14 (OpenGL & Vulkan Bêta).
+//! - Synchronise automatiquement `purefps-4.5.14.jar` (et le télécharge depuis GitHub Releases s'il manque ou est obsolète)
 //! - Télécharge ou récupère automatiquement les bibliothèques Forge 1.8.9, `minecraft-1.8.9-client.jar` et l'index d'assets `1.8.json`
 //! - Extrait les DLL natives LWJGL 2.9.4 / JInput / Twitch 64-bit
 //! - Isolat dédié pour le mode Vulkan (Bêta) via Mesa3D Zink (`javaw.exe.local` + `GALLIUM_DRIVER=zink`)
@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.13.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-4.5.14.jar";
 const MAX_LIBRARY_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_NATIVE_DLL_BYTES: u64 = 32 * 1024 * 1024;
 const EXPECTED_MC_189_CLIENT_SHA1: &str = "3870888a6c3d349d3771a3e9d16c9bf5e076b908";
@@ -427,7 +427,7 @@ fn download_file_to_path(
     }
     let resp = agent
         .get(url)
-        .set("User-Agent", "MashClient/4.5.13")
+        .set("User-Agent", "MashClient/4.5.14")
         .call()
         .map_err(|e| format!("Download failed for {url}: {e}"))?;
     if let Some(cl) = resp
@@ -1640,7 +1640,7 @@ pub fn detect_recent_crash_in_dirs(
 }
 
 pub fn build_low_latency_alsoft_ini() -> &'static str {
-    "# MashClient 4.5.13 — Profil OpenAL Soft WASAPI Basse Latence\n\
+    "# MashClient 4.5.14 — Profil OpenAL Soft WASAPI Basse Latence\n\
 [general]\n\
 drivers = mmdevapi,dsound\n\
 periods = 3\n\

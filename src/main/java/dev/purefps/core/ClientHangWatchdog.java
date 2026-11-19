@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Watchdog léger embarqué dans la JVM 1.8.9 (MashClient 4.5.13) :
+ * Watchdog léger embarqué dans la JVM 1.8.9 (MashClient 4.5.14) :
  * - Surveille en arrière-plan le `Client thread` de Minecraft sans aucun impact FPS (simple écriture volatile).
  * - Pompe `Display.processMessages()` aux jalons de démarrage pour éviter les faux « Not Responding » Windows 10/11.
  * - Si le `Client thread` se fige (>= 8 s au démarrage ou >= 6 s en jeu), capture instantanément sa pile d'appels
