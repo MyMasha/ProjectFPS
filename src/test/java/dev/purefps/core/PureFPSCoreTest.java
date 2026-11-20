@@ -2441,6 +2441,18 @@ public class PureFPSCoreTest {
         assertEquals((512 >> 2) * 6, scratch.getInt(0));
         assertEquals(11 * 512, scratch.getInt(11 * 20 + 12));
     }
+
+    @Test
+    public void testEntityModelBatcherCpuBufLimitResetAcrossBatches() {
+        // Lot #1 court (6 quads = 1 cube) laissant CPU_BUF.limit() réduit à 6 * 192 octets
+        int vSmall = EntityModelBatcher.emitQuadsAndSimulateFlushForTest(6, true);
+        assertEquals(36, vSmall);
+        // Lot #2 plus grand (18 quads = coffre 3 cubes / joueur 12 cubes) : ne doit JAMAIS lever IndexOutOfBoundsException
+        int vChest = EntityModelBatcher.emitQuadsAndSimulateFlushForTest(18, true);
+        assertEquals(108, vChest);
+        int vPlayer = EntityModelBatcher.emitQuadsAndSimulateFlushForTest(72, false);
+        assertEquals(432, vPlayer);
+    }
 }
 
 

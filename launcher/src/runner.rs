@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-1.0.2.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-1.0.3.jar";
 const MAX_LIBRARY_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_NATIVE_DLL_BYTES: u64 = 32 * 1024 * 1024;
 const EXPECTED_MC_189_CLIENT_SHA1: &str = "3870888a6c3d349d3771a3e9d16c9bf5e076b908";

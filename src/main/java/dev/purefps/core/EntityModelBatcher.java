@@ -117,6 +117,7 @@ public final class EntityModelBatcher {
             setIdentity(0);
             queuedVerts = 0;
             writeByteOffset = 0;
+            CPU_BUF.clear();
             capturing = true;
         }
         batchDepth++;
@@ -140,6 +141,7 @@ public final class EntityModelBatcher {
         batchDepth = 0;
         queuedVerts = 0;
         writeByteOffset = 0;
+        CPU_BUF.clear();
         stackTop = 0;
         setIdentity(0);
     }
@@ -414,6 +416,7 @@ public final class EntityModelBatcher {
         }
         queuedVerts = 0;
         writeByteOffset = 0;
+        CPU_BUF.clear();
 
         for (int c = 0, cCount = cubes.size(); c < cCount; c++) {
             TexturedQuad[] quads = ((MixinModelBoxAccessor) cubes.get(c)).purefps$getQuadList();
@@ -484,6 +487,9 @@ public final class EntityModelBatcher {
     ) {
         int off = writeByteOffset;
         ByteBuffer b = CPU_BUF;
+        if (off + 192 > b.limit()) {
+            b.clear();
+        }
         // Triangle 1 : 0, 1, 2
         putVert(b, off,       x0, y0, z0, u0, v0, nx, ny, nz);
         putVert(b, off + 32,  x1, y1, z1, u1, v1, nx, ny, nz);
@@ -495,6 +501,37 @@ public final class EntityModelBatcher {
 
         writeByteOffset = off + 192;
         queuedVerts += 6;
+    }
+
+    /**
+     * Utilitaire de test unitaire sans contexte OpenGL : émet N quads sur CPU_BUF puis
+     * simule le découpage limit(byteLen) d'un flush afin de vérifier la réinitialisation du tampon.
+     */
+    public static int emitQuadsAndSimulateFlushForTest(int quadCount, boolean leaveShrunkLimitBeforeEmit) {
+        queuedVerts = 0;
+        writeByteOffset = 0;
+        if (!leaveShrunkLimitBeforeEmit) {
+            CPU_BUF.clear();
+        }
+        for (int i = 0; i < quadCount; i++) {
+            putTriQuad(
+                    0.0F, 0.0F, 0.0F, 0.0F, 0.0F,
+                    1.0F, 0.0F, 0.0F, 1.0F, 0.0F,
+                    1.0F, 1.0F, 0.0F, 1.0F, 1.0F,
+                    0.0F, 1.0F, 0.0F, 0.0F, 1.0F,
+                    0.0F, 0.0F, 1.0F
+            );
+        }
+        int verts = queuedVerts;
+        int byteLen = writeByteOffset;
+        CPU_BUF.position(0);
+        CPU_BUF.limit(byteLen);
+        queuedVerts = 0;
+        writeByteOffset = 0;
+        if (!leaveShrunkLimitBeforeEmit) {
+            CPU_BUF.clear();
+        }
+        return verts;
     }
 
     private static void putVert(
@@ -548,6 +585,7 @@ public final class EntityModelBatcher {
     public static void flush() {
         int count = queuedVerts;
         if (count <= 0) {
+            CPU_BUF.clear();
             return;
         }
         int byteLen = writeByteOffset;
@@ -555,56 +593,61 @@ public final class EntityModelBatcher {
         writeByteOffset = 0;
 
         if (!ensureRingReady()) {
+            CPU_BUF.clear();
             return;
         }
 
         CPU_BUF.position(0);
         CPU_BUF.limit(byteLen);
 
-        OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, ringVboId);
-        if (ringWriteVert + count > RING_CAPACITY_VERTS) {
-            GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, RING_CAPACITY_BYTES, GL15.GL_STREAM_DRAW);
-            ringWriteVert = 0;
-        }
-        int firstVert = ringWriteVert;
-        long byteOff = (long) firstVert * VERTEX_STRIDE;
-        ringWriteVert += count;
-
-        boolean uploaded = false;
-        if (vaoSupported) {
-            ByteBuffer mapped = GL30.glMapBufferRange(
-                    OpenGlHelper.GL_ARRAY_BUFFER, byteOff, byteLen, MAP_FLAGS, mappedScratch
-            );
-            if (mapped != null) {
-                mappedScratch = mapped;
-                mapped.clear();
-                mapped.put(CPU_BUF);
-                GL15.glUnmapBuffer(OpenGlHelper.GL_ARRAY_BUFFER);
-                uploaded = true;
+        try {
+            OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, ringVboId);
+            if (ringWriteVert + count > RING_CAPACITY_VERTS) {
+                GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, RING_CAPACITY_BYTES, GL15.GL_STREAM_DRAW);
+                ringWriteVert = 0;
             }
-        }
-        if (!uploaded) {
-            GL15.glBufferSubData(OpenGlHelper.GL_ARRAY_BUFFER, byteOff, CPU_BUF);
-        }
+            int firstVert = ringWriteVert;
+            long byteOff = (long) firstVert * VERTEX_STRIDE;
+            ringWriteVert += count;
 
-        if (ringVaoId > 0) {
-            GL30.glBindVertexArray(ringVaoId);
-            GL11.glDrawArrays(GL11.GL_TRIANGLES, firstVert, count);
-            GL30.glBindVertexArray(0);
-            OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
-        } else {
-            OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
-            GL11.glEnableClientState(GL11.GL_VERTEX_ARRAY);
-            GL11.glEnableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
-            GL11.glEnableClientState(GL11.GL_NORMAL_ARRAY);
-            GL11.glVertexPointer(3, GL11.GL_FLOAT, VERTEX_STRIDE, 0L);
-            GL11.glTexCoordPointer(2, GL11.GL_FLOAT, VERTEX_STRIDE, 12L);
-            GL11.glNormalPointer(GL11.GL_FLOAT, VERTEX_STRIDE, 20L);
-            GL11.glDrawArrays(GL11.GL_TRIANGLES, firstVert, count);
-            GL11.glDisableClientState(GL11.GL_NORMAL_ARRAY);
-            GL11.glDisableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
-            GL11.glDisableClientState(GL11.GL_VERTEX_ARRAY);
-            OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
+            boolean uploaded = false;
+            if (vaoSupported) {
+                ByteBuffer mapped = GL30.glMapBufferRange(
+                        OpenGlHelper.GL_ARRAY_BUFFER, byteOff, byteLen, MAP_FLAGS, mappedScratch
+                );
+                if (mapped != null) {
+                    mappedScratch = mapped;
+                    mapped.clear();
+                    mapped.put(CPU_BUF);
+                    GL15.glUnmapBuffer(OpenGlHelper.GL_ARRAY_BUFFER);
+                    uploaded = true;
+                }
+            }
+            if (!uploaded) {
+                GL15.glBufferSubData(OpenGlHelper.GL_ARRAY_BUFFER, byteOff, CPU_BUF);
+            }
+
+            if (ringVaoId > 0) {
+                GL30.glBindVertexArray(ringVaoId);
+                GL11.glDrawArrays(GL11.GL_TRIANGLES, firstVert, count);
+                GL30.glBindVertexArray(0);
+                OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
+            } else {
+                OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
+                GL11.glEnableClientState(GL11.GL_VERTEX_ARRAY);
+                GL11.glEnableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
+                GL11.glEnableClientState(GL11.GL_NORMAL_ARRAY);
+                GL11.glVertexPointer(3, GL11.GL_FLOAT, VERTEX_STRIDE, 0L);
+                GL11.glTexCoordPointer(2, GL11.GL_FLOAT, VERTEX_STRIDE, 12L);
+                GL11.glNormalPointer(GL11.GL_FLOAT, VERTEX_STRIDE, 20L);
+                GL11.glDrawArrays(GL11.GL_TRIANGLES, firstVert, count);
+                GL11.glDisableClientState(GL11.GL_NORMAL_ARRAY);
+                GL11.glDisableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
+                GL11.glDisableClientState(GL11.GL_VERTEX_ARRAY);
+                OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
+            }
+        } finally {
+            CPU_BUF.clear();
         }
     }
 
