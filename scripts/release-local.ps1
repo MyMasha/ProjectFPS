@@ -68,26 +68,51 @@ if (-not (Test-Path $ExePath)) {
     throw "MashClient.exe introuvable : $ExePath"
 }
 
-Write-Host "[3/5] Génération de SHA256SUMS.txt..." -ForegroundColor Cyan
-$SumsPath = Join-Path $RepoRoot "build\libs\SHA256SUMS.txt"
+Write-Host "[3/5] Préparation de MashClient-Windows-Portable.exe et compilation de MashClient-Windows-Setup.exe..." -ForegroundColor Cyan
+$StageDir = Join-Path $RepoRoot "build\release-stage"
+New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
+$PortablePath = Join-Path $StageDir "MashClient-Windows-Portable.exe"
+Copy-Item $ExePath -Destination $PortablePath -Force
+
+$Iscc = @(
+    (Get-Command iscc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    "C:\Program Files\Inno Setup 6\ISCC.exe"
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if (-not $Iscc) {
+    throw "ERREUR CRITIQUE : Inno Setup 6 (ISCC.exe) introuvable pour compiler MashClient-Windows-Setup.exe."
+}
+$IssPath = Join-Path $RepoRoot "launcher\installer\mashclient.iss"
+& $Iscc "/DMyAppVersion=$CleanVer" "/O$StageDir" $IssPath
+if ($LASTEXITCODE -ne 0) {
+    throw "ERREUR CRITIQUE : Échec de compilation Inno Setup (exit code $LASTEXITCODE)."
+}
+$SetupPath = Join-Path $StageDir "MashClient-Windows-Setup.exe"
+if (-not (Test-Path $SetupPath)) {
+    throw "MashClient-Windows-Setup.exe introuvable : $SetupPath"
+}
+
+Write-Host "[4/5] Génération de SHA256SUMS.txt & publication atomique ($Tag)..." -ForegroundColor Cyan
+$SumsPath = Join-Path $StageDir "SHA256SUMS.txt"
 $JarHash = (Get-FileHash -Path $JarPath -Algorithm SHA256).Hash.ToLowerInvariant()
-$ExeHash = (Get-FileHash -Path $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
+$SetupHash = (Get-FileHash -Path $SetupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$PortableHash = (Get-FileHash -Path $PortablePath -Algorithm SHA256).Hash.ToLowerInvariant()
 $LicenseHash = (Get-FileHash -Path $LicensePath -Algorithm SHA256).Hash.ToLowerInvariant()
 $NoticesHash = (Get-FileHash -Path $NoticesPath -Algorithm SHA256).Hash.ToLowerInvariant()
 @(
     "$JarHash  purefps-$CleanVer.jar"
-    "$ExeHash  MashClient.exe"
+    "$SetupHash  MashClient-Windows-Setup.exe"
+    "$PortableHash  MashClient-Windows-Portable.exe"
     "$ZinkHash  mashclient-vulkan-zink-win64.zip"
     "$LicenseHash  LICENSE"
     "$NoticesHash  THIRD_PARTY_LICENSES.md"
 ) -join "`n" | Set-Content -Path $SumsPath -Encoding ASCII -NoNewline
 Add-Content -Path $SumsPath -Value "`n" -Encoding ASCII -NoNewline
 
-Write-Host "[4/5] Publication atomique sur GitHub Releases ($Tag)..." -ForegroundColor Cyan
 gh release view $Tag --repo MyMasha/ProjectFPS *> $null
 if ($LASTEXITCODE -eq 0) {
     throw "ERREUR : La release $Tag existe déjà sur MyMasha/ProjectFPS. Incrémentez le numéro de version plutôt que d'écraser une release existante."
 }
-gh release create $Tag $JarPath $ExePath $ZinkPath $LicensePath $NoticesPath $SumsPath --repo MyMasha/ProjectFPS --title "MashClient $Tag" --generate-notes
+gh release create $Tag $SetupPath $PortablePath $JarPath $ZinkPath $LicensePath $NoticesPath $SumsPath --repo MyMasha/ProjectFPS --title "MashClient $Tag" --generate-notes
 
 Write-Host "[5/5] Publication locale terminée : https://github.com/MyMasha/ProjectFPS/releases/tag/$Tag" -ForegroundColor Green

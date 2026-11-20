@@ -14,12 +14,17 @@ Le dépôt regroupe deux composants :
 
 Les binaires précompilés sont publiés dans les [**GitHub Releases**](https://github.com/MyMasha/ProjectFPS/releases/latest) avec leurs empreintes cryptographiques `SHA256SUMS.txt` :
 
-1. **Avec le Launcher Windows (`MashClient.exe`)**
-   - Téléchargez `MashClient.exe` depuis la dernière release.
-   - Le launcher crée et gère un environnement autonome isolé dans `%APPDATA%\.PureFPS\` (bibliothèques Forge `1.8.9`, mod `purefps-*.jar` synchronisé et vérifié par SHA-256, et détection/téléchargement optionnel d'Eclipse Temurin JRE 8 x64).
+1. **Installateur Windows (`MashClient-Windows-Setup.exe`) — recommandé**
+   - Téléchargez et lancez `MashClient-Windows-Setup.exe` depuis la dernière release.
+   - Installe MashClient dans `%LOCALAPPDATA%\Programs\MashClient` (**sans droits administrateur**), crée le raccourci menu Démarrer / Bureau et un désinstalleur Windows propre.
+   - Les futures mises à jour se font automatiquement en un clic dans le launcher (via `MashClient-Windows-Portable.exe` vérifié par SHA-256).
+
+2. **Version Portable (`MashClient-Windows-Portable.exe`)**
+   - Exécutable autonome sans installation (utilisé également par l'Auto-Updater intégré).
+   - Le launcher crée et gère son environnement isolé dans `%APPDATA%\.PureFPS\` (bibliothèques Forge `1.8.9`, mod `purefps-*.jar` synchronisé et vérifié par SHA-256, et détection/téléchargement optionnel d'Eclipse Temurin JRE 8 x64).
    - Connectez un compte **Microsoft** possédant une licence **Minecraft: Java Edition** valide.
 
-2. **Mod seul (`purefps-*.jar`)**
+3. **Mod seul (`purefps-*.jar`)**
    - Installez **Minecraft Forge 1.8.9** (`11.15.1.2318`).
    - Placez `purefps-<version>.jar` dans votre dossier `.minecraft/mods/`.
 

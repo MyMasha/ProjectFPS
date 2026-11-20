@@ -1,4 +1,4 @@
-name: MashClient Release (Mod 1.8.9 + MashClient.exe + Vulkan Zink)
+name: MashClient Release (Mod 1.8.9 + Windows Setup + Portable + Vulkan Zink)
 
 on:
   push:
@@ -69,7 +69,7 @@ jobs:
           if-no-files-found: error
 
   build-launcher:
-    name: Build & Verify MashClient.exe (Windows OAuth2 + Zink)
+    name: Build Windows Setup + Portable EXEs (OAuth2 + Zink)
     if: github.repository == 'MyMasha/ProjectFPS'
     runs-on: windows-latest
     timeout-minutes: 30
@@ -89,6 +89,7 @@ jobs:
           prefix-key: "v1-release"
 
       - name: Verify Microsoft OAuth2 Client ID & Sync Version
+        id: ver
         shell: pwsh
         env:
           MASHCLIENT_MS_CLIENT_ID: ${{ secrets.MASHCLIENT_MS_CLIENT_ID }}
@@ -104,6 +105,7 @@ jobs:
             throw "CRITICAL: Invalid release tag format: $rawTag"
           }
           $cleanVer = $rawTag.TrimStart('v')
+          "version=$cleanVer" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           $cargoPath = "launcher/Cargo.toml"
           $content = Get-Content $cargoPath -Raw
           $updated = [regex]::Replace($content, '(?m)^version\s*=\s*"[^"]+"', "version = `"$cleanVer`"", 1)
@@ -131,14 +133,46 @@ jobs:
           }
           Write-Host "Verified: MashClient.exe built with OAuth2 Client ID, sanitized paths, and zero embedded GitHub PAT."
 
-      - name: Stage Verified Mesa3D Zink x64 Bundle & Release Artifacts
+      - name: Build Windows Installer (MashClient-Windows-Setup.exe) & Stage Portable + Zink
         shell: pwsh
         env:
           EXPECTED_ZINK_SHA256: "d3f71e2ef11c032a6d7b507ee2f6bab6ca3fb20543944af70982fc24b92604cb"
+          CLEAN_VER: ${{ steps.ver.outputs.version }}
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path "artifact-stage" | Out-Null
-          Copy-Item "launcher/target/release/MashClient.exe" -Destination "artifact-stage/MashClient.exe" -Force
+
+          # 1. Exécutable Windows Portable (utilisé directement et par l'Auto-Updater intégré pour les mises à jour)
+          Copy-Item "launcher/target/release/MashClient.exe" -Destination "artifact-stage/MashClient-Windows-Portable.exe" -Force
+
+          # 2. Installateur Windows Inno Setup (MashClient-Windows-Setup.exe)
+          $isccCandidates = @(
+            (Get-Command iscc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          $iscc = $isccCandidates | Select-Object -First 1
+          if (-not $iscc) {
+            Write-Host "Inno Setup non trouvé dans les emplacements standards — installation via Chocolatey..."
+            choco install innosetup -y --no-progress | Out-Host
+            $iscc = @(
+              "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+              "C:\Program Files\Inno Setup 6\ISCC.exe"
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) {
+            throw "CRITICAL: Inno Setup (ISCC.exe) introuvable pour compiler MashClient-Windows-Setup.exe."
+          }
+          $stageAbs = (Resolve-Path "artifact-stage").Path
+          & $iscc "/DMyAppVersion=$($env:CLEAN_VER)" "/O$stageAbs" "launcher/installer/mashclient.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "CRITICAL: Échec de la compilation Inno Setup (exit code $LASTEXITCODE)."
+          }
+          if (-not (Test-Path "artifact-stage/MashClient-Windows-Setup.exe")) {
+            throw "CRITICAL: artifact-stage/MashClient-Windows-Setup.exe introuvable après compilation Inno Setup."
+          }
+
+          # 3. Bundle Mesa3D 26.3.0 Zink vérifié par SHA-256 + Licences
           $trackedZip = "dist/mashclient-vulkan-zink-win64.zip"
           if (-not (Test-Path $trackedZip)) {
             throw "CRITICAL: Tracked $trackedZip missing; refusing unverified external binary download."
@@ -156,14 +190,15 @@ jobs:
           }
           Copy-Item "LICENSE" -Destination "artifact-stage/LICENSE" -Force
           Copy-Item "THIRD_PARTY_LICENSES.md" -Destination "artifact-stage/THIRD_PARTY_LICENSES.md" -Force
-          Write-Host "Verified & staged $trackedZip (SHA-256: $actualHash), LICENSE, and THIRD_PARTY_LICENSES.md."
+          Write-Host "Verified & staged Setup, Portable, Zink ($actualHash), LICENSE, and THIRD_PARTY_LICENSES.md."
 
-      - name: Upload Windows Launcher & Zink Artifacts
+      - name: Upload Windows Setup, Portable & Zink Artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: launcher-win64
           path: |
-            artifact-stage/MashClient.exe
+            artifact-stage/MashClient-Windows-Setup.exe
+            artifact-stage/MashClient-Windows-Portable.exe
             artifact-stage/mashclient-vulkan-zink-win64.zip
             artifact-stage/LICENSE
             artifact-stage/THIRD_PARTY_LICENSES.md
@@ -184,7 +219,7 @@ jobs:
           name: mod-jar
           path: release-assets
 
-      - name: Download Windows Launcher & Zink Artifacts
+      - name: Download Windows Setup, Portable & Zink Artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: launcher-win64
@@ -197,6 +232,7 @@ jobs:
           RELEASE_TAG: ${{ needs.build-mod.outputs.tag }}
           RELEASE_VER: ${{ needs.build-mod.outputs.version }}
           TARGET_REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ! "$RELEASE_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -209,13 +245,15 @@ jobs:
           fi
 
           JAR_FILE="$(find release-assets -type f -name "purefps-${RELEASE_VER}.jar" | head -n 1)"
-          EXE_FILE="$(find release-assets -type f -name "MashClient.exe" | head -n 1)"
+          SETUP_FILE="$(find release-assets -type f -name "MashClient-Windows-Setup.exe" | head -n 1)"
+          PORTABLE_FILE="$(find release-assets -type f -name "MashClient-Windows-Portable.exe" | head -n 1)"
           ZINK_FILE="$(find release-assets -type f -name "mashclient-vulkan-zink-win64.zip" | head -n 1)"
           LICENSE_FILE="$(find release-assets -type f -name "LICENSE" | head -n 1)"
           NOTICES_FILE="$(find release-assets -type f -name "THIRD_PARTY_LICENSES.md" | head -n 1)"
 
           test -n "$JAR_FILE" && test -s "$JAR_FILE"
-          test -n "$EXE_FILE" && test -s "$EXE_FILE"
+          test -n "$SETUP_FILE" && test -s "$SETUP_FILE"
+          test -n "$PORTABLE_FILE" && test -s "$PORTABLE_FILE"
           test -n "$ZINK_FILE" && test -s "$ZINK_FILE"
           test -n "$LICENSE_FILE" && test -s "$LICENSE_FILE"
           test -n "$NOTICES_FILE" && test -s "$NOTICES_FILE"
@@ -223,14 +261,30 @@ jobs:
           SUMS_FILE="release-assets/SHA256SUMS.txt"
           {
             printf "%s  %s\n" "$(sha256sum "$JAR_FILE" | awk '{print $1}')" "$(basename "$JAR_FILE")"
-            printf "%s  %s\n" "$(sha256sum "$EXE_FILE" | awk '{print $1}')" "$(basename "$EXE_FILE")"
+            printf "%s  %s\n" "$(sha256sum "$SETUP_FILE" | awk '{print $1}')" "$(basename "$SETUP_FILE")"
+            printf "%s  %s\n" "$(sha256sum "$PORTABLE_FILE" | awk '{print $1}')" "$(basename "$PORTABLE_FILE")"
             printf "%s  %s\n" "$(sha256sum "$ZINK_FILE" | awk '{print $1}')" "$(basename "$ZINK_FILE")"
             printf "%s  %s\n" "$(sha256sum "$LICENSE_FILE" | awk '{print $1}')" "$(basename "$LICENSE_FILE")"
             printf "%s  %s\n" "$(sha256sum "$NOTICES_FILE" | awk '{print $1}')" "$(basename "$NOTICES_FILE")"
           } > "$SUMS_FILE"
           test -s "$SUMS_FILE"
 
-          gh release create "$RELEASE_TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" "$LICENSE_FILE" "$NOTICES_FILE" "$SUMS_FILE" \
+          NOTES_FILE="release-assets/RELEASE_NOTES.md"
+          cat > "$NOTES_FILE" <<EOF
+          ## MashClient (PureFPS) ${RELEASE_TAG} — Minecraft Forge 1.8.9
+
+          > **Avis légal :** NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. Distribué sous licence **GNU GPL-3.0** (voir \`LICENSE\` et \`THIRD_PARTY_LICENSES.md\`).
+
+          ### Téléchargements Windows
+          - **\`MashClient-Windows-Setup.exe\`** *(recommandé)* : installateur Windows (sans droits administrateur, menu Démarrer + raccourci Bureau + désinstalleur Windows).
+          - **\`MashClient-Windows-Portable.exe\`** : version portable autonome sans installation — également utilisée par l'**Auto-Updater** intégré pour mettre à jour le launcher en un clic.
+          - **\`purefps-${RELEASE_VER}.jar\`** : mod Forge \`1.8.9\` seul (déployé automatiquement par le launcher).
+          - **\`mashclient-vulkan-zink-win64.zip\`** : traducteur OpenGL -> Vulkan **Mesa3D 26.3.0 Zink** (Bêta, vérifié par SHA-256).
+          - **\`SHA256SUMS.txt\`** : empreintes cryptographiques SHA-256 de tous les fichiers ci-dessus.
+          EOF
+
+          gh release create "$RELEASE_TAG" "$SETUP_FILE" "$PORTABLE_FILE" "$JAR_FILE" "$ZINK_FILE" "$LICENSE_FILE" "$NOTICES_FILE" "$SUMS_FILE" \
             --repo "$TARGET_REPO" \
+            --target "$TARGET_SHA" \
             --title "MashClient ${RELEASE_TAG}" \
-            --generate-notes
+            --notes-file "$NOTES_FILE"

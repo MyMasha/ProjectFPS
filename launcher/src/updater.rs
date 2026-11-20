@@ -500,6 +500,52 @@ fn apply_gh_headers(req: ureq::Request, accept: &str) -> ureq::Request {
         .set("X-GitHub-Api-Version", GH_API_VERSION)
 }
 
+fn is_installer_exe_name(lower_name: &str) -> bool {
+    lower_name.contains("setup")
+        || lower_name.contains("installer")
+        || lower_name.contains("unins")
+}
+
+fn select_portable_exe_asset(assets: &[GhAsset]) -> Option<ReleaseAssetPlan> {
+    let to_plan = |a: &GhAsset| ReleaseAssetPlan {
+        name: a.name.clone(),
+        api_url: a.url.clone(),
+        browser_download_url: a.browser_download_url.clone(),
+        size: a.size,
+    };
+
+    // 1. Priorité absolue à l'exécutable Windows Portable dédié aux mises à jour
+    assets
+        .iter()
+        .find(|a| {
+            let low = a.name.to_ascii_lowercase();
+            low.ends_with(".exe") && low.contains("portable") && !is_installer_exe_name(&low)
+        })
+        // 2. Repli rétrocompatible exact sur MashClient.exe
+        .or_else(|| {
+            assets
+                .iter()
+                .find(|a| a.name.eq_ignore_ascii_case("MashClient.exe"))
+        })
+        // 3. Repli sur tout binaire MashClient/PureFPS qui n'est PAS un installateur Setup
+        .or_else(|| {
+            assets.iter().find(|a| {
+                let low = a.name.to_ascii_lowercase();
+                low.ends_with(".exe")
+                    && (low.contains("mash") || low.contains("pure"))
+                    && !is_installer_exe_name(&low)
+            })
+        })
+        // 4. Dernier repli sur tout .exe non-installateur
+        .or_else(|| {
+            assets.iter().find(|a| {
+                let low = a.name.to_ascii_lowercase();
+                low.ends_with(".exe") && !is_installer_exe_name(&low)
+            })
+        })
+        .map(to_plan)
+}
+
 /// Interroge `GET /repos/{owner}/{repo}/releases/latest` (API publique, sans jeton) et détermine si une mise à jour du `.jar` ou du `.exe` est disponible.
 pub fn check_for_updates(
     raw_repo: &str,
@@ -549,7 +595,7 @@ pub fn check_for_updates(
         .or_else(|| parse_semver(&rel.name))
         .ok_or_else(|| {
             format!(
-                "Tag de release '{}' non reconnu (utilisez ex: v4.0.0).",
+                "Tag de release '{}' non reconnu (utilisez ex: v1.0.0).",
                 rel.tag_name
             )
         })?;
@@ -582,24 +628,7 @@ pub fn check_for_updates(
             size: a.size,
         });
 
-    let exe_asset = rel
-        .assets
-        .iter()
-        .find(|a| {
-            let low = a.name.to_ascii_lowercase();
-            low.ends_with(".exe") && low.contains("mash")
-        })
-        .or_else(|| {
-            rel.assets
-                .iter()
-                .find(|a| a.name.to_ascii_lowercase().ends_with(".exe"))
-        })
-        .map(|a| ReleaseAssetPlan {
-            name: a.name.clone(),
-            api_url: a.url.clone(),
-            browser_download_url: a.browser_download_url.clone(),
-            size: a.size,
-        });
+    let exe_asset = select_portable_exe_asset(&rel.assets);
 
     let checksums_asset = rel
         .assets
@@ -612,7 +641,7 @@ pub fn check_for_updates(
             size: a.size,
         });
 
-    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 0, 0));
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((1, 0, 0));
     let mod_ver = installed_mod_version(game_dir);
 
     let needs_exe = exe_asset.is_some() && rel_ver > launcher_ver;
@@ -916,6 +945,7 @@ pub fn download_and_install_update(
         let old_exe = with_appended_ext(&current_exe, "old");
         let expected_exe_sha = checksums
             .get(&exe.name.to_ascii_lowercase())
+            .or_else(|| checksums.get("mashclient-windows-portable.exe"))
             .or_else(|| checksums.get("mashclient.exe"))
             .map(String::as_str)
             .ok_or_else(|| {
@@ -1048,5 +1078,38 @@ mod tests {
         assert!(!is_trusted_github_api_url(
             r"https://api.github.com\evil.example/repos/MyMasha/ProjectFPS"
         ));
+    }
+
+    #[test]
+    fn test_select_portable_exe_never_picks_setup_installer() {
+        let mk = |name: &str| GhAsset {
+            name: name.to_owned(),
+            url: format!("https://api.github.com/repos/MyMasha/ProjectFPS/releases/assets/{name}"),
+            browser_download_url: format!(
+                "https://github.com/MyMasha/ProjectFPS/releases/download/v1.0.0/{name}"
+            ),
+            size: 1_000_000,
+        };
+
+        // Même si Setup apparaît AVANT Portable, l'Auto-Updater choisit strictement Portable
+        let both = vec![
+            mk("MashClient-Windows-Setup.exe"),
+            mk("MashClient-Windows-Portable.exe"),
+            mk("purefps-1.0.0.jar"),
+        ];
+        let picked = select_portable_exe_asset(&both).expect("must pick portable exe");
+        assert_eq!(picked.name, "MashClient-Windows-Portable.exe");
+
+        // Rétrocompatibilité avec un ancien MashClient.exe
+        let legacy = vec![mk("MashClient-Windows-Setup.exe"), mk("MashClient.exe")];
+        let picked_legacy = select_portable_exe_asset(&legacy).expect("must pick legacy exe");
+        assert_eq!(picked_legacy.name, "MashClient.exe");
+
+        // Ne doit JAMAIS sélectionner un installateur seul
+        let only_setup = vec![
+            mk("MashClient-Windows-Setup.exe"),
+            mk("MashClient-Installer.exe"),
+        ];
+        assert!(select_portable_exe_asset(&only_setup).is_none());
     }
 }
