@@ -359,9 +359,10 @@ public final class NanoUiRenderer {
                                 ringMappedScratch
                         );
                         if (mapped != null) {
+                            ringMappedScratch = mapped;
+                            mapped.clear();
                             mapped.put(buf);
                             GL15.glUnmapBuffer(GL15.GL_ARRAY_BUFFER);
-                            ringMappedScratch = mapped;
                         } else {
                             GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, byteOffset, buf);
                         }

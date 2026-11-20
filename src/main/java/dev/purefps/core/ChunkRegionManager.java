@@ -1018,12 +1018,17 @@ public final class ChunkRegionManager {
      * Découpe proprement toute section > 65 536 sommets pour rester 100 % compatible avec QuadIndexBuffer uint16.
      */
     public static int encodeIndirectCommands(int[] firstVerts, int[] vertCounts, int batchCount, ByteBuffer dst) {
+        dst.clear();
+        int cap = dst.capacity();
         int emitted = 0;
         int off = 0;
         for (int i = 0; i < batchCount; i++) {
             int base = firstVerts[i];
             int rem = vertCounts[i] & ~3;
             while (rem > 0) {
+                if (off + INDIRECT_CMD_BYTES > cap) {
+                    break;
+                }
                 int sliceVerts = rem > QuadIndexBuffer.MAX_USHORT_VERTICES
                         ? QuadIndexBuffer.MAX_USHORT_VERTICES
                         : rem;
@@ -1321,7 +1326,14 @@ public final class ChunkRegionManager {
                     }
 
                     if (arena.indexedQuads && vaoCurrentlyBound && (hasGL43Indirect || hasArbIndirect) && !indirectRingFailed) {
-                        int maxCmdBytes = (n + 16) * INDIRECT_CMD_BYTES;
+                        int neededCmds = 0;
+                        for (int k = 0; k < n; k++) {
+                            int vc = arena.batchCount[k] & ~3;
+                            if (vc > 0) {
+                                neededCmds += (vc + QuadIndexBuffer.MAX_USHORT_VERTICES - 1) / QuadIndexBuffer.MAX_USHORT_VERTICES;
+                            }
+                        }
+                        int maxCmdBytes = Math.max(neededCmds, n) * INDIRECT_CMD_BYTES;
                         if (indirectCmdScratch.capacity() < maxCmdBytes) {
                             indirectCmdScratch = ByteBuffer.allocateDirect(Math.max(indirectCmdScratch.capacity() << 1, maxCmdBytes))
                                     .order(ByteOrder.nativeOrder());

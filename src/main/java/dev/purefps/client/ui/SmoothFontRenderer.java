@@ -427,70 +427,74 @@ public final class SmoothFontRenderer {
         CPU_VERTS.position(0);
         CPU_VERTS.limit(byteLen);
 
-        OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, ringVboId);
-        boolean useBaseVertex = gl32Ready;
-        int baseVert;
-        if (useBaseVertex) {
-            if (ringWriteVert + vertCount > RING_CAPACITY_VERTS) {
+        try {
+            OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, ringVboId);
+            boolean useBaseVertex = gl32Ready;
+            int baseVert;
+            if (useBaseVertex) {
+                if (ringWriteVert + vertCount > RING_CAPACITY_VERTS) {
+                    GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, RING_CAPACITY_BYTES, GL15.GL_STREAM_DRAW);
+                    ringWriteVert = 0;
+                }
+                baseVert = ringWriteVert;
+                ringWriteVert += vertCount;
+            } else {
                 GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, RING_CAPACITY_BYTES, GL15.GL_STREAM_DRAW);
-                ringWriteVert = 0;
+                baseVert = 0;
+                ringWriteVert = vertCount;
             }
-            baseVert = ringWriteVert;
-            ringWriteVert += vertCount;
-        } else {
-            GL15.glBufferData(OpenGlHelper.GL_ARRAY_BUFFER, RING_CAPACITY_BYTES, GL15.GL_STREAM_DRAW);
-            baseVert = 0;
-            ringWriteVert = vertCount;
-        }
-        long byteOff = (long) baseVert * VERT_STRIDE;
+            long byteOff = (long) baseVert * VERT_STRIDE;
 
-        boolean uploaded = false;
-        if (gl30Ready) {
-            ByteBuffer mapped = GL30.glMapBufferRange(
-                    OpenGlHelper.GL_ARRAY_BUFFER, byteOff, byteLen, MAP_FLAGS, mappedScratch
-            );
-            if (mapped != null) {
-                mappedScratch = mapped;
-                mapped.clear();
-                mapped.put(CPU_VERTS);
-                GL15.glUnmapBuffer(OpenGlHelper.GL_ARRAY_BUFFER);
-                uploaded = true;
+            boolean uploaded = false;
+            if (gl30Ready) {
+                ByteBuffer mapped = GL30.glMapBufferRange(
+                        OpenGlHelper.GL_ARRAY_BUFFER, byteOff, byteLen, MAP_FLAGS, mappedScratch
+                );
+                if (mapped != null) {
+                    mappedScratch = mapped;
+                    mapped.clear();
+                    mapped.put(CPU_VERTS);
+                    GL15.glUnmapBuffer(OpenGlHelper.GL_ARRAY_BUFFER);
+                    uploaded = true;
+                }
             }
-        }
-        if (!uploaded) {
-            GL15.glBufferSubData(OpenGlHelper.GL_ARRAY_BUFFER, byteOff, CPU_VERTS);
-        }
+            if (!uploaded) {
+                GL15.glBufferSubData(OpenGlHelper.GL_ARRAY_BUFFER, byteOff, CPU_VERTS);
+            }
 
-        int idxCount = quads * 6;
-        if (ringVaoId > 0) {
-            GL30.glBindVertexArray(ringVaoId);
-            if (useBaseVertex) {
-                GL32.glDrawElementsBaseVertex(GL11.GL_TRIANGLES, idxCount, GL11.GL_UNSIGNED_SHORT, 0L, baseVert);
+            int idxCount = quads * 6;
+            if (ringVaoId > 0) {
+                GL30.glBindVertexArray(ringVaoId);
+                if (useBaseVertex) {
+                    GL32.glDrawElementsBaseVertex(GL11.GL_TRIANGLES, idxCount, GL11.GL_UNSIGNED_SHORT, 0L, baseVert);
+                } else {
+                    GL11.glDrawElements(GL11.GL_TRIANGLES, idxCount, GL11.GL_UNSIGNED_SHORT, 0L);
+                }
+                GL30.glBindVertexArray(0);
+                OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
             } else {
-                GL11.glDrawElements(GL11.GL_TRIANGLES, idxCount, GL11.GL_UNSIGNED_SHORT, 0L);
+                int eboId = QuadIndexBuffer.ensureIndexBufferReady(MAX_BATCH_VERTS);
+                GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, eboId);
+                OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
+                GL11.glEnableClientState(GL11.GL_VERTEX_ARRAY);
+                GL11.glEnableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
+                GL11.glEnableClientState(GL11.GL_COLOR_ARRAY);
+                GL11.glVertexPointer(3, GL11.GL_FLOAT, VERT_STRIDE, 0L);
+                GL11.glTexCoordPointer(2, GL11.GL_FLOAT, VERT_STRIDE, 12L);
+                GL11.glColorPointer(4, GL11.GL_UNSIGNED_BYTE, VERT_STRIDE, 20L);
+                if (useBaseVertex) {
+                    GL32.glDrawElementsBaseVertex(GL11.GL_TRIANGLES, idxCount, GL11.GL_UNSIGNED_SHORT, 0L, baseVert);
+                } else {
+                    GL11.glDrawElements(GL11.GL_TRIANGLES, idxCount, GL11.GL_UNSIGNED_SHORT, 0L);
+                }
+                GL11.glDisableClientState(GL11.GL_COLOR_ARRAY);
+                GL11.glDisableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
+                GL11.glDisableClientState(GL11.GL_VERTEX_ARRAY);
+                GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
+                OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
             }
-            GL30.glBindVertexArray(0);
-            OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
-        } else {
-            int eboId = QuadIndexBuffer.ensureIndexBufferReady(MAX_BATCH_VERTS);
-            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, eboId);
-            OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
-            GL11.glEnableClientState(GL11.GL_VERTEX_ARRAY);
-            GL11.glEnableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
-            GL11.glEnableClientState(GL11.GL_COLOR_ARRAY);
-            GL11.glVertexPointer(3, GL11.GL_FLOAT, VERT_STRIDE, 0L);
-            GL11.glTexCoordPointer(2, GL11.GL_FLOAT, VERT_STRIDE, 12L);
-            GL11.glColorPointer(4, GL11.GL_UNSIGNED_BYTE, VERT_STRIDE, 20L);
-            if (useBaseVertex) {
-                GL32.glDrawElementsBaseVertex(GL11.GL_TRIANGLES, idxCount, GL11.GL_UNSIGNED_SHORT, 0L, baseVert);
-            } else {
-                GL11.glDrawElements(GL11.GL_TRIANGLES, idxCount, GL11.GL_UNSIGNED_SHORT, 0L);
-            }
-            GL11.glDisableClientState(GL11.GL_COLOR_ARRAY);
-            GL11.glDisableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
-            GL11.glDisableClientState(GL11.GL_VERTEX_ARRAY);
-            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
-            OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
+        } finally {
+            CPU_VERTS.clear();
         }
     }
 
@@ -514,6 +518,7 @@ public final class SmoothFontRenderer {
         if (this.batchUsingVbo) {
             queuedQuads = 0;
             cpuWriteOff = 0;
+            CPU_VERTS.clear();
         } else {
             Tessellator.getInstance().getWorldRenderer().begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR);
         }
@@ -732,6 +737,9 @@ public final class SmoothFontRenderer {
                     flushVboQuads();
                 }
                 int off = cpuWriteOff;
+                if (off + 96 > buf.limit()) {
+                    buf.clear();
+                }
                 buf.putFloat(off, gx0);      buf.putFloat(off + 4, gy1);  buf.putFloat(off + 8, 0.0F);  buf.putFloat(off + 12, g.u0); buf.putFloat(off + 16, g.v1); buf.putInt(off + 20, packedColor);
                 buf.putFloat(off + 24, gx1); buf.putFloat(off + 28, gy1); buf.putFloat(off + 32, 0.0F); buf.putFloat(off + 36, g.u1); buf.putFloat(off + 40, g.v1); buf.putInt(off + 44, packedColor);
                 buf.putFloat(off + 48, gx1); buf.putFloat(off + 52, gy0); buf.putFloat(off + 56, 0.0F); buf.putFloat(off + 60, g.u1); buf.putFloat(off + 64, g.v0); buf.putInt(off + 68, packedColor);
@@ -746,6 +754,38 @@ public final class SmoothFontRenderer {
             }
 
             cursorX += g.advanceGui * scale;
+        }
+    }
+
+    /**
+     * Utilitaire de test unitaire sans contexte OpenGL : exerce emitVertices sur CPU_VERTS
+     * puis simule le découpage limit(byteLen) suivi de la réinitialisation du tampon.
+     */
+    public int emitVboQuadsAndSimulateFlushForTest(String text, boolean leaveShrunkLimitBeforeEmit) {
+        if (!this.metricsBaked) {
+            bakeAtlasImage();
+        }
+        boolean prevUsingVbo = this.batchUsingVbo;
+        this.batchUsingVbo = true;
+        try {
+            queuedQuads = 0;
+            cpuWriteOff = 0;
+            if (!leaveShrunkLimitBeforeEmit) {
+                CPU_VERTS.clear();
+            }
+            emitVertices(text, 0.0F, 0.0F, 1.0F, 0xFFFFFFFF, false);
+            int quads = queuedQuads;
+            int byteLen = cpuWriteOff;
+            CPU_VERTS.position(0);
+            CPU_VERTS.limit(byteLen);
+            queuedQuads = 0;
+            cpuWriteOff = 0;
+            return quads;
+        } finally {
+            this.batchUsingVbo = prevUsingVbo;
+            if (!leaveShrunkLimitBeforeEmit) {
+                CPU_VERTS.clear();
+            }
         }
     }
 

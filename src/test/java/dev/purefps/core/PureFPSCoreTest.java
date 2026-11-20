@@ -2404,6 +2404,43 @@ public class PureFPSCoreTest {
         assertNull("La file AutoGG doit être vidée après envoi",
                 dev.purefps.client.ClientEventBridge.pollDueAutoGgForTest(12_000L));
     }
+
+    @Test
+    public void testSmoothFontRendererCpuVertsLimitResetAcrossBatches() {
+        dev.purefps.client.ui.SmoothFontRenderer font = dev.purefps.client.ui.SmoothFontRenderer.uiSmall();
+        // Lot #1 court (ex: "MASH") qui laisse volontairement CPU_VERTS.limit() réduit à 4 * 96 octets
+        int shortQuads = font.emitVboQuadsAndSimulateFlushForTest("MASH", true);
+        assertEquals(4, shortQuads);
+        // Lot #2 plus long (ex: "1.0.2  ·  1.8.9  ·  VULKAN BETA") : ne doit JAMAIS lever IndexOutOfBoundsException
+        int longQuads = font.emitVboQuadsAndSimulateFlushForTest("1.0.2  \u00B7  1.8.9  \u00B7  VULKAN BETA", true);
+        assertTrue("Le second lot plus long doit émettre tous ses glyphes", longQuads > 20);
+        // Nettoyage propre
+        assertEquals(2, font.emitVboQuadsAndSimulateFlushForTest("OK", false));
+    }
+
+    @Test
+    public void testChunkRegionEncodeIndirectCommandsResetsLimitAcrossFrames() {
+        ByteBuffer scratch = ByteBuffer.allocateDirect(64 * 20).order(ByteOrder.nativeOrder());
+        int[] firstSmall = new int[]{0, 128};
+        int[] countSmall = new int[]{128, 256};
+        int emittedSmall = ChunkRegionManager.encodeIndirectCommands(firstSmall, countSmall, 2, scratch);
+        assertEquals(2, emittedSmall);
+        assertEquals(40, scratch.limit());
+
+        // Frame suivante avec plus de chunks visibles sur le MÊME tampon scratch : ne doit jamais lever IndexOutOfBoundsException
+        int[] firstBig = new int[12];
+        int[] countBig = new int[12];
+        for (int i = 0; i < 12; i++) {
+            firstBig[i] = i * 512;
+            countBig[i] = 512;
+        }
+        int emittedBig = ChunkRegionManager.encodeIndirectCommands(firstBig, countBig, 12, scratch);
+        assertEquals(12, emittedBig);
+        assertEquals(12 * 20, scratch.limit());
+        assertEquals(0, scratch.position());
+        assertEquals((512 >> 2) * 6, scratch.getInt(0));
+        assertEquals(11 * 512, scratch.getInt(11 * 20 + 12));
+    }
 }
 
 

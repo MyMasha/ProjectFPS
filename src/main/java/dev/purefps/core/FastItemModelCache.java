@@ -265,17 +265,19 @@ public final class FastItemModelCache {
         }
 
         int byteOffset = firstVert * VERTEX_STRIDE;
-        arenaShadow.position(byteOffset);
         arenaShadow.limit(byteOffset + triBytes);
+        arenaShadow.position(byteOffset);
         uploadScratch.position(0);
         uploadScratch.limit(triBytes);
         arenaShadow.put(uploadScratch);
+        arenaShadow.clear();
 
         uploadScratch.position(0);
         uploadScratch.limit(triBytes);
         OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, arenaVboId);
         GL15.glBufferSubData(OpenGlHelper.GL_ARRAY_BUFFER, (long) byteOffset, uploadScratch);
         OpenGlHelper.glBindBuffer(OpenGlHelper.GL_ARRAY_BUFFER, 0);
+        uploadScratch.clear();
 
         arenaUsedVerts = neededVerts;
         return firstVert;
