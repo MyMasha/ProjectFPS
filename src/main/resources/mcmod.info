@@ -1,0 +1,18 @@
+[
+  {
+    "modid": "${modid}",
+    "name": "MashClient",
+    "description": "Client Minecraft 1.8.9 optimisé FPS & PvP. NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "https://github.com/MyMasha/ProjectFPS",
+    "updateUrl": "",
+    "authorList": [
+      "MashClient"
+    ],
+    "credits": "Licensed under GNU GPL-3.0 (see META-INF/LICENSE and META-INF/THIRD_PARTY_LICENSES.md).",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  }
+]

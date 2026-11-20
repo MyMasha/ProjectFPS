@@ -1,0 +1,278 @@
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+fn main() {
+    println!("cargo:rerun-if-changed=.ms_client_id");
+    println!("cargo:rerun-if-changed=assets/mashclient.ico");
+    println!("cargo:rerun-if-changed=assets/mashclient.manifest");
+    println!("cargo:rerun-if-env-changed=MASHCLIENT_MS_CLIENT_ID");
+
+    // Sécurité : le dépôt est public — aucun jeton GitHub n'est utilisé ni embarqué dans MashClient.exe.
+
+    let env_ms_id = std::env::var("MASHCLIENT_MS_CLIENT_ID")
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+
+    let file_ms_id = std::fs::read_to_string(Path::new(".ms_client_id"))
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+
+    let resolved_ms_id = env_ms_id.or(file_ms_id).unwrap_or_default();
+    println!("cargo:rustc-env=MASHCLIENT_EMBEDDED_MS_CLIENT_ID={resolved_ms_id}");
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        embed_windows_exe_resources();
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
+            stage_webview2_loader_dll_for_gnu();
+        }
+    }
+}
+
+fn embed_windows_exe_resources() {
+    let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
+        return;
+    };
+    let Ok(out_dir) = std::env::var("OUT_DIR") else {
+        return;
+    };
+
+    let assets_dir = Path::new(&manifest_dir).join("assets");
+    let ico_path = assets_dir.join("mashclient.ico");
+    if !ico_path.is_file() {
+        return;
+    }
+
+    let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "1.0.0".to_owned());
+    let mut parts = pkg_ver.split('.').map(|p| p.parse::<u16>().unwrap_or(0));
+    let v_maj = parts.next().unwrap_or(1);
+    let v_min = parts.next().unwrap_or(0);
+    let v_pat = parts.next().unwrap_or(0);
+
+    let ico_escaped = ico_path.to_string_lossy().replace('\\', "/");
+    let out_path = PathBuf::from(&out_dir);
+    let rc_script_full = out_path.join("mashclient_res.rc");
+
+    let manifest_path = assets_dir.join("mashclient.manifest");
+    let manifest_line = if manifest_path.is_file() {
+        let out_manifest = out_path.join("mashclient.manifest");
+        let manifest_content = std::fs::read_to_string(&manifest_path)
+            .unwrap_or_default()
+            .replace("version=\"1.0.0.0\"", &format!("version=\"{v_maj}.{v_min}.{v_pat}.0\""));
+        let _ = std::fs::write(&out_manifest, manifest_content);
+        let manifest_escaped = out_manifest.to_string_lossy().replace('\\', "/");
+        format!("1 24 \"{manifest_escaped}\"\r\n")
+    } else {
+        String::new()
+    };
+
+    let full_rc = format!(
+        "#pragma code_page(65001)\r\n\
+         1 ICON \"{ico_escaped}\"\r\n\
+         {manifest_line}\
+         1 VERSIONINFO\r\n\
+         FILEVERSION {v_maj},{v_min},{v_pat},0\r\n\
+         PRODUCTVERSION {v_maj},{v_min},{v_pat},0\r\n\
+         FILEFLAGSMASK 0x3fL\r\n\
+         FILEFLAGS 0x0L\r\n\
+         FILEOS 0x40004L\r\n\
+         FILETYPE 0x1L\r\n\
+         FILESUBTYPE 0x0L\r\n\
+         BEGIN\r\n\
+           BLOCK \"StringFileInfo\"\r\n\
+           BEGIN\r\n\
+             BLOCK \"040904b0\"\r\n\
+             BEGIN\r\n\
+               VALUE \"CompanyName\", \"MashClient\\0\"\r\n\
+               VALUE \"FileDescription\", \"MashClient — Launcher for Minecraft 1.8.9\\0\"\r\n\
+               VALUE \"FileVersion\", \"{pkg_ver}\\0\"\r\n\
+               VALUE \"InternalName\", \"MashClient\\0\"\r\n\
+               VALUE \"OriginalFilename\", \"MashClient.exe\\0\"\r\n\
+               VALUE \"ProductName\", \"MashClient\\0\"\r\n\
+               VALUE \"ProductVersion\", \"{pkg_ver}\\0\"\r\n\
+             END\r\n\
+           END\r\n\
+           BLOCK \"VarFileInfo\"\r\n\
+           BEGIN\r\n\
+             VALUE \"Translation\", 0x0409, 1200\r\n\
+           END\r\n\
+         END\r\n"
+    );
+    let _ = std::fs::write(&rc_script_full, full_rc);
+
+    let is_msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    if is_msvc {
+        if let Some(rc_exe) = find_windows_rc_exe() {
+            let res_output = out_path.join("mashclient_res.res");
+            let compiled = Command::new(&rc_exe)
+                .args(["/nologo", "/fo"])
+                .arg(&res_output)
+                .arg(&rc_script_full)
+                .status()
+                .is_ok_and(|s| s.success());
+
+            if !compiled || !res_output.is_file() {
+                let minimal_rc = format!("1 ICON \"{ico_escaped}\"\r\n{manifest_line}");
+                let _ = std::fs::write(&rc_script_full, minimal_rc);
+                let _ = Command::new(&rc_exe)
+                    .args(["/nologo", "/fo"])
+                    .arg(&res_output)
+                    .arg(&rc_script_full)
+                    .status();
+            }
+
+            if res_output.is_file() {
+                println!(
+                    "cargo:rustc-link-arg-bin=MashClient={}",
+                    res_output.display()
+                );
+                return;
+            }
+        }
+    }
+
+    if let Some(windres) = find_windres_exe() {
+        let obj_output = out_path.join("mashclient_res.o");
+        let compiled = Command::new(&windres)
+            .arg("-i")
+            .arg(&rc_script_full)
+            .arg("-o")
+            .arg(&obj_output)
+            .status()
+            .is_ok_and(|s| s.success());
+
+        if !compiled || !obj_output.is_file() {
+            let minimal_rc = format!("1 ICON \"{ico_escaped}\"\r\n{manifest_line}");
+            let _ = std::fs::write(&rc_script_full, minimal_rc);
+            let _ = Command::new(&windres)
+                .arg("-i")
+                .arg(&rc_script_full)
+                .arg("-o")
+                .arg(&obj_output)
+                .status();
+        }
+
+        if obj_output.is_file() {
+            println!(
+                "cargo:rustc-link-arg-bin=MashClient={}",
+                obj_output.display()
+            );
+            return;
+        }
+    }
+
+    println!("cargo:warning=Compilateur de ressources Windows introuvable, icône .exe ignorée");
+}
+
+fn find_windres_exe() -> Option<PathBuf> {
+    let mut candidates = vec![
+        PathBuf::from("x86_64-w64-mingw32-windres"),
+        PathBuf::from("llvm-windres"),
+    ];
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.insert(
+            0,
+            Path::new(&home)
+                .join(".cache")
+                .join("llvm-mingw")
+                .join("bin")
+                .join("x86_64-w64-mingw32-windres"),
+        );
+    }
+    for cand in candidates {
+        if Command::new(&cand).arg("--version").output().is_ok() {
+            return Some(cand);
+        }
+    }
+    None
+}
+
+fn find_windows_rc_exe() -> Option<PathBuf> {
+    if Command::new("rc.exe").arg("/?").output().is_ok() {
+        return Some(PathBuf::from("rc.exe"));
+    }
+    if Command::new("llvm-rc").arg("/?").output().is_ok() {
+        return Some(PathBuf::from("llvm-rc"));
+    }
+
+    let kits_roots = [
+        r"C:\Program Files (x86)\Windows Kits\10\bin",
+        r"C:\Program Files\Windows Kits\10\bin",
+    ];
+    for root in kits_roots {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+        let mut versions: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.is_dir()
+                    && p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|s| s.starts_with("10."))
+            })
+            .collect();
+        versions.sort();
+        versions.reverse();
+        for ver_dir in versions {
+            let candidate = ver_dir.join("x64").join("rc.exe");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn stage_webview2_loader_dll_for_gnu() {
+    let Ok(out_dir) = std::env::var("OUT_DIR") else {
+        return;
+    };
+    let dest = Path::new(&out_dir).join("WebView2Loader.dll");
+    if dest.is_file() {
+        return;
+    }
+
+    let mut cargo_roots = Vec::new();
+    if let Ok(ch) = std::env::var("CARGO_HOME") {
+        cargo_roots.push(PathBuf::from(ch));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        cargo_roots.push(Path::new(&home).join(".cargo"));
+    }
+    if let Ok(up) = std::env::var("USERPROFILE") {
+        cargo_roots.push(Path::new(&up).join(".cargo"));
+    }
+
+    for root in cargo_roots {
+        let reg_src = root.join("registry").join("src");
+        let Ok(indices) = std::fs::read_dir(&reg_src) else {
+            continue;
+        };
+        for idx in indices.flatten() {
+            let Ok(crates) = std::fs::read_dir(idx.path()) else {
+                continue;
+            };
+            let mut matches: Vec<PathBuf> = crates
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|s| s.starts_with("webview2-com-sys-"))
+                })
+                .collect();
+            matches.sort();
+            matches.reverse();
+            for crate_dir in matches {
+                let dll = crate_dir.join("x64").join("WebView2Loader.dll");
+                if dll.is_file() && std::fs::copy(&dll, &dest).is_ok() {
+                    return;
+                }
+            }
+        }
+    }
+    panic!("WebView2Loader.dll introuvable dans le cache Cargo de webview2-com-sys");
+}

@@ -1,0 +1,236 @@
+name: MashClient Release (Mod 1.8.9 + MashClient.exe + Vulkan Zink)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: read
+
+jobs:
+  build-mod:
+    name: Build & Test Mod 1.8.9 (.jar)
+    if: github.repository == 'MyMasha/ProjectFPS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Temurin JDK 8 & JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          cache: gradle
+          java-version: |
+            8
+            17
+
+      - name: Compile & Test MashClient Forge 1.8.9 Mod
+        id: meta
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          RAW_TAG="${INPUT_TAG:-$REF_NAME}"
+          if [[ ! "$RAW_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Invalid release tag format: $RAW_TAG" >&2
+            exit 1
+          fi
+          CLEAN_VER="${RAW_TAG#v}"
+          echo "tag=${RAW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+          sed -i "s/^version=.*/version=${CLEAN_VER}/" gradle.properties
+          chmod +x ./gradlew
+          ./gradlew test remapJar --no-daemon \
+            -Dorg.gradle.java.home="${JAVA_HOME_17_X64}" \
+            -Porg.gradle.java.installations.paths="${JAVA_HOME_8_X64},${JAVA_HOME_17_X64}"
+          test -s "build/libs/purefps-${CLEAN_VER}.jar"
+
+      - name: Upload Mod JAR Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mod-jar
+          path: build/libs/purefps-${{ steps.meta.outputs.version }}.jar
+          if-no-files-found: error
+
+  build-launcher:
+    name: Build & Verify MashClient.exe (Windows OAuth2 + Zink)
+    if: github.repository == 'MyMasha/ProjectFPS'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust Stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+
+      - name: Cache Cargo Build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: launcher
+          prefix-key: "v1-release"
+
+      - name: Verify Microsoft OAuth2 Client ID & Sync Version
+        shell: pwsh
+        env:
+          MASHCLIENT_MS_CLIENT_ID: ${{ secrets.MASHCLIENT_MS_CLIENT_ID }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:MASHCLIENT_MS_CLIENT_ID)) {
+            throw "CRITICAL: GitHub Actions secret MASHCLIENT_MS_CLIENT_ID is empty or missing! Refusing to build an unauthenticated MashClient.exe."
+          }
+          $rawTag = if (-not [string]::IsNullOrWhiteSpace($env:INPUT_TAG)) { $env:INPUT_TAG } else { $env:REF_NAME }
+          if ($rawTag -notmatch '^v?\d+\.\d+\.\d+$') {
+            throw "CRITICAL: Invalid release tag format: $rawTag"
+          }
+          $cleanVer = $rawTag.TrimStart('v')
+          $cargoPath = "launcher/Cargo.toml"
+          $content = Get-Content $cargoPath -Raw
+          $updated = [regex]::Replace($content, '(?m)^version\s*=\s*"[^"]+"', "version = `"$cleanVer`"", 1)
+          Set-Content -Path $cargoPath -Value $updated -NoNewline
+
+      - name: Test & Build MashClient.exe (Public OAuth2 Client ID Only, No Embedded PAT)
+        working-directory: launcher
+        shell: pwsh
+        env:
+          MASHCLIENT_MS_CLIENT_ID: ${{ secrets.MASHCLIENT_MS_CLIENT_ID }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cargoHome = if (-not [string]::IsNullOrWhiteSpace($env:CARGO_HOME)) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+          $env:RUSTFLAGS = "--remap-path-prefix=$($env:GITHUB_WORKSPACE)=/src --remap-path-prefix=$cargoHome=/cargo -C link-arg=/PDBALTPATH:%_PDB%"
+          cargo test -- --skip test_live_microsoft_device_code_endpoint
+          cargo build --release
+          $exePath = "target/release/MashClient.exe"
+          if (-not (Test-Path $exePath)) {
+            throw "MashClient.exe introuvable après compilation !"
+          }
+          $exeBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exePath))
+          $exeAscii = [System.Text.Encoding]::ASCII.GetString($exeBytes)
+          if (-not $exeAscii.Contains($env:MASHCLIENT_MS_CLIENT_ID.Trim())) {
+            throw "CRITICAL: Compiled MashClient.exe does not contain embedded MASHCLIENT_MS_CLIENT_ID!"
+          }
+          Write-Host "Verified: MashClient.exe built with OAuth2 Client ID, sanitized paths, and zero embedded GitHub PAT."
+
+      - name: Stage Verified Mesa3D Zink x64 Bundle & Release Artifacts
+        shell: pwsh
+        env:
+          EXPECTED_ZINK_SHA256: "d3f71e2ef11c032a6d7b507ee2f6bab6ca3fb20543944af70982fc24b92604cb"
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "artifact-stage" | Out-Null
+          Copy-Item "launcher/target/release/MashClient.exe" -Destination "artifact-stage/MashClient.exe" -Force
+          $trackedZip = "dist/mashclient-vulkan-zink-win64.zip"
+          if (-not (Test-Path $trackedZip)) {
+            throw "CRITICAL: Tracked $trackedZip missing; refusing unverified external binary download."
+          }
+          $actualHash = (Get-FileHash -Path $trackedZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:EXPECTED_ZINK_SHA256) {
+            throw "CRITICAL: SHA-256 mismatch for $trackedZip (got $actualHash, expected $($env:EXPECTED_ZINK_SHA256))."
+          }
+          Copy-Item $trackedZip -Destination "artifact-stage/mashclient-vulkan-zink-win64.zip" -Force
+          if (-not (Test-Path "LICENSE")) {
+            throw "CRITICAL: Root LICENSE (GPL-3.0) missing; required for binary redistribution."
+          }
+          if (-not (Test-Path "THIRD_PARTY_LICENSES.md")) {
+            throw "CRITICAL: THIRD_PARTY_LICENSES.md missing; required for Mesa3D (MIT) and SoftFloat (BSD-3-Clause) binary redistribution."
+          }
+          Copy-Item "LICENSE" -Destination "artifact-stage/LICENSE" -Force
+          Copy-Item "THIRD_PARTY_LICENSES.md" -Destination "artifact-stage/THIRD_PARTY_LICENSES.md" -Force
+          Write-Host "Verified & staged $trackedZip (SHA-256: $actualHash), LICENSE, and THIRD_PARTY_LICENSES.md."
+
+      - name: Upload Windows Launcher & Zink Artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: launcher-win64
+          path: |
+            artifact-stage/MashClient.exe
+            artifact-stage/mashclient-vulkan-zink-win64.zip
+            artifact-stage/LICENSE
+            artifact-stage/THIRD_PARTY_LICENSES.md
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish Atomic GitHub Release
+    if: github.repository == 'MyMasha/ProjectFPS'
+    needs: [build-mod, build-launcher]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download Mod JAR Artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: mod-jar
+          path: release-assets
+
+      - name: Download Windows Launcher & Zink Artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: launcher-win64
+          path: release-assets
+
+      - name: Publish All Release Assets & SHA256SUMS Atomically
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.build-mod.outputs.tag }}
+          RELEASE_VER: ${{ needs.build-mod.outputs.version }}
+          TARGET_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ! "$RELEASE_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Invalid release metadata" >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            echo "ERROR: Release $RELEASE_TAG already exists on $TARGET_REPO. Refusing to overwrite an existing published release; bump the version tag instead." >&2
+            exit 1
+          fi
+
+          JAR_FILE="$(find release-assets -type f -name "purefps-${RELEASE_VER}.jar" | head -n 1)"
+          EXE_FILE="$(find release-assets -type f -name "MashClient.exe" | head -n 1)"
+          ZINK_FILE="$(find release-assets -type f -name "mashclient-vulkan-zink-win64.zip" | head -n 1)"
+          LICENSE_FILE="$(find release-assets -type f -name "LICENSE" | head -n 1)"
+          NOTICES_FILE="$(find release-assets -type f -name "THIRD_PARTY_LICENSES.md" | head -n 1)"
+
+          test -n "$JAR_FILE" && test -s "$JAR_FILE"
+          test -n "$EXE_FILE" && test -s "$EXE_FILE"
+          test -n "$ZINK_FILE" && test -s "$ZINK_FILE"
+          test -n "$LICENSE_FILE" && test -s "$LICENSE_FILE"
+          test -n "$NOTICES_FILE" && test -s "$NOTICES_FILE"
+
+          SUMS_FILE="release-assets/SHA256SUMS.txt"
+          {
+            printf "%s  %s\n" "$(sha256sum "$JAR_FILE" | awk '{print $1}')" "$(basename "$JAR_FILE")"
+            printf "%s  %s\n" "$(sha256sum "$EXE_FILE" | awk '{print $1}')" "$(basename "$EXE_FILE")"
+            printf "%s  %s\n" "$(sha256sum "$ZINK_FILE" | awk '{print $1}')" "$(basename "$ZINK_FILE")"
+            printf "%s  %s\n" "$(sha256sum "$LICENSE_FILE" | awk '{print $1}')" "$(basename "$LICENSE_FILE")"
+            printf "%s  %s\n" "$(sha256sum "$NOTICES_FILE" | awk '{print $1}')" "$(basename "$NOTICES_FILE")"
+          } > "$SUMS_FILE"
+          test -s "$SUMS_FILE"
+
+          gh release create "$RELEASE_TAG" "$JAR_FILE" "$EXE_FILE" "$ZINK_FILE" "$LICENSE_FILE" "$NOTICES_FILE" "$SUMS_FILE" \
+            --repo "$TARGET_REPO" \
+            --title "MashClient ${RELEASE_TAG}" \
+            --generate-notes

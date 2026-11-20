@@ -1,0 +1,9 @@
+# Propriétaire administrateur requis pour toute modification critique ou de sécurité
+* @MyMasha
+/.github/ @MyMasha
+/SECURITY.md @MyMasha
+/launcher/build.rs @MyMasha
+/launcher/src/auth.rs @MyMasha
+/launcher/src/updater.rs @MyMasha
+/launcher/src/config.rs @MyMasha
+/build.gradle.kts @MyMasha
