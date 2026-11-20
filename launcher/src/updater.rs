@@ -176,7 +176,18 @@ pub fn extract_purefps_jar_semver(filename: &str) -> Option<(u32, u32, u32)> {
     parse_semver(filename)
 }
 
+/// Les versions de développement pré-v1.0.0 portaient une numérotation 3.x / 4.x.
+/// Tant que le launcher public est en branche 1.x / 2.x, on ignore ces anciens JAR hérités
+/// afin que l'Auto-Updater télécharge automatiquement `purefps-1.x.y.jar`.
+pub fn is_legacy_pre_v1_mod_version(
+    mod_ver: (u32, u32, u32),
+    reference_ver: (u32, u32, u32),
+) -> bool {
+    reference_ver.0 < 3 && matches!(mod_ver.0, 3 | 4)
+}
+
 pub fn installed_mod_version(game_dir: &str) -> Option<(u32, u32, u32)> {
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((1, 0, 0));
     let mut best: Option<(u32, u32, u32)> = None;
     let dirs = [
         Path::new(game_dir).join("mods"),
@@ -189,6 +200,9 @@ pub fn installed_mod_version(game_dir: &str) -> Option<(u32, u32, u32)> {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if let Some(ver) = extract_purefps_jar_semver(&name) {
+                if is_legacy_pre_v1_mod_version(ver, launcher_ver) {
+                    continue;
+                }
                 if best.is_none_or(|cur| ver > cur) {
                     best = Some(ver);
                 }
@@ -1111,5 +1125,16 @@ mod tests {
             mk("MashClient-Installer.exe"),
         ];
         assert!(select_portable_exe_asset(&only_setup).is_none());
+    }
+
+    #[test]
+    fn test_legacy_pre_v1_mod_version_handling() {
+        // Sur branche publique 1.x / 2.x, un ancien purefps-4.5.14.jar hérité ne doit pas bloquer purefps-1.0.1.jar
+        assert!(is_legacy_pre_v1_mod_version((4, 5, 14), (1, 0, 1)));
+        assert!(is_legacy_pre_v1_mod_version((3, 6, 0), (1, 0, 1)));
+        assert!(!is_legacy_pre_v1_mod_version((1, 0, 0), (1, 0, 1)));
+        assert!(!is_legacy_pre_v1_mod_version((2, 0, 0), (1, 0, 1)));
+        // Sur une future branche 3.x+, la règle legacy ne s'applique plus
+        assert!(!is_legacy_pre_v1_mod_version((4, 0, 0), (3, 0, 0)));
     }
 }

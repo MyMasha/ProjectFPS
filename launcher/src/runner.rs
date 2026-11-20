@@ -15,7 +15,8 @@ pub use crate::diagnostics::{CrashReportInfo, DiagnosticItem, DiagnosticTimeline
 use crate::runtimes::{ensure_vulkan_instance_initialized, prepare_isolated_vulkan_jre};
 use crate::updater::{
     check_for_updates, download_and_install_update, extract_purefps_jar_semver,
-    installed_mod_version, parse_semver, UpdateCheckOutcome, LAUNCHER_VERSION,
+    installed_mod_version, is_legacy_pre_v1_mod_version, parse_semver, UpdateCheckOutcome,
+    LAUNCHER_VERSION,
 };
 use crate::AppEvent;
 use std::collections::VecDeque;
@@ -28,7 +29,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::EventLoopProxy;
 
-const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-1.0.0.jar";
+const FALLBACK_PURECLIENT_JAR_NAME: &str = "purefps-1.0.1.jar";
 const MAX_LIBRARY_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_NATIVE_DLL_BYTES: u64 = 32 * 1024 * 1024;
 const EXPECTED_MC_189_CLIENT_SHA1: &str = "3870888a6c3d349d3771a3e9d16c9bf5e076b908";
@@ -36,63 +37,67 @@ const EXPECTED_ASSET_INDEX_18_SHA1: &str = "f6ad102bcaa53b1a58358f16e376d548d449
 const EXPECTED_LOG4J_API_FIXED_SHA1: &str = "b61eaf2e64d8b0277e188262a8b771bbfa1502b3";
 const EXPECTED_LOG4J_CORE_FIXED_SHA1: &str = "677991ea2d7426f76309a73739cecf609679492c";
 
-const REQUIRED_LIBRARIES_189_FORGE: &[(&str, &str)] = &[
-    (r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar", "39c7796b469a600f72380316f6b1f11db6c2c7c4"),
-    (r"net\java\jutils\jutils\1.0.0\jutils-1.0.0.jar", "e12fe1fda814bd348c1579329c86943d2cd3c6a6"),
-    (r"org\lwjgl\lwjgl\lwjgl\2.9.4-nightly-20150209\lwjgl-2.9.4-nightly-20150209.jar", "697517568c68e78ae0b4544145af031c81082dfe"),
-    (r"org\lwjgl\lwjgl\lwjgl_util\2.9.4-nightly-20150209\lwjgl_util-2.9.4-nightly-20150209.jar", "d51a7c040a721d13efdfbd34f8b257b2df882ad0"),
-    (r"com\mojang\netty\1.8.8\netty-1.8.8.jar", "0a796914d1c8a55b4da9f4a8856dd9623375d8bb"),
-    (r"oshi-project\oshi-core\1.1\oshi-core-1.1.jar", "9ddf7b048a8d701be231c0f4f95fd986198fd2d8"),
-    (r"net\java\dev\jna\jna\3.4.0\jna-3.4.0.jar", "803ff252fedbd395baffd43b37341dc4a150a554"),
-    (r"net\java\dev\jna\platform\3.4.0\platform-3.4.0.jar", "e3f70017be8100d3d6923f50b3d2ee17714e9c13"),
-    (r"com\ibm\icu\icu4j-core-mojang\51.2\icu4j-core-mojang-51.2.jar", "63d216a9311cca6be337c1e458e587f99d382b84"),
-    (r"net\sf\jopt-simple\jopt-simple\4.6\jopt-simple-4.6.jar", "306816fb57cf94f108a43c95731b08934dcae15c"),
-    (r"com\paulscode\codecjorbis\20101023\codecjorbis-20101023.jar", "c73b5636faf089d9f00e8732a829577de25237ee"),
-    (r"com\paulscode\codecwav\20101023\codecwav-20101023.jar", "12f031cfe88fef5c1dd36c563c0a3a69bd7261da"),
-    (r"com\paulscode\libraryjavasound\20101123\libraryjavasound-20101123.jar", "5c5e304366f75f9eaa2e8cca546a1fb6109348b3"),
-    (r"com\paulscode\librarylwjglopenal\20100824\librarylwjglopenal-20100824.jar", "73e80d0794c39665aec3f62eee88ca91676674ef"),
-    (r"com\paulscode\soundsystem\20120107\soundsystem-20120107.jar", "419c05fe9be71f792b2d76cfc9b67f1ed0fec7f6"),
-    (r"io\netty\netty-all\4.0.23.Final\netty-all-4.0.23.Final.jar", "0294104aaf1781d6a56a07d561e792c5d0c95f45"),
-    (r"com\google\guava\guava\17.0\guava-17.0.jar", "9c6ef172e8de35fd8d4d8783e4821e57cdef7445"),
-    (r"org\apache\commons\commons-lang3\3.3.2\commons-lang3-3.3.2.jar", "90a3822c38ec8c996e84c16a3477ef632cbc87a3"),
-    (r"commons-io\commons-io\2.4\commons-io-2.4.jar", "b1b6ea3b7e4aa4f492509a4952029cd8e48019ad"),
-    (r"commons-codec\commons-codec\1.9\commons-codec-1.9.jar", "9ce04e34240f674bc72680f8b843b1457383161a"),
-    (r"com\google\code\gson\gson\2.2.4\gson-2.2.4.jar", "a60a5e993c98c864010053cb901b7eab25306568"),
-    (r"com\mojang\authlib\1.5.21\authlib-1.5.21.jar", "aefba0d5b53fbcb70860bc8046ab95d5854c07a5"),
-    (r"com\mojang\realms\1.7.59\realms-1.7.59.jar", "9c6c59b742d8e038a15f64c1aa273a893a658424"),
-    (r"org\apache\commons\commons-compress\1.8.1\commons-compress-1.8.1.jar", "a698750c16740fd5b3871425f4cb3bbaa87f529d"),
-    (r"org\apache\httpcomponents\httpclient\4.3.3\httpclient-4.3.3.jar", "18f4247ff4572a074444572cee34647c43e7c9c7"),
-    (r"commons-logging\commons-logging\1.1.3\commons-logging-1.1.3.jar", "f6f66e966c70a83ffbdb6f17a0919eaf7c8aca7f"),
-    (r"org\apache\httpcomponents\httpcore\4.3.2\httpcore-4.3.2.jar", "31fbbff1ddbf98f3aa7377c94d33b0447c646b6e"),
-    (r"org\apache\logging\log4j\log4j-api\2.0-beta9-fixed\log4j-api-2.0-beta9-fixed.jar", EXPECTED_LOG4J_API_FIXED_SHA1),
-    (r"org\apache\logging\log4j\log4j-core\2.0-beta9-fixed\log4j-core-2.0-beta9-fixed.jar", EXPECTED_LOG4J_CORE_FIXED_SHA1),
-    (r"tv\twitch\twitch\6.5\twitch-6.5.jar", "320a2dfd18513a5f41b4e75729df684488cbd925"),
-    (r"net\minecraftforge\forge\1.8.9-11.15.1.2318-1.8.9\forge-1.8.9-11.15.1.2318-1.8.9-universal.jar", "beda619c465af293e63952dd573c137c17c0a4cd"),
-    (r"net\minecraft\launchwrapper\1.12\launchwrapper-1.12.jar", "111e7bea9c968cdb3d06ef4632bf7ff0824d0f36"),
-    (r"org\ow2\asm\asm-all\5.0.3\asm-all-5.0.3.jar", "4333508b8dd8ee72aa4e39afa713b3a74579b773"),
-    (r"jline\jline\2.13\jline-2.13.jar", "2d9530d0a25daffaffda7c35037b046b627bb171"),
-    (r"com\typesafe\akka\akka-actor_2.11\2.3.3\akka-actor_2.11-2.3.3.jar", "ed62e9fc709ca0f2ff1a3220daa8b70a2870078e"),
-    (r"com\typesafe\config\1.2.1\config-1.2.1.jar", "f771f71fdae3df231bcd54d5ca2d57f0bf93f467"),
-    (r"org\scala-lang\scala-actors-migration_2.11\1.1.0\scala-actors-migration_2.11-1.1.0.jar", "dfa8bc42b181d5b9f1a5dd147f8ae308b893eb6f"),
-    (r"org\scala-lang\scala-compiler\2.11.1\scala-compiler-2.11.1.jar", "56ea2e6c025e0821f28d73ca271218b8dd04926a"),
-    (r"org\scala-lang\plugins\scala-continuations-library_2.11\1.0.2\scala-continuations-library_2.11-1.0.2.jar", "0e517c53a7e9acd6b1668c5a35eccbaa3bab9aac"),
-    (r"org\scala-lang\plugins\scala-continuations-plugin_2.11.1\1.0.2\scala-continuations-plugin_2.11.1-1.0.2.jar", "f361a3283452c57fa30c1ee69448995de23c60f7"),
-    (r"org\scala-lang\scala-library\2.11.1\scala-library-2.11.1.jar", "0e11da23da3eabab9f4777b9220e60d44c1aab6a"),
-    (r"org\scala-lang\scala-parser-combinators_2.11\1.0.1\scala-parser-combinators_2.11-1.0.1.jar", "f05d7345bf5a58924f2837c6c1f4d73a938e1ff0"),
-    (r"org\scala-lang\scala-reflect\2.11.1\scala-reflect-2.11.1.jar", "6580347e61cc7f8e802941e7fde40fa83b8badeb"),
-    (r"org\scala-lang\scala-swing_2.11\1.0.1\scala-swing_2.11-1.0.1.jar", "b1cdd92bd47b1e1837139c1c53020e86bb9112ae"),
-    (r"org\scala-lang\scala-xml_2.11\1.0.2\scala-xml_2.11-1.0.2.jar", "820fbca7e524b530fdadc594c39d49a21ea0337e"),
-    (r"lzma\lzma\0.0.1\lzma-0.0.1.jar", "521616dc7487b42bef0e803bd2fa3faf668101d7"),
-    (r"java3d\vecmath\1.5.2\vecmath-1.5.2.jar", "79846ba34cbd89e2422d74d53752f993dcc2ccaf"),
-    (r"net\sf\trove4j\trove4j\3.0.3\trove4j-3.0.3.jar", "42ccaf4761f0dfdfa805c9e340d99a755907e2dd"),
-    (r"com\mojang\minecraft\1.8.9\minecraft-1.8.9-client.jar", EXPECTED_MC_189_CLIENT_SHA1),
+/// Bibliothèques Minecraft 1.8.9 + Forge 11.15.1.2318 avec empreintes SHA-1 officielles épinglées.
+/// Les bibliothèques Scala/Akka de Forge 1.8.9 acceptent à la fois l'empreinte du JAR direct sur
+/// `maven.minecraftforge.net` et celle du JAR décompressé depuis `.pack.xz` par l'installateur Forge
+/// (ainsi que l'artefact Maven Central officiel pour `scala-xml_2.11`).
+const REQUIRED_LIBRARIES_189_FORGE: &[(&str, &[&str])] = &[
+    (r"net\java\jinput\jinput\2.0.5\jinput-2.0.5.jar", &["39c7796b469a600f72380316f6b1f11db6c2c7c4"]),
+    (r"net\java\jutils\jutils\1.0.0\jutils-1.0.0.jar", &["e12fe1fda814bd348c1579329c86943d2cd3c6a6"]),
+    (r"org\lwjgl\lwjgl\lwjgl\2.9.4-nightly-20150209\lwjgl-2.9.4-nightly-20150209.jar", &["697517568c68e78ae0b4544145af031c81082dfe"]),
+    (r"org\lwjgl\lwjgl\lwjgl_util\2.9.4-nightly-20150209\lwjgl_util-2.9.4-nightly-20150209.jar", &["d51a7c040a721d13efdfbd34f8b257b2df882ad0"]),
+    (r"com\mojang\netty\1.8.8\netty-1.8.8.jar", &["0a796914d1c8a55b4da9f4a8856dd9623375d8bb"]),
+    (r"oshi-project\oshi-core\1.1\oshi-core-1.1.jar", &["9ddf7b048a8d701be231c0f4f95fd986198fd2d8"]),
+    (r"net\java\dev\jna\jna\3.4.0\jna-3.4.0.jar", &["803ff252fedbd395baffd43b37341dc4a150a554"]),
+    (r"net\java\dev\jna\platform\3.4.0\platform-3.4.0.jar", &["e3f70017be8100d3d6923f50b3d2ee17714e9c13"]),
+    (r"com\ibm\icu\icu4j-core-mojang\51.2\icu4j-core-mojang-51.2.jar", &["63d216a9311cca6be337c1e458e587f99d382b84"]),
+    (r"net\sf\jopt-simple\jopt-simple\4.6\jopt-simple-4.6.jar", &["306816fb57cf94f108a43c95731b08934dcae15c"]),
+    (r"com\paulscode\codecjorbis\20101023\codecjorbis-20101023.jar", &["c73b5636faf089d9f00e8732a829577de25237ee"]),
+    (r"com\paulscode\codecwav\20101023\codecwav-20101023.jar", &["12f031cfe88fef5c1dd36c563c0a3a69bd7261da"]),
+    (r"com\paulscode\libraryjavasound\20101123\libraryjavasound-20101123.jar", &["5c5e304366f75f9eaa2e8cca546a1fb6109348b3"]),
+    (r"com\paulscode\librarylwjglopenal\20100824\librarylwjglopenal-20100824.jar", &["73e80d0794c39665aec3f62eee88ca91676674ef"]),
+    (r"com\paulscode\soundsystem\20120107\soundsystem-20120107.jar", &["419c05fe9be71f792b2d76cfc9b67f1ed0fec7f6"]),
+    (r"io\netty\netty-all\4.0.23.Final\netty-all-4.0.23.Final.jar", &["0294104aaf1781d6a56a07d561e792c5d0c95f45"]),
+    (r"com\google\guava\guava\17.0\guava-17.0.jar", &["9c6ef172e8de35fd8d4d8783e4821e57cdef7445"]),
+    (r"org\apache\commons\commons-lang3\3.3.2\commons-lang3-3.3.2.jar", &["90a3822c38ec8c996e84c16a3477ef632cbc87a3"]),
+    (r"commons-io\commons-io\2.4\commons-io-2.4.jar", &["b1b6ea3b7e4aa4f492509a4952029cd8e48019ad"]),
+    (r"commons-codec\commons-codec\1.9\commons-codec-1.9.jar", &["9ce04e34240f674bc72680f8b843b1457383161a"]),
+    (r"com\google\code\gson\gson\2.2.4\gson-2.2.4.jar", &["a60a5e993c98c864010053cb901b7eab25306568"]),
+    (r"com\mojang\authlib\1.5.21\authlib-1.5.21.jar", &["aefba0d5b53fbcb70860bc8046ab95d5854c07a5"]),
+    (r"com\mojang\realms\1.7.59\realms-1.7.59.jar", &["9c6c59b742d8e038a15f64c1aa273a893a658424"]),
+    (r"org\apache\commons\commons-compress\1.8.1\commons-compress-1.8.1.jar", &["a698750c16740fd5b3871425f4cb3bbaa87f529d"]),
+    (r"org\apache\httpcomponents\httpclient\4.3.3\httpclient-4.3.3.jar", &["18f4247ff4572a074444572cee34647c43e7c9c7"]),
+    (r"commons-logging\commons-logging\1.1.3\commons-logging-1.1.3.jar", &["f6f66e966c70a83ffbdb6f17a0919eaf7c8aca7f"]),
+    (r"org\apache\httpcomponents\httpcore\4.3.2\httpcore-4.3.2.jar", &["31fbbff1ddbf98f3aa7377c94d33b0447c646b6e"]),
+    (r"org\apache\logging\log4j\log4j-api\2.0-beta9-fixed\log4j-api-2.0-beta9-fixed.jar", &[EXPECTED_LOG4J_API_FIXED_SHA1]),
+    (r"org\apache\logging\log4j\log4j-core\2.0-beta9-fixed\log4j-core-2.0-beta9-fixed.jar", &[EXPECTED_LOG4J_CORE_FIXED_SHA1]),
+    (r"tv\twitch\twitch\6.5\twitch-6.5.jar", &["320a2dfd18513a5f41b4e75729df684488cbd925"]),
+    (r"net\minecraftforge\forge\1.8.9-11.15.1.2318-1.8.9\forge-1.8.9-11.15.1.2318-1.8.9-universal.jar", &["beda619c465af293e63952dd573c137c17c0a4cd"]),
+    (r"net\minecraft\launchwrapper\1.12\launchwrapper-1.12.jar", &["111e7bea9c968cdb3d06ef4632bf7ff0824d0f36"]),
+    (r"org\ow2\asm\asm-all\5.0.3\asm-all-5.0.3.jar", &["4333508b8dd8ee72aa4e39afa713b3a74579b773"]),
+    (r"jline\jline\2.13\jline-2.13.jar", &["2d9530d0a25daffaffda7c35037b046b627bb171"]),
+    (r"com\typesafe\akka\akka-actor_2.11\2.3.3\akka-actor_2.11-2.3.3.jar", &["ed62e9fc709ca0f2ff1a3220daa8b70a2870078e", "25a86ccfdb6f6dfe08971f4825d0a01be83a6f2e"]),
+    (r"com\typesafe\config\1.2.1\config-1.2.1.jar", &["f771f71fdae3df231bcd54d5ca2d57f0bf93f467", "7d7bc36df0989d72f2d5d057309675777acc528b"]),
+    (r"org\scala-lang\scala-actors-migration_2.11\1.1.0\scala-actors-migration_2.11-1.1.0.jar", &["dfa8bc42b181d5b9f1a5dd147f8ae308b893eb6f", "8c9aaeeb68487ca519411a14068e1b4d69739207"]),
+    (r"org\scala-lang\scala-compiler\2.11.1\scala-compiler-2.11.1.jar", &["56ea2e6c025e0821f28d73ca271218b8dd04926a", "1444992390544ba3780867a13ff696a89d7d1639"]),
+    (r"org\scala-lang\plugins\scala-continuations-library_2.11\1.0.2\scala-continuations-library_2.11-1.0.2.jar", &["0e517c53a7e9acd6b1668c5a35eccbaa3bab9aac"]),
+    (r"org\scala-lang\plugins\scala-continuations-plugin_2.11.1\1.0.2\scala-continuations-plugin_2.11.1-1.0.2.jar", &["f361a3283452c57fa30c1ee69448995de23c60f7"]),
+    (r"org\scala-lang\scala-library\2.11.1\scala-library-2.11.1.jar", &["0e11da23da3eabab9f4777b9220e60d44c1aab6a", "1e4df76e835201c6eabd43adca89ab11f225f134"]),
+    (r"org\scala-lang\scala-parser-combinators_2.11\1.0.1\scala-parser-combinators_2.11-1.0.1.jar", &["f05d7345bf5a58924f2837c6c1f4d73a938e1ff0", "a1cbbcbde1dcc614f4253ed1aa0b320bc78d8f1d"]),
+    (r"org\scala-lang\scala-reflect\2.11.1\scala-reflect-2.11.1.jar", &["6580347e61cc7f8e802941e7fde40fa83b8badeb", "91ce0f0be20f4a536321724b4b3bbc6530ddcd88"]),
+    (r"org\scala-lang\scala-swing_2.11\1.0.1\scala-swing_2.11-1.0.1.jar", &["b1cdd92bd47b1e1837139c1c53020e86bb9112ae", "d77152691dcf5bbdb00529af37aa7d3d887b3e63"]),
+    (r"org\scala-lang\scala-xml_2.11\1.0.2\scala-xml_2.11-1.0.2.jar", &["7a80ec00aec122fba7cd4e0d4cdd87ff7e4cb6d0", "62736b01689d56b6d09a0164b7ef9da2b0b9633d", "820fbca7e524b530fdadc594c39d49a21ea0337e"]),
+    (r"lzma\lzma\0.0.1\lzma-0.0.1.jar", &["521616dc7487b42bef0e803bd2fa3faf668101d7"]),
+    (r"java3d\vecmath\1.5.2\vecmath-1.5.2.jar", &["79846ba34cbd89e2422d74d53752f993dcc2ccaf"]),
+    (r"net\sf\trove4j\trove4j\3.0.3\trove4j-3.0.3.jar", &["42ccaf4761f0dfdfa805c9e340d99a755907e2dd"]),
+    (r"com\mojang\minecraft\1.8.9\minecraft-1.8.9-client.jar", &[EXPECTED_MC_189_CLIENT_SHA1]),
 ];
 
-const NATIVE_JARS_64: &[(&str, &str)] = &[
-    (r"org\lwjgl\lwjgl\lwjgl-platform\2.9.4-nightly-20150209\lwjgl-platform-2.9.4-nightly-20150209-natives-windows.jar", "b84d5102b9dbfabfeb5e43c7e2828d98a7fc80e0"),
-    (r"net\java\jinput\jinput-platform\2.0.5\jinput-platform-2.0.5-natives-windows.jar", "385ee093e01f587f30ee1c8a2ee7d408fd732e16"),
-    (r"tv\twitch\twitch-platform\6.5\twitch-platform-6.5-natives-windows-64.jar", "9fdd0fd5aed0817063dcf95b69349a171f447ebd"),
-    (r"tv\twitch\twitch-external-platform\4.5\twitch-external-platform-4.5-natives-windows-64.jar", "c3cde57891b935d41b6680a9c5e1502eeab76d86"),
+const NATIVE_JARS_64: &[(&str, &[&str])] = &[
+    (r"org\lwjgl\lwjgl\lwjgl-platform\2.9.4-nightly-20150209\lwjgl-platform-2.9.4-nightly-20150209-natives-windows.jar", &["b84d5102b9dbfabfeb5e43c7e2828d98a7fc80e0"]),
+    (r"net\java\jinput\jinput-platform\2.0.5\jinput-platform-2.0.5-natives-windows.jar", &["385ee093e01f587f30ee1c8a2ee7d408fd732e16"]),
+    (r"tv\twitch\twitch-platform\6.5\twitch-platform-6.5-natives-windows-64.jar", &["9fdd0fd5aed0817063dcf95b69349a171f447ebd"]),
+    (r"tv\twitch\twitch-external-platform\4.5\twitch-external-platform-4.5-natives-windows-64.jar", &["c3cde57891b935d41b6680a9c5e1502eeab76d86"]),
 ];
 
 pub fn offline_uuid_hex(username: &str) -> String {
@@ -114,7 +119,7 @@ pub fn auto_fetch_mod_jar_if_needed(
     target_game_dir: &str,
     proxy: &EventLoopProxy<AppEvent>,
 ) {
-    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 5, 0));
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((1, 0, 0));
     let cur_mod = installed_mod_version(target_game_dir);
     if cur_mod.is_some_and(|v| v >= launcher_ver) {
         return;
@@ -137,6 +142,7 @@ pub fn auto_fetch_mod_jar_if_needed(
 pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
     let mods_dir = Path::new(game_dir).join("mods");
     std::fs::create_dir_all(&mods_dir).map_err(|e| format!("Création dossier mods: {e}"))?;
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((1, 0, 0));
 
     #[allow(unused_mut)]
     let mut search_dirs: Vec<PathBuf> = vec![app_storage_dir().join("updates"), mods_dir.clone()];
@@ -161,7 +167,7 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
         search_dirs.push(PathBuf::from("."));
     }
 
-    let mut best_jar: Option<((u32, u32, u32), String, PathBuf)> = None;
+    let mut best_jar: Option<(bool, (u32, u32, u32), String, PathBuf)> = None;
     for dir in &search_dirs {
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
@@ -173,23 +179,29 @@ pub fn sync_pureclient_jar(game_dir: &str) -> Result<String, String> {
             }
             let name = entry.file_name().to_string_lossy().to_string();
             if let Some(ver) = extract_purefps_jar_semver(&name) {
+                let is_legacy = is_legacy_pre_v1_mod_version(ver, launcher_ver);
                 let replace = match &best_jar {
                     None => true,
-                    Some((cur_ver, _, cur_path)) => {
-                        ver > *cur_ver
-                            || (ver == *cur_ver
-                                && cur_path.parent() == Some(mods_dir.as_path())
-                                && path.parent() != Some(mods_dir.as_path()))
+                    Some((cur_legacy, cur_ver, _, cur_path)) => {
+                        // Une version publique non-legacy (1.x) a toujours priorité sur un ancien JAR 3.x/4.x hérité
+                        if *cur_legacy != is_legacy {
+                            !is_legacy
+                        } else {
+                            ver > *cur_ver
+                                || (ver == *cur_ver
+                                    && cur_path.parent() == Some(mods_dir.as_path())
+                                    && path.parent() != Some(mods_dir.as_path()))
+                        }
                     }
                 };
                 if replace {
-                    best_jar = Some((ver, name, path));
+                    best_jar = Some((is_legacy, ver, name, path));
                 }
             }
         }
     }
 
-    if let Some((_, jar_name, src_path)) = best_jar {
+    if let Some((_, _, jar_name, src_path)) = best_jar {
         let target_jar = mods_dir.join(&jar_name);
         if src_path != target_jar {
             std::fs::copy(&src_path, &target_jar)
@@ -384,7 +396,7 @@ fn jar_has_vulnerable_jndi_lookup(path: &Path) -> bool {
     false
 }
 
-fn is_valid_library_file(path: &Path, is_log4j_core: bool, expected_sha1: Option<&str>) -> bool {
+fn is_valid_library_file(path: &Path, is_log4j_core: bool, expected_sha1s: &[&str]) -> bool {
     if !path
         .metadata()
         .map(|m| m.is_file() && m.len() > 64)
@@ -395,8 +407,14 @@ fn is_valid_library_file(path: &Path, is_log4j_core: bool, expected_sha1: Option
     if is_log4j_core && jar_has_vulnerable_jndi_lookup(path) {
         return false;
     }
-    if let Some(want) = expected_sha1 {
-        if !sha1_file_hex(path).is_ok_and(|got| got.eq_ignore_ascii_case(want)) {
+    if !expected_sha1s.is_empty() {
+        let Ok(got) = sha1_file_hex(path) else {
+            return false;
+        };
+        if !expected_sha1s
+            .iter()
+            .any(|want| got.eq_ignore_ascii_case(want))
+        {
             return false;
         }
     }
@@ -447,7 +465,7 @@ fn open_trusted_mc_download(agent: &ureq::Agent, url: &str) -> Result<ureq::Resp
         }
         match agent
             .get(&current)
-            .set("User-Agent", "MashClient/1.0.0")
+            .set("User-Agent", "MashClient/1.0.1")
             .call()
         {
             Ok(resp) if matches!(resp.status(), 301 | 302 | 303 | 307 | 308) => {
@@ -473,7 +491,7 @@ fn download_file_to_path(
     agent: &ureq::Agent,
     url: &str,
     dst: &Path,
-    expected_sha1: Option<&str>,
+    expected_sha1s: &[&str],
 ) -> Result<(), String> {
     let resp = open_trusted_mc_download(agent, url)?;
     if let Some(cl) = resp
@@ -521,12 +539,16 @@ fn download_file_to_path(
             return Err(format!("Invalid JAR header received from {url}"));
         }
     }
-    if let Some(want_sha1) = expected_sha1 {
+    if !expected_sha1s.is_empty() {
         let got_sha1 = sha1_file_hex(&tmp)?;
-        if !got_sha1.eq_ignore_ascii_case(want_sha1) {
+        if !expected_sha1s
+            .iter()
+            .any(|want| got_sha1.eq_ignore_ascii_case(want))
+        {
             let _ = std::fs::remove_file(&tmp);
             return Err(format!(
-                "SHA-1 integrity mismatch for {url} (expected {want_sha1}, got {got_sha1})"
+                "SHA-1 integrity mismatch for {url} (expected one of {}, got {got_sha1})",
+                expected_sha1s.join("/")
             ));
         }
     }
@@ -558,6 +580,51 @@ fn copy_dir_tree_missing(src_dir: &Path, dst_dir: &Path) {
     }
 }
 
+fn build_library_candidate_urls(rel_url: &str) -> Vec<String> {
+    let mut candidate_urls: Vec<String> = Vec::new();
+    if rel_url.ends_with("minecraft-1.8.9-client.jar") {
+        candidate_urls.push(
+            "https://piston-data.mojang.com/v1/objects/3870888a6c3d349d3771a3e9d16c9bf5e076b908/client.jar"
+                .to_owned(),
+        );
+        candidate_urls.push(
+            "https://launcher.mojang.com/v1/objects/3870888a6c3d349d3771a3e9d16c9bf5e076b908/client.jar"
+                .to_owned(),
+        );
+    } else if rel_url.ends_with("log4j-api-2.0-beta9-fixed.jar") {
+        // Release officielle MultiMC/log4j-beta9 vérifiée par empreinte SHA-1 épinglée
+        candidate_urls.push(
+            "https://github.com/MultiMC/log4j-beta9/releases/download/fixed/log4j-api-2.0-beta9-fixed.jar"
+                .to_owned(),
+        );
+        candidate_urls.push(format!("https://files.multimc.org/maven/{rel_url}"));
+    } else if rel_url.ends_with("log4j-core-2.0-beta9-fixed.jar") {
+        // Release officielle MultiMC/log4j-beta9 (JndiLookup neutralisé) vérifiée par SHA-1 épinglée + contrôle bytecode
+        candidate_urls.push(
+            "https://github.com/MultiMC/log4j-beta9/releases/download/fixed/log4j-core-2.0-beta9-fixed.jar"
+                .to_owned(),
+        );
+        candidate_urls.push(format!("https://files.multimc.org/maven/{rel_url}"));
+    } else {
+        // Uniquement les dépôts officiels Mojang / Forge / Maven Central (aucun miroir tiers ni repli Log4Shell non corrigé)
+        candidate_urls.push(format!("https://libraries.minecraft.net/{rel_url}"));
+        candidate_urls.push(format!("https://maven.minecraftforge.net/{rel_url}"));
+        candidate_urls.push(format!("https://repo1.maven.org/maven2/{rel_url}"));
+        // Sur Maven Central, scala-xml / scala-parser-combinators / scala-swing sont publiés sous org/scala-lang/modules/
+        if let Some(rest) = rel_url.strip_prefix("org/scala-lang/") {
+            if rest.starts_with("scala-xml_2.11/")
+                || rest.starts_with("scala-parser-combinators_2.11/")
+                || rest.starts_with("scala-swing_2.11/")
+            {
+                candidate_urls.push(format!(
+                    "https://repo1.maven.org/maven2/org/scala-lang/modules/{rest}"
+                ));
+            }
+        }
+    }
+    candidate_urls
+}
+
 /// Ensures 100% standalone availability of all 1.8.9 + Forge 11.15.1.2318 libraries,
 /// 64-bit natives, `minecraft-1.8.9-client.jar`, and `assets/indexes/1.8.json` + `assets/objects`.
 pub fn ensure_standalone_189_files(
@@ -577,7 +644,7 @@ pub fn ensure_standalone_189_files(
         PathBuf::from(&appdata).join("MashClient").join("libraries"),
     ];
 
-    let all_required: Vec<(&str, &str)> = REQUIRED_LIBRARIES_189_FORGE
+    let all_required: Vec<(&str, &[&str])> = REQUIRED_LIBRARIES_189_FORGE
         .iter()
         .chain(NATIVE_JARS_64.iter())
         .copied()
@@ -597,7 +664,7 @@ pub fn ensure_standalone_189_files(
 
     let mut http_agent: Option<ureq::Agent> = None;
 
-    for (lib_idx, (rel, pinned_sha1)) in all_required.iter().enumerate() {
+    for (lib_idx, (rel, pinned_sha1s)) in all_required.iter().enumerate() {
         let rel_os = rel.replace('\\', std::path::MAIN_SEPARATOR_STR);
         let dst = lib_root.join(&rel_os);
         let file_label = Path::new(&rel_os)
@@ -607,9 +674,8 @@ pub fn ensure_standalone_189_files(
         let lib_pct = (12 + ((lib_idx + 1) * 30) / total_libs).min(42) as u8;
 
         let is_log4j_core = rel.to_ascii_lowercase().contains("log4j-core");
-        let expected_sha1 = Some(*pinned_sha1);
 
-        if is_valid_library_file(&dst, is_log4j_core, expected_sha1) {
+        if is_valid_library_file(&dst, is_log4j_core, pinned_sha1s) {
             cached_libs += 1;
             timeline.emit_progress(
                 proxy,
@@ -631,7 +697,7 @@ pub fn ensure_standalone_189_files(
         for cache_root in &local_lib_caches {
             let local_candidate = cache_root.join(&rel_os);
             if local_candidate != dst
-                && is_valid_library_file(&local_candidate, is_log4j_core, expected_sha1)
+                && is_valid_library_file(&local_candidate, is_log4j_core, pinned_sha1s)
             {
                 if let Some(parent) = dst.parent() {
                     let _ = std::fs::create_dir_all(parent);
@@ -647,7 +713,7 @@ pub fn ensure_standalone_189_files(
                 .join("versions")
                 .join("1.8.9")
                 .join("1.8.9.jar");
-            if is_valid_library_file(&vanilla_jar, false, expected_sha1) {
+            if is_valid_library_file(&vanilla_jar, false, pinned_sha1s) {
                 if let Some(parent) = dst.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -691,63 +757,35 @@ pub fn ensure_standalone_189_files(
             "[MashClient] Downloading {file_label}..."
         )));
 
-        let mut candidate_urls: Vec<String> = Vec::new();
-        if rel_url.ends_with("minecraft-1.8.9-client.jar") {
-            candidate_urls.push(
-                "https://piston-data.mojang.com/v1/objects/3870888a6c3d349d3771a3e9d16c9bf5e076b908/client.jar"
-                    .to_owned(),
-            );
-            candidate_urls.push(
-                "https://launcher.mojang.com/v1/objects/3870888a6c3d349d3771a3e9d16c9bf5e076b908/client.jar"
-                    .to_owned(),
-            );
-        } else if rel_url.ends_with("log4j-api-2.0-beta9-fixed.jar") {
-            // Release officielle MultiMC/log4j-beta9 vérifiée par empreinte SHA-1 épinglée
-            candidate_urls.push(
-                "https://github.com/MultiMC/log4j-beta9/releases/download/fixed/log4j-api-2.0-beta9-fixed.jar"
-                    .to_owned(),
-            );
-            candidate_urls.push(format!("https://files.multimc.org/maven/{rel_url}"));
-        } else if rel_url.ends_with("log4j-core-2.0-beta9-fixed.jar") {
-            // Release officielle MultiMC/log4j-beta9 (JndiLookup neutralisé) vérifiée par SHA-1 épinglée + contrôle bytecode
-            candidate_urls.push(
-                "https://github.com/MultiMC/log4j-beta9/releases/download/fixed/log4j-core-2.0-beta9-fixed.jar"
-                    .to_owned(),
-            );
-            candidate_urls.push(format!("https://files.multimc.org/maven/{rel_url}"));
-        } else {
-            // Uniquement les dépôts officiels Mojang / Forge / Maven Central (aucun miroir tiers ni repli Log4Shell non corrigé)
-            candidate_urls.push(format!("https://libraries.minecraft.net/{rel_url}"));
-            candidate_urls.push(format!("https://maven.minecraftforge.net/{rel_url}"));
-            candidate_urls.push(format!("https://repo1.maven.org/maven2/{rel_url}"));
-        }
+        let candidate_urls = build_library_candidate_urls(&rel_url);
 
         let mut downloaded = false;
-        let mut last_err = String::new();
+        let mut mirror_errs: Vec<String> = Vec::new();
         for url in &candidate_urls {
-            match download_file_to_path(agent, url, &dst, expected_sha1) {
+            match download_file_to_path(agent, url, &dst, pinned_sha1s) {
                 Ok(()) => {
                     if is_log4j_core && jar_has_vulnerable_jndi_lookup(&dst) {
                         let _ = std::fs::remove_file(&dst);
-                        last_err = format!(
+                        mirror_errs.push(format!(
                             "Vulnerable log4j-core archive (active JndiLookup detected) rejected from {url}"
-                        );
+                        ));
                         continue;
                     }
                     downloaded = true;
                     break;
                 }
-                Err(e) => last_err = e,
+                Err(e) => mirror_errs.push(e),
             }
         }
         if !downloaded {
+            let combined_err = mirror_errs.join(" | ");
             timeline.record(
                 "error",
                 "DOWNLOAD",
-                format!("Échec téléchargement bibliothèque {file_label}: {last_err}"),
+                format!("Échec téléchargement bibliothèque {file_label}: {combined_err}"),
             );
             return Err(format!(
-                "Failed to download required library {file_label} ({last_err})"
+                "Failed to download required library {file_label} ({combined_err})"
             ));
         }
         downloaded_libs += 1;
@@ -827,7 +865,7 @@ pub fn ensure_standalone_189_files(
                 agent,
                 "https://piston-meta.mojang.com/v1/packages/f6ad102bcaa53b1a58358f16e376d548d44933ec/1.8.json",
                 &index_dst,
-                Some(EXPECTED_ASSET_INDEX_18_SHA1),
+                &[EXPECTED_ASSET_INDEX_18_SHA1],
             )
             .is_err()
             {
@@ -835,7 +873,7 @@ pub fn ensure_standalone_189_files(
                     agent,
                     "https://launchermeta.mojang.com/v1/packages/f6ad102bcaa53b1a58358f16e376d548d44933ec/1.8.json",
                     &index_dst,
-                    Some(EXPECTED_ASSET_INDEX_18_SHA1),
+                    &[EXPECTED_ASSET_INDEX_18_SHA1],
                 );
             }
         }
@@ -948,7 +986,7 @@ pub fn ensure_standalone_189_files(
                                 let sub = &hash[..2];
                                 let target = objs_root.join(sub).join(&hash);
                                 let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
-                                let _ = download_file_to_path(&worker_agent, &url, &target, Some(&hash));
+                                let _ = download_file_to_path(&worker_agent, &url, &target, &[hash.as_str()]);
                                 let cur = done.fetch_add(1, Ordering::Relaxed) + 1;
                                 let asset_pct = (46 + ((cur * 22) / total_missing)).min(68) as u8;
                                 if cur % 6 == 0 || cur == total_missing {
@@ -2530,5 +2568,47 @@ mod tests {
         assert!(!jar_has_vulnerable_jndi_lookup(&stripped));
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_required_libraries_sha1_allowlists_and_scala_xml() {
+        for (rel, sha1s) in REQUIRED_LIBRARIES_189_FORGE
+            .iter()
+            .chain(NATIVE_JARS_64.iter())
+        {
+            assert!(!sha1s.is_empty(), "Missing pinned SHA-1 for {rel}");
+            for h in *sha1s {
+                assert!(
+                    is_valid_sha1_hex(h),
+                    "Invalid SHA-1 '{h}' for library {rel}"
+                );
+            }
+        }
+
+        let (_, xml_hashes) = REQUIRED_LIBRARIES_189_FORGE
+            .iter()
+            .find(|(rel, _)| rel.ends_with("scala-xml_2.11-1.0.2.jar"))
+            .expect("scala-xml_2.11-1.0.2.jar must be listed");
+        assert!(xml_hashes.contains(&"7a80ec00aec122fba7cd4e0d4cdd87ff7e4cb6d0"));
+        assert!(xml_hashes.contains(&"62736b01689d56b6d09a0164b7ef9da2b0b9633d"));
+        assert!(xml_hashes.contains(&"820fbca7e524b530fdadc594c39d49a21ea0337e"));
+    }
+
+    #[test]
+    fn test_build_library_candidate_urls_scala_modules_fallback() {
+        let urls = build_library_candidate_urls(
+            "org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.jar",
+        );
+        assert!(urls.contains(
+            &"https://maven.minecraftforge.net/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.jar"
+                .to_owned()
+        ));
+        assert!(urls.contains(
+            &"https://repo1.maven.org/maven2/org/scala-lang/modules/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.jar"
+                .to_owned()
+        ));
+        for u in &urls {
+            assert!(is_trusted_mc_download_url(u), "Untrusted URL generated: {u}");
+        }
     }
 }

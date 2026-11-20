@@ -1258,7 +1258,7 @@ fn try_trigger_game_launch(
         ctrl.prefs.game_dir.clone()
     };
 
-    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((4, 5, 0));
+    let launcher_ver = parse_semver(LAUNCHER_VERSION).unwrap_or((1, 0, 0));
     let mod_up_to_date =
         installed_mod_version(&active_dir).is_some_and(|cur| cur >= launcher_ver);
 
